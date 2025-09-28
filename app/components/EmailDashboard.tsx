@@ -22,10 +22,10 @@ const CATEGORIES: EmailCategory[] = [
 
 const POLL_INTERVAL_MS = 60 * 1000;
 
-interface StatusMessage {
+type StatusMessage = {
   type: "success" | "error";
   message: string;
-}
+};
 
 function formatLabel(label: EmailCategory): string {
   return label.replace(/_/g, " ");
@@ -44,35 +44,34 @@ export default function EmailDashboard() {
   const [stats, setStats] = useState<StatsState>({});
   const [emails, setEmails] = useState<EmailRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [classifying, setClassifying] = useState(false);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
 
-  const loadData = useCallback(
-    async (options?: { silent?: boolean }) => {
-      if (!options?.silent) {
-        setLoading(true);
-      }
-      setError(null);
+  const loadData = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+    }
 
-      try {
-        const [statsData, emailData] = await Promise.all([
-          fetchEmailStats(),
-          fetchRecentEmails(),
-        ]);
-        setStats(statsData);
-        setEmails(emailData);
-      } catch (err) {
-        console.error(err);
-        setError("Failed to load statistics");
-      } finally {
-        if (!options?.silent) {
-          setLoading(false);
-        }
+    try {
+      const [statsData, emailData] = await Promise.all([
+        fetchEmailStats(),
+        fetchRecentEmails(),
+      ]);
+      setStats(statsData);
+      setEmails(emailData);
+      setError(null);
+    } catch (err) {
+      console.error("Failed to load dashboard data", err);
+      setError("Failed to load statistics");
+    } finally {
+      if (!silent) {
+        setLoading(false);
       }
-    },
-    []
-  );
+      setInitialized(true);
+    }
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -112,7 +111,7 @@ export default function EmailDashboard() {
       }
 
       setStatusMessage({ type: "success", message: messageParts.join(" · ") });
-      await loadData();
+      await loadData({ silent: true });
     } catch (err: any) {
       setStatusMessage({
         type: "error",
@@ -123,27 +122,30 @@ export default function EmailDashboard() {
     }
   };
 
-  if (loading) {
+  if (!initialized && loading) {
     return <p>Loading email statistics…</p>;
-  }
-
-  if (error) {
-    return <p className="text-red-600">{error}</p>;
   }
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-2xl font-semibold">Unread by category</h2>
-        <button
-          type="button"
-          onClick={handleClassifyClick}
-          disabled={classifying}
-          className="inline-flex items-center rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-400"
-        >
-          {classifying ? "Classifying…" : "Classify emails"}
-        </button>
+        <div className="flex items-center gap-3">
+          {initialized && loading && (
+            <span className="text-xs text-gray-500">Refreshing…</span>
+          )}
+          <button
+            type="button"
+            onClick={handleClassifyClick}
+            disabled={classifying}
+            className="inline-flex items-center rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-400"
+          >
+            {classifying ? "Classifying…" : "Classify emails"}
+          </button>
+        </div>
       </div>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
 
       {statusMessage && (
         <p
@@ -171,7 +173,12 @@ export default function EmailDashboard() {
       </div>
 
       <section className="space-y-4">
-        <h2 className="text-2xl font-semibold">Latest emails</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-semibold">Latest emails</h2>
+          <span className="text-xs text-gray-500">
+            Showing {emails.length} {emails.length === 1 ? "email" : "emails"}
+          </span>
+        </div>
         {emails.length === 0 ? (
           <p className="text-sm text-gray-600">No recent emails to display.</p>
         ) : (
@@ -189,7 +196,7 @@ export default function EmailDashboard() {
                     {email.labels && email.labels.length > 0 ? (
                       email.labels.map((label) => (
                         <span
-                          key={label}
+                          key={`${email.id}-${label}`}
                           className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium uppercase tracking-wide text-indigo-600"
                         >
                           {formatLabel(label)}
