@@ -1,4 +1,4 @@
-import type { EmailCategory } from "@cadenzor/shared";
+import type { EmailCategory } from "./types";
 
 export interface EmailAnalysisInput {
   subject: string;
@@ -12,7 +12,7 @@ export interface EmailAnalysisResult {
   labels: EmailCategory[];
 }
 
-const CATEGORY_VALUES: EmailCategory[] = [
+export const CATEGORY_VALUES: EmailCategory[] = [
   "booking",
   "promo_time",
   "promo_submission",

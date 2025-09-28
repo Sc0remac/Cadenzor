@@ -8,7 +8,7 @@ import {
   EmailRecord,
   ContactRecord,
 } from "@cadenzor/shared";
-import { analyzeEmail } from "./ai.js";
+import { analyzeEmail } from "@cadenzor/shared";
 
 /**
  * Derive an email category using simple keyword-based heuristics. In a real

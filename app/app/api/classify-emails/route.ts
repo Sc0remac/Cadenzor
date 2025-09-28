@@ -1,0 +1,261 @@
+import { NextResponse } from "next/server";
+import { google, gmail_v1 } from "googleapis";
+import { createClient } from "@supabase/supabase-js";
+import { analyzeEmail, type EmailCategory } from "@cadenzor/shared";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const REQUIRED_ENV = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REDIRECT_URI",
+  "GMAIL_REFRESH_TOKEN",
+] as const;
+
+function validateEnv() {
+  const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    return {
+      ok: false as const,
+      error: `Missing required environment variables: ${missing.join(", ")}`,
+    };
+  }
+
+  return {
+    ok: true as const,
+    values: {
+      supabaseUrl: process.env.SUPABASE_URL!,
+      supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      googleClientId: process.env.GOOGLE_CLIENT_ID!,
+      googleClientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      googleRedirectUri: process.env.GOOGLE_REDIRECT_URI!,
+      gmailRefreshToken: process.env.GMAIL_REFRESH_TOKEN!,
+    },
+  };
+}
+
+function classifySubject(subject: string): EmailCategory {
+  const s = (subject || "").toLowerCase();
+  if (/\bbooking|gig|show|inquiry|enquiry\b/.test(s)) return "booking";
+  if (/\bpromo time|interview|press request|press day\b/.test(s)) return "promo_time";
+  if (/\bsubmission|submit demo|new promo\b/.test(s)) return "promo_submission";
+  if (/\bflight|hotel|travel|itinerary|rider|logistics\b/.test(s))
+    return "logistics";
+  if (/\basset request|press kit|photos|artwork|assets\b/.test(s))
+    return "assets_request";
+  if (/\binvoice|payment|settlement|contract|finance\b/.test(s)) return "finance";
+  if (/\bfan mail|love your music|love your work|big fan\b/.test(s))
+    return "fan_mail";
+  if (/\blegal|license|agreement|copyright\b/.test(s)) return "legal";
+  return "other";
+}
+
+function decodeBase64Url(data: string): string {
+  const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + padding, "base64").toString("utf8");
+}
+
+function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
+  if (!payload) return "";
+
+  const parts: string[] = [];
+
+  const walk = (part: gmail_v1.Schema$MessagePart | undefined) => {
+    if (!part) return;
+
+    if (part.body?.data && part.mimeType?.startsWith("text/")) {
+      try {
+        const decoded = decodeBase64Url(part.body.data);
+        if (decoded.trim()) {
+          parts.push(decoded.trim());
+        }
+      } catch (err) {
+        console.error("Failed to decode message part", err);
+      }
+    }
+
+    if (part.parts) {
+      for (const child of part.parts) {
+        walk(child);
+      }
+    } else if (part.body?.data && !part.mimeType) {
+      try {
+        const decoded = decodeBase64Url(part.body.data);
+        if (decoded.trim()) {
+          parts.push(decoded.trim());
+        }
+      } catch (err) {
+        console.error("Failed to decode body fallback part", err);
+      }
+    }
+  };
+
+  walk(payload);
+
+  if (parts.length === 0 && payload.body?.data) {
+    try {
+      const decoded = decodeBase64Url(payload.body.data);
+      if (decoded.trim()) {
+        parts.push(decoded.trim());
+      }
+    } catch (err) {
+      console.error("Failed to decode root payload", err);
+    }
+  }
+
+  return parts.join("\n\n");
+}
+
+function parseFromHeader(from: string): { name: string | null; email: string } {
+  const emailMatch = from?.match(/<([^>]+)>/);
+  const email = emailMatch ? emailMatch[1] : from;
+  const nameMatch = from?.match(/^\s*"?([^<"]+)"?\s*<[^>]+>/);
+  const name = nameMatch ? nameMatch[1].trim() : null;
+  return { name, email };
+}
+
+export async function POST() {
+  const env = validateEnv();
+  if (!env.ok) {
+    return NextResponse.json({ error: env.error }, { status: 500 });
+  }
+
+  const {
+    supabaseUrl,
+    supabaseServiceKey,
+    googleClientId,
+    googleClientSecret,
+    googleRedirectUri,
+    gmailRefreshToken,
+  } = env.values;
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const oauth2Client = new google.auth.OAuth2(
+    googleClientId,
+    googleClientSecret,
+    googleRedirectUri
+  );
+  oauth2Client.setCredentials({ refresh_token: gmailRefreshToken });
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 10);
+
+  try {
+    const listRes = await gmail.users.messages.list({
+      userId: "me",
+      q: "is:unread",
+      maxResults: maxEmails,
+    });
+
+    const messages = listRes.data.messages || [];
+    if (messages.length === 0) {
+      return NextResponse.json({ processed: 0, message: "No unread messages" });
+    }
+
+    const processed: Array<{ id: string; category: EmailCategory; labels: EmailCategory[] }> = [];
+    const failures: Array<{ id: string; error: string }> = [];
+
+    for (const msg of messages) {
+      if (!msg.id) continue;
+      try {
+        const msgRes = await gmail.users.messages.get({
+          userId: "me",
+          id: msg.id,
+          format: "full",
+        });
+
+        const payload = msgRes.data.payload;
+        const headers = (payload?.headers || []) as gmail_v1.Schema$MessagePartHeader[];
+        const getHeader = (name: string) =>
+          headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+
+        const subject = getHeader("Subject");
+        const fromHeader = getHeader("From");
+        const dateHeader = getHeader("Date");
+        const body = extractBody(payload) || msgRes.data.snippet || "";
+
+        const { name: fromName, email: fromEmail } = parseFromHeader(fromHeader);
+        const receivedAt = new Date(dateHeader || Date.now()).toISOString();
+
+        let labels: EmailCategory[] = [];
+        let summary = "";
+        try {
+          const aiResult = await analyzeEmail({
+            subject,
+            body,
+            fromName,
+            fromEmail,
+          });
+          summary = aiResult.summary;
+          labels = aiResult.labels;
+        } catch (err) {
+          console.error(`AI classification failed for message ${msg.id}`, err);
+          labels = [classifySubject(subject)];
+        }
+
+        if (labels.length === 0) {
+          labels = [classifySubject(subject)];
+        }
+
+        const category = labels[0] || "other";
+
+        const { error: contactError } = await supabase
+          .from("contacts")
+          .upsert(
+            {
+              email: fromEmail,
+              name: fromName,
+              last_email_at: receivedAt,
+            },
+            { onConflict: "email" }
+          );
+
+        if (contactError) {
+          throw new Error(`Failed to upsert contact: ${contactError.message}`);
+        }
+
+        const { error: emailError } = await supabase
+          .from("emails")
+          .upsert(
+            {
+              id: msg.id,
+              from_name: fromName,
+              from_email: fromEmail,
+              subject,
+              received_at: receivedAt,
+              category,
+              is_read: false,
+              summary,
+              labels,
+            },
+            { onConflict: "id" }
+          );
+
+        if (emailError) {
+          throw new Error(`Failed to upsert email: ${emailError.message}`);
+        }
+
+        processed.push({ id: msg.id, category, labels });
+      } catch (err: any) {
+        console.error(`Failed processing message ${msg.id}`, err);
+        failures.push({ id: msg.id, error: err?.message || "Unknown error" });
+      }
+    }
+
+    return NextResponse.json({
+      processed: processed.length,
+      failures,
+      processedIds: processed.map((item) => item.id),
+    });
+  } catch (err: any) {
+    console.error("Classification run failed", err);
+    return NextResponse.json(
+      { error: err?.message || "Failed to classify emails" },
+      { status: 500 }
+    );
+  }
+}
