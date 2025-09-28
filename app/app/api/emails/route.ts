@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { EmailLabel, EmailRecord } from "@cadenzor/shared";
+import type { EmailRecord } from "@cadenzor/shared";
+import {
+  normaliseLabel,
+  normaliseLabels,
+  ensureDefaultLabelCoverage,
+} from "@cadenzor/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
-
-function normaliseLabel(value: unknown, fallback: EmailLabel = "general"): EmailLabel {
-  if (typeof value === "string" && value.trim().length > 0) {
-    return value.trim().toLowerCase();
-  }
-  return fallback;
-}
 
 function createServiceClient() {
   const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
@@ -30,20 +28,9 @@ function createServiceClient() {
   return { ok: true as const, supabase };
 }
 
-function normaliseLabels(value: unknown): EmailLabel[] {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value
-      .map((label) => normaliseLabel(label))
-      .filter((label, index, array) => array.indexOf(label) === index);
-  }
-  if (typeof value === "string") {
-    return [normaliseLabel(value)];
-  }
-  return [];
-}
-
 function mapRow(row: any): EmailRecord {
+  const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
+
   return {
     id: row.id,
     fromName: row.from_name,
@@ -53,7 +40,7 @@ function mapRow(row: any): EmailRecord {
     category: normaliseLabel(row.category),
     isRead: row.is_read,
     summary: row.summary ?? null,
-    labels: normaliseLabels(row.labels),
+    labels,
   };
 }
 
