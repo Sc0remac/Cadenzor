@@ -1,0 +1,20 @@
+{
+  "name": "@cadenzor/worker",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "type": "module",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.1",
+    "googleapis": "^128.0.0",
+    "dotenv": "^16.0.3",
+    "@cadenzor/shared": "file:../shared"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2"
+  }
+}
