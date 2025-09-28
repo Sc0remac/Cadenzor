@@ -1,35 +1,17 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import {
   normaliseLabel,
   normaliseLabels,
   ensureDefaultLabelCoverage,
   selectPrimaryCategory,
 } from "@cadenzor/shared";
+import { createServerSupabaseClient } from "../../../lib/serverSupabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
-
-function createServiceClient() {
-  const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
-  if (missing.length > 0) {
-    return {
-      ok: false as const,
-      error: `Missing required environment variables: ${missing.join(", ")}`,
-    };
-  }
-
-  const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-  return { ok: true as const, supabase };
-}
-
 export async function GET() {
-  const clientResult = createServiceClient();
+  const clientResult = createServerSupabaseClient();
   if (!clientResult.ok) {
     return NextResponse.json({ error: clientResult.error }, { status: 500 });
   }

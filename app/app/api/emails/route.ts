@@ -1,32 +1,14 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import type { EmailRecord } from "@cadenzor/shared";
 import {
   normaliseLabel,
   normaliseLabels,
   ensureDefaultLabelCoverage,
 } from "@cadenzor/shared";
+import { createServerSupabaseClient } from "../../../lib/serverSupabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
-
-function createServiceClient() {
-  const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
-  if (missing.length > 0) {
-    return {
-      ok: false as const,
-      error: `Missing required environment variables: ${missing.join(", ")}`,
-    };
-  }
-
-  const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-  return { ok: true as const, supabase };
-}
 
 function mapRow(row: any): EmailRecord {
   const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
@@ -45,7 +27,7 @@ function mapRow(row: any): EmailRecord {
 }
 
 export async function GET(request: Request) {
-  const clientResult = createServiceClient();
+  const clientResult = createServerSupabaseClient();
   if (!clientResult.ok) {
     return NextResponse.json({ error: clientResult.error }, { status: 500 });
   }
@@ -53,16 +35,22 @@ export async function GET(request: Request) {
   const { supabase } = clientResult;
 
   const { searchParams } = new URL(request.url);
-  const limitParam = searchParams.get("limit");
-  const limit = Math.min(Math.max(Number(limitParam) || 25, 1), 100);
+  const pageParam = searchParams.get("page");
+  const perPageParam = searchParams.get("perPage") ?? searchParams.get("limit");
 
-  const { data, error } = await supabase
+  const page = Math.max(Number(pageParam) || 1, 1);
+  const perPage = Math.min(Math.max(Number(perPageParam) || 10, 1), 100);
+  const from = (page - 1) * perPage;
+  const to = from + perPage - 1;
+
+  const { data, error, count } = await supabase
     .from("emails")
     .select(
-      "id, from_name, from_email, subject, received_at, category, is_read, summary, labels"
+      "id, from_name, from_email, subject, received_at, category, is_read, summary, labels",
+      { count: "exact" }
     )
     .order("received_at", { ascending: false })
-    .limit(limit);
+    .range(from, to);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -70,5 +58,18 @@ export async function GET(request: Request) {
 
   const items = Array.isArray(data) ? data.map(mapRow) : [];
 
-  return NextResponse.json({ items });
+  const total = typeof count === "number" ? count : items.length;
+  const totalPages = total > 0 ? Math.ceil(total / perPage) : 0;
+  const hasMore = total > 0 ? page < totalPages : false;
+
+  return NextResponse.json({
+    items,
+    pagination: {
+      page,
+      perPage,
+      total,
+      totalPages,
+      hasMore,
+    },
+  });
 }

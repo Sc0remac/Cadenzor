@@ -1,9 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EmailLabel, EmailRecord } from "@cadenzor/shared";
 import { DEFAULT_EMAIL_LABELS } from "@cadenzor/shared";
-import { fetchEmailStats, fetchRecentEmails } from "../lib/supabaseClient";
+import {
+  DEFAULT_EMAILS_PER_PAGE,
+  fetchEmailStats,
+  fetchRecentEmails,
+} from "../lib/supabaseClient";
+import type {
+  EmailListResponse,
+  EmailPagination,
+} from "../lib/supabaseClient";
 
 type StatsState = Record<string, number>;
 
@@ -40,36 +48,79 @@ function formatReceivedAt(value: string): string {
 export default function EmailDashboard() {
   const [stats, setStats] = useState<StatsState>({});
   const [emails, setEmails] = useState<EmailRecord[]>([]);
+  const [emailPagination, setEmailPagination] = useState<EmailPagination>({
+    page: 1,
+    perPage: DEFAULT_EMAILS_PER_PAGE,
+    total: 0,
+    totalPages: 0,
+    hasMore: false,
+  });
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [classifying, setClassifying] = useState(false);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
+  const emailPageRef = useRef<number>(1);
 
-  const loadData = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) {
-      setLoading(true);
-    }
+  const applyEmailResponse = useCallback(
+    (response: EmailListResponse, requestedPage: number) => {
+      setEmails(response.items);
 
-    try {
-      const [statsData, emailData] = await Promise.all([
-        fetchEmailStats(),
-        fetchRecentEmails(),
-      ]);
-      setStats(statsData);
-      setEmails(emailData);
-      setError(null);
-    } catch (err) {
-      console.error("Failed to load dashboard data", err);
-      const message = err instanceof Error ? err.message : "Failed to load statistics";
-      setError(message);
-    } finally {
+      const pagination = response.pagination;
+      const nextPage = pagination.page > 0 ? pagination.page : requestedPage;
+      const perPage = pagination.perPage > 0 ? pagination.perPage : DEFAULT_EMAILS_PER_PAGE;
+      const total = pagination.total >= 0 ? pagination.total : response.items.length;
+      const totalPages = pagination.totalPages >= 0 ? pagination.totalPages : 0;
+
+      emailPageRef.current = nextPage;
+      setEmailPagination({
+        page: nextPage,
+        perPage,
+        total,
+        totalPages,
+        hasMore: Boolean(pagination.hasMore),
+      });
+    },
+    []
+  );
+
+  const loadData = useCallback(
+    async ({ silent = false, page }: { silent?: boolean; page?: number } = {}) => {
+      const targetPage =
+        typeof page === "number" && page > 0 ? page : emailPageRef.current || 1;
+
       if (!silent) {
-        setLoading(false);
+        setLoading(true);
       }
-      setInitialized(true);
-    }
-  }, []);
+
+      try {
+        const [statsData, emailData] = await Promise.all([
+          fetchEmailStats(),
+          fetchRecentEmails({
+            page: targetPage,
+            perPage:
+              emailPagination.perPage > 0
+                ? emailPagination.perPage
+                : DEFAULT_EMAILS_PER_PAGE,
+          }),
+        ]);
+        setStats(statsData);
+        applyEmailResponse(emailData, targetPage);
+        setError(null);
+      } catch (err) {
+        console.error("Failed to load dashboard data", err);
+        const message =
+          err instanceof Error ? err.message : "Failed to load statistics";
+        setError(message);
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
+        setInitialized(true);
+      }
+    },
+    [applyEmailResponse, emailPagination.perPage]
+  );
 
   useEffect(() => {
     loadData();
@@ -120,6 +171,40 @@ export default function EmailDashboard() {
     }
   };
 
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      const safePage = Math.max(Math.floor(nextPage), 1);
+      const currentPage = emailPageRef.current || 1;
+
+      if (safePage === currentPage) {
+        return;
+      }
+
+      if (emailPagination.totalPages > 0 && safePage > emailPagination.totalPages) {
+        return;
+      }
+
+      if (
+        emailPagination.totalPages === 0 &&
+        !emailPagination.hasMore &&
+        safePage > 1
+      ) {
+        return;
+      }
+
+      void loadData({ page: safePage });
+    },
+    [emailPagination.hasMore, emailPagination.totalPages, loadData]
+  );
+
+  const handleNextPage = useCallback(() => {
+    handlePageChange((emailPageRef.current || 1) + 1);
+  }, [handlePageChange]);
+
+  const handlePreviousPage = useCallback(() => {
+    handlePageChange((emailPageRef.current || 1) - 1);
+  }, [handlePageChange]);
+
   const categories = useMemo(() => {
     const seen = new Set<string>();
     const ordered: string[] = [];
@@ -137,6 +222,17 @@ export default function EmailDashboard() {
       });
     return ordered;
   }, [stats]);
+
+  const currentPage = emailPagination.page > 0 ? emailPagination.page : 1;
+  const perPage = emailPagination.perPage > 0 ? emailPagination.perPage : DEFAULT_EMAILS_PER_PAGE;
+  const totalEmails = emailPagination.total >= 0 ? emailPagination.total : emails.length;
+  const totalPages = emailPagination.totalPages >= 0 ? emailPagination.totalPages : 0;
+  const rangeStart = emails.length > 0 ? (currentPage - 1) * perPage + 1 : 0;
+  const rangeEnd = emails.length > 0 ? rangeStart + emails.length - 1 : 0;
+  const displayTotalPages =
+    totalPages > 0 ? totalPages : totalEmails > 0 ? Math.ceil(totalEmails / perPage) : 1;
+  const disablePrevious = loading || currentPage <= 1;
+  const disableNext = loading || (totalPages > 0 ? currentPage >= totalPages : !emailPagination.hasMore);
 
   if (!initialized && loading) {
     return <p>Loading email statistics…</p>;
@@ -192,46 +288,94 @@ export default function EmailDashboard() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-2xl font-semibold">Latest emails</h2>
           <span className="text-xs text-gray-500">
-            Showing {emails.length} {emails.length === 1 ? "email" : "emails"}
+            {emails.length === 0
+              ? "Showing 0 emails"
+              : `Showing ${rangeStart}-${rangeEnd} of ${totalEmails} emails`}
           </span>
         </div>
-        {emails.length === 0 ? (
-          <p className="text-sm text-gray-600">No recent emails to display.</p>
-        ) : (
-          <ul className="space-y-4">
-            {emails.map((email) => (
-              <li key={email.id} className="rounded border border-gray-200 bg-white p-4 shadow">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-base font-semibold text-gray-900">{email.subject}</p>
-                    <p className="text-sm text-gray-600">
-                      {email.fromName || email.fromEmail} · {formatReceivedAt(email.receivedAt)}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {email.labels && email.labels.length > 0 ? (
-                      email.labels.map((label) => (
-                        <span
-                          key={`${email.id}-${label}`}
-                          className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium uppercase tracking-wide text-indigo-600"
-                        >
-                          {formatLabel(label)}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-                        Unlabelled
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {email.summary && (
-                  <p className="mt-3 text-sm text-gray-700">{email.summary}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="overflow-x-auto rounded border border-gray-200 bg-white shadow">
+          {emails.length === 0 ? (
+            <p className="px-6 py-8 text-sm text-gray-600">No recent emails to display.</p>
+          ) : (
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th scope="col" className="px-4 py-3">Subject</th>
+                  <th scope="col" className="px-4 py-3">Sender</th>
+                  <th scope="col" className="px-4 py-3">Received</th>
+                  <th scope="col" className="px-4 py-3">Labels</th>
+                  <th scope="col" className="px-4 py-3">Summary</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {emails.map((email) => {
+                  const senderName = email.fromName?.trim();
+                  return (
+                    <tr key={email.id} className="align-top">
+                      <td className="px-4 py-3 font-semibold text-gray-900">{email.subject}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        <div className="flex flex-col">
+                          <span>{senderName || email.fromEmail}</span>
+                          {senderName && (
+                            <span className="text-xs text-gray-500">{email.fromEmail}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
+                        {formatReceivedAt(email.receivedAt)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          {email.labels && email.labels.length > 0 ? (
+                            email.labels.map((label) => (
+                              <span
+                                key={`${email.id}-${label}`}
+                                className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium uppercase tracking-wide text-indigo-600"
+                              >
+                                {formatLabel(label)}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                              Unlabelled
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {email.summary ? email.summary : <span className="text-gray-400">No summary available.</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-xs text-gray-500">
+            Page {currentPage} of {displayTotalPages}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePreviousPage}
+              disabled={disablePrevious}
+              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-gray-600">{currentPage}</span>
+            <button
+              type="button"
+              onClick={handleNextPage}
+              disabled={disableNext}
+              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </section>
     </div>
   );
