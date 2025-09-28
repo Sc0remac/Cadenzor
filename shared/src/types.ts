@@ -1,13 +1,16 @@
-export type EmailCategory =
-  | "booking"
-  | "promo_time"
-  | "promo_submission"
-  | "logistics"
-  | "assets_request"
-  | "finance"
-  | "fan_mail"
-  | "legal"
-  | "other";
+export const DEFAULT_EMAIL_LABELS = [
+  "booking",
+  "promo_time",
+  "promo_submission",
+  "logistics",
+  "assets_request",
+  "finance",
+  "fan_mail",
+  "legal",
+  "other",
+] as const;
+
+export type EmailLabel = string;
 
 /**
  * A simple shape representing an email stored in the database. It contains
@@ -20,10 +23,10 @@ export interface EmailRecord {
   fromEmail: string;
   subject: string;
   receivedAt: string;
-  category: EmailCategory;
+  category: EmailLabel;
   isRead: boolean;
   summary?: string | null;
-  labels?: EmailCategory[];
+  labels?: EmailLabel[];
 }
 
 /**

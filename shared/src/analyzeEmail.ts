@@ -1,4 +1,5 @@
-import type { EmailCategory } from "./types";
+import { DEFAULT_EMAIL_LABELS } from "./types";
+import type { EmailLabel } from "./types";
 
 export interface EmailAnalysisInput {
   subject: string;
@@ -9,20 +10,10 @@ export interface EmailAnalysisInput {
 
 export interface EmailAnalysisResult {
   summary: string;
-  labels: EmailCategory[];
+  labels: EmailLabel[];
 }
 
-export const CATEGORY_VALUES: EmailCategory[] = [
-  "booking",
-  "promo_time",
-  "promo_submission",
-  "logistics",
-  "assets_request",
-  "finance",
-  "fan_mail",
-  "legal",
-  "other",
-];
+const MAX_LABELS = 3;
 
 function ensureApiKey(): string {
   const key = process.env.OPENAI_API_KEY;
@@ -32,24 +23,27 @@ function ensureApiKey(): string {
   return key;
 }
 
-function normaliseCategory(label: string | null | undefined): EmailCategory | null {
-  if (!label || typeof label !== "string") return null;
-  const canonical = label.trim().toLowerCase().replace(/\s+/g, "_");
-  return CATEGORY_VALUES.find((cat) => cat === canonical) ?? null;
-}
-
-function parseLabels(value: unknown): EmailCategory[] {
-  if (!Array.isArray(value)) return ["other"];
+function parseLabels(value: unknown): EmailLabel[] {
+  if (!Array.isArray(value)) return ["general"];
 
   const mapped = value
-    .map((item) => (typeof item === "string" ? normaliseCategory(item) : null))
-    .filter((item): item is EmailCategory => item !== null);
+    .map((item) =>
+      typeof item === "string"
+        ? item
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9\s_-]/g, "")
+            .replace(/\s+/g, "_")
+        : null
+    )
+    .filter((item): item is string => !!item);
 
   if (mapped.length === 0) {
-    return ["other"];
+    return ["general"];
   }
 
-  return [...new Set(mapped)];
+  const unique = Array.from(new Set(mapped));
+  return unique.slice(0, MAX_LABELS);
 }
 
 function parseSummary(value: unknown): string {
@@ -62,7 +56,7 @@ export async function analyzeEmail(
 ): Promise<EmailAnalysisResult> {
   const apiKey = ensureApiKey();
 
-  const systemMessage = `You are an assistant that classifies music industry emails for an artist manager. Choose zero or more labels from the following list only: ${CATEGORY_VALUES.join(", ")}. Provide the most relevant labels in order of importance. Always include "other" if nothing fits.`;
+  const systemMessage = `You are an assistant labelling inbox emails for an artist manager. You must always return at least one label. Start from these defaults when they apply: ${DEFAULT_EMAIL_LABELS.join(", ")}. If none apply, invent a concise new label that uses lowercase words joined by underscores (e.g. "tour_planning"). Put the most specific label first.`;
 
   const userPayload = {
     subject: input.subject,
@@ -79,7 +73,7 @@ export async function analyzeEmail(
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      temperature: 0.2,
+      temperature: 0.4,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemMessage },
@@ -88,7 +82,7 @@ export async function analyzeEmail(
           content: [
             {
               type: "text",
-              text: `Summarise the email in no more than 120 words and return JSON with keys "summary" (string) and "labels" (array of the allowed labels). Email data: ${JSON.stringify(
+              text: `Summarise the email in no more than 120 words and return JSON with keys "summary" (string) and "labels" (array of ${MAX_LABELS} lowercase underscore labels). Always include at least one label. Email data: ${JSON.stringify(
                 userPayload
               )}`,
             },

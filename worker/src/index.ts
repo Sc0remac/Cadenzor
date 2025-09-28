@@ -4,34 +4,46 @@ config();
 import { google, gmail_v1 } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
 import {
-  EmailCategory,
+  EmailLabel,
   EmailRecord,
   ContactRecord,
+  analyzeEmail,
 } from "@cadenzor/shared";
-import { analyzeEmail } from "@cadenzor/shared";
 
-/**
- * Derive an email category using simple keyword-based heuristics. In a real
- * production environment this should be replaced with a machine-learning
- * classifier or more sophisticated rule-based engine. For now we rely on
- * fairly straightforward keywords present in the subject line.
- *
- * @param subject The email subject to classify.
- */
-function classifySubject(subject: string): EmailCategory {
-  const s = (subject || "").toLowerCase();
-  if (/\bbooking|gig|show|inquiry|enquiry\b/.test(s)) return "booking";
-  if (/\bpromo time|interview|press request|press day\b/.test(s))
-    return "promo_time";
-  if (/\bsubmission|submit demo|new promo\b/.test(s)) return "promo_submission";
-  if (/\bflight|hotel|travel|itinerary|rider|logistics\b/.test(s))
-    return "logistics";
-  if (/\basset request|press kit|photos|artwork|assets\b/.test(s))
-    return "assets_request";
-  if (/\binvoice|payment|settlement|contract|finance\b/.test(s)) return "finance";
-  if (/\bfan mail|love your music|love your work|big fan\b/.test(s)) return "fan_mail";
-  if (/\blegal|license|agreement|copyright\b/.test(s)) return "legal";
-  return "other";
+function slugifyLabel(value: string | null | undefined): EmailLabel {
+  if (!value) return "general";
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/_{2,}/g, "_")
+    .trim();
+  return slug || "general";
+}
+
+const HEURISTIC_LABELS: Array<{ regex: RegExp; label: EmailLabel }> = [
+  { regex: /\bbooking|gig|show|inquiry|enquiry\b/i, label: "booking" },
+  { regex: /\bpromo time|interview|press request|press day\b/i, label: "promo_time" },
+  { regex: /\bsubmission|submit demo|new promo\b/i, label: "promo_submission" },
+  { regex: /\bflight|hotel|travel|itinerary|rider|logistics\b/i, label: "logistics" },
+  { regex: /\basset request|press kit|photos|artwork|assets\b/i, label: "assets_request" },
+  { regex: /\binvoice|payment|settlement|contract|finance\b/i, label: "finance" },
+  { regex: /\bfan mail|love your music|love your work|big fan\b/i, label: "fan_mail" },
+  { regex: /\blegal|license|agreement|copyright\b/i, label: "legal" },
+];
+
+function heuristicLabels(subject: string, body: string): EmailLabel[] {
+  const labels: EmailLabel[] = [];
+  for (const { regex, label } of HEURISTIC_LABELS) {
+    if (regex.test(subject) || regex.test(body)) {
+      labels.push(label);
+    }
+  }
+  if (labels.length === 0) {
+    const fallback = slugifyLabel(subject.split(/[:\-]/)[0]);
+    labels.push(fallback);
+  }
+  return Array.from(new Set(labels));
 }
 
 function decodeBase64Url(data: string): string {
@@ -91,12 +103,6 @@ function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
   return parts.join("\n\n");
 }
 
-/**
- * Extract the display name and email address from a standard RFC822 formatted
- * `From` header. Gmail API returns the `From` header as a single string like
- * `"John Doe" <john@example.com>`. This function splits that into name and
- * email components.
- */
 function parseFromHeader(from: string): { name: string | null; email: string } {
   const emailMatch = from?.match(/<([^>]+)>/);
   const email = emailMatch ? emailMatch[1] : from;
@@ -127,10 +133,8 @@ async function main() {
     process.exit(1);
   }
 
-  // Supabase client (service role for writes)
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // Gmail OAuth2 client
   const oauth2Client = new google.auth.OAuth2(
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
@@ -140,7 +144,6 @@ async function main() {
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
   try {
-    // Fetch unread messages (adjust/remove maxResults as needed)
     const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 5);
     const listRes = await gmail.users.messages.list({
       userId: "me",
@@ -156,7 +159,6 @@ async function main() {
     for (const msg of messages.slice(0, maxEmails)) {
       if (!msg.id) continue;
 
-      // Get headers only (Subject, From, Date)
       const msgRes = await gmail.users.messages.get({
         userId: "me",
         id: msg.id,
@@ -175,7 +177,7 @@ async function main() {
 
       const { name: fromName, email: fromEmail } = parseFromHeader(fromHeader);
       const receivedAt = new Date(dateHeader || Date.now()).toISOString();
-      let labels: EmailCategory[] = [];
+      let labels: EmailLabel[] = [];
       let summary = "";
 
       try {
@@ -186,19 +188,18 @@ async function main() {
           fromEmail,
         });
         summary = aiResult.summary;
-        labels = aiResult.labels;
+        labels = aiResult.labels.map((label) => slugifyLabel(label));
       } catch (err) {
         console.error(`AI classification failed for message ${msg.id}`, err);
-        labels = [classifySubject(subject)];
+        labels = heuristicLabels(subject, body);
       }
 
       if (labels.length === 0) {
-        labels = [classifySubject(subject)];
+        labels = heuristicLabels(subject, body);
       }
 
-      const category = labels[0] || "other";
+      const category = labels[0] || "general";
 
-      // Upsert contact (keyed by email)
       const { error: contactError } = await supabase
         .from("contacts")
         .upsert(
@@ -214,7 +215,6 @@ async function main() {
         console.error("Failed to upsert contact:", contactError);
       }
 
-      // Upsert email (keyed by Gmail message ID)
       const { error: emailError } = await supabase
         .from("emails")
         .upsert(
@@ -235,13 +235,6 @@ async function main() {
       if (emailError) {
         console.error("Failed to upsert email:", emailError);
       }
-
-      // Mark as read in Gmail after processing (optional):
-      // await gmail.users.messages.modify({
-      //   userId: "me",
-      //   id: msg.id,
-      //   requestBody: { removeLabelIds: ["UNREAD"] },
-      // });
 
       console.log(
         `Processed message ${msg.id} -> ${category} (${labels.join(", ")}) summary length=${summary.length}`
