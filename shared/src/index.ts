@@ -22,6 +22,8 @@ export interface EmailRecord {
   receivedAt: string;
   category: EmailCategory;
   isRead: boolean;
+  summary?: string | null;
+  labels?: EmailCategory[];
 }
 
 /**

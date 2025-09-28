@@ -75,7 +75,7 @@ You can modify these schemas as you extend Cadenzor.  For example, you may add c
 
 ## Running the worker
 
-The worker script polls Gmail for unread messages, classifies them using a simple keyword heuristic and writes the results to Supabase.  To run it locally:
+The worker script polls Gmail for unread messages, fetches the full message body, sends sender/subject/body context to OpenAI for a short summary and multi-label classification, then writes the results (including the first label as the primary category) to Supabase. To run it locally:
 
 ```bash
 cd worker
@@ -85,7 +85,9 @@ npm run build
 npm start
 ```
 
-The worker logs each message ID and its assigned category.  You can schedule this script via a cron job or integrate it into a queue for continuous operation.
+Required environment variables now include `OPENAI_API_KEY` and optional `MAX_EMAILS_TO_PROCESS` (defaults to `5`) to limit how many unread messages are analysed per run. Ensure your Gmail OAuth consent flow requested either `https://www.googleapis.com/auth/gmail.readonly` or `https://www.googleapis.com/auth/gmail.modify`; the lighter `gmail.metadata` scope cannot fetch full message bodies.
+
+The worker logs each message ID and its assigned labels.  You can schedule this script via a cron job or integrate it into a queue for continuous operation.
 
 ## Running the dashboard
 

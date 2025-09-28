@@ -8,6 +8,7 @@ import {
   EmailRecord,
   ContactRecord,
 } from "@cadenzor/shared";
+import { analyzeEmail } from "./ai.js";
 
 /**
  * Derive an email category using simple keyword-based heuristics. In a real
@@ -31,6 +32,63 @@ function classifySubject(subject: string): EmailCategory {
   if (/\bfan mail|love your music|love your work|big fan\b/.test(s)) return "fan_mail";
   if (/\blegal|license|agreement|copyright\b/.test(s)) return "legal";
   return "other";
+}
+
+function decodeBase64Url(data: string): string {
+  const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + padding, "base64").toString("utf8");
+}
+
+function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
+  if (!payload) return "";
+
+  const parts: string[] = [];
+
+  const walk = (part: gmail_v1.Schema$MessagePart | undefined) => {
+    if (!part) return;
+
+    if (part.body?.data && part.mimeType?.startsWith("text/")) {
+      try {
+        const decoded = decodeBase64Url(part.body.data);
+        if (decoded.trim()) {
+          parts.push(decoded.trim());
+        }
+      } catch (err) {
+        console.error("Failed to decode message part", err);
+      }
+    }
+
+    if (part.parts) {
+      for (const child of part.parts) {
+        walk(child);
+      }
+    } else if (part.body?.data && !part.mimeType) {
+      try {
+        const decoded = decodeBase64Url(part.body.data);
+        if (decoded.trim()) {
+          parts.push(decoded.trim());
+        }
+      } catch (err) {
+        console.error("Failed to decode body fallback part", err);
+      }
+    }
+  };
+
+  walk(payload);
+
+  if (parts.length === 0 && payload.body?.data) {
+    try {
+      const decoded = decodeBase64Url(payload.body.data);
+      if (decoded.trim()) {
+        parts.push(decoded.trim());
+      }
+    } catch (err) {
+      console.error("Failed to decode root payload", err);
+    }
+  }
+
+  return parts.join("\n\n");
 }
 
 /**
@@ -83,10 +141,11 @@ async function main() {
 
   try {
     // Fetch unread messages (adjust/remove maxResults as needed)
+    const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 5);
     const listRes = await gmail.users.messages.list({
       userId: "me",
       q: "is:unread",
-      maxResults: 50,
+      maxResults: maxEmails,
     });
     const messages = listRes.data.messages || [];
     if (messages.length === 0) {
@@ -94,15 +153,14 @@ async function main() {
       return;
     }
 
-    for (const msg of messages) {
+    for (const msg of messages.slice(0, maxEmails)) {
       if (!msg.id) continue;
 
       // Get headers only (Subject, From, Date)
       const msgRes = await gmail.users.messages.get({
         userId: "me",
         id: msg.id,
-        format: "metadata",
-        metadataHeaders: ["Subject", "From", "Date"],
+        format: "full",
       });
 
       const payload = msgRes.data.payload;
@@ -113,10 +171,32 @@ async function main() {
       const subject = getHeader("Subject");
       const fromHeader = getHeader("From");
       const dateHeader = getHeader("Date");
+      const body = extractBody(payload) || msgRes.data.snippet || "";
 
       const { name: fromName, email: fromEmail } = parseFromHeader(fromHeader);
       const receivedAt = new Date(dateHeader || Date.now()).toISOString();
-      const category = classifySubject(subject);
+      let labels: EmailCategory[] = [];
+      let summary = "";
+
+      try {
+        const aiResult = await analyzeEmail({
+          subject,
+          body,
+          fromName,
+          fromEmail,
+        });
+        summary = aiResult.summary;
+        labels = aiResult.labels;
+      } catch (err) {
+        console.error(`AI classification failed for message ${msg.id}`, err);
+        labels = [classifySubject(subject)];
+      }
+
+      if (labels.length === 0) {
+        labels = [classifySubject(subject)];
+      }
+
+      const category = labels[0] || "other";
 
       // Upsert contact (keyed by email)
       const { error: contactError } = await supabase
@@ -146,6 +226,8 @@ async function main() {
             received_at: receivedAt,
             category,
             is_read: false,
+            summary,
+            labels,
           },
           { onConflict: "id" }
         );
@@ -161,7 +243,9 @@ async function main() {
       //   requestBody: { removeLabelIds: ["UNREAD"] },
       // });
 
-      console.log(`Processed message ${msg.id} -> ${category}`);
+      console.log(
+        `Processed message ${msg.id} -> ${category} (${labels.join(", ")}) summary length=${summary.length}`
+      );
     }
   } catch (err) {
     console.error(err);
