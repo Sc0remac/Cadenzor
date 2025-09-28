@@ -5,18 +5,18 @@ import {
   ensureDefaultLabelCoverage,
   selectPrimaryCategory,
 } from "@cadenzor/shared";
-import { createServerSupabaseClient } from "../../../lib/serverSupabase";
+import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const clientResult = createServerSupabaseClient();
-  if (!clientResult.ok) {
-    return NextResponse.json({ error: clientResult.error }, { status: 500 });
+export async function GET(request: Request) {
+  const authResult = await requireAuthenticatedUser(request);
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const { supabase } = clientResult;
+  const { supabase } = authResult;
 
   const { data, error } = await supabase
     .from("emails")

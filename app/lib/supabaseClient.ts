@@ -18,12 +18,27 @@ export interface EmailListResponse {
 type FetchEmailsOptions = {
   page?: number;
   perPage?: number;
+  accessToken?: string;
 };
 
-export async function fetchEmailStats(): Promise<Record<EmailRecord["category"], number>> {
+function buildHeaders(accessToken?: string): HeadersInit {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return headers;
+}
+
+export async function fetchEmailStats(
+  accessToken?: string
+): Promise<Record<EmailRecord["category"], number>> {
   const response = await fetch("/api/email-stats", {
     method: "GET",
-    headers: { Accept: "application/json" },
+    headers: buildHeaders(accessToken),
     cache: "no-store",
   });
 
@@ -39,18 +54,20 @@ export async function fetchEmailStats(): Promise<Record<EmailRecord["category"],
 export async function fetchRecentEmails(
   options: FetchEmailsOptions = {}
 ): Promise<EmailListResponse> {
+  const { page, perPage, accessToken } = options;
+
   const query = new URLSearchParams();
-  if (options.page != null) {
-    query.set("page", String(options.page));
+  if (page != null) {
+    query.set("page", String(page));
   }
-  if (options.perPage != null) {
-    query.set("perPage", String(options.perPage));
+  if (perPage != null) {
+    query.set("perPage", String(perPage));
   }
 
   const queryString = query.toString();
   const response = await fetch(queryString ? `/api/emails?${queryString}` : "/api/emails", {
     method: "GET",
-    headers: { Accept: "application/json" },
+    headers: buildHeaders(accessToken),
     cache: "no-store",
   });
 
@@ -64,9 +81,9 @@ export async function fetchRecentEmails(
     ? (payload.items as EmailRecord[])
     : [];
 
-  const fallbackPage = options.page && options.page > 0 ? options.page : 1;
-  const fallbackPerPage = options.perPage && options.perPage > 0
-    ? options.perPage
+  const fallbackPage = page && page > 0 ? page : 1;
+  const fallbackPerPage = perPage && perPage > 0
+    ? perPage
     : DEFAULT_EMAILS_PER_PAGE;
 
   const rawPagination = payload?.pagination;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { google, gmail_v1 } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
+import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 import { analyzeEmail } from "@cadenzor/shared";
 import type { EmailLabel } from "@cadenzor/shared";
 import {
@@ -135,7 +136,14 @@ function parseFromHeader(from: string): { name: string | null; email: string } {
   return { name, email };
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  const authResult = await requireAuthenticatedUser(request);
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+  }
+
+  const requester = authResult.user;
+
   const env = validateEnv();
   if (!env.ok) {
     return NextResponse.json({ error: env.error }, { status: 500 });
@@ -272,6 +280,7 @@ export async function POST() {
       processed: processed.length,
       failures,
       processedIds: processed.map((item) => item.id),
+      requestedBy: requester.email ?? requester.id,
     });
   } catch (err: any) {
     console.error("Classification run failed", err);

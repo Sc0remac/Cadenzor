@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EmailLabel, EmailRecord } from "@cadenzor/shared";
+import { useAuth } from "./AuthProvider";
 import { DEFAULT_EMAIL_LABELS } from "@cadenzor/shared";
 import {
   DEFAULT_EMAILS_PER_PAGE,
@@ -46,6 +47,8 @@ function formatReceivedAt(value: string): string {
 }
 
 export default function EmailDashboard() {
+  const { session } = useAuth();
+  const accessToken = session?.access_token ?? null;
   const [stats, setStats] = useState<StatsState>({});
   const [emails, setEmails] = useState<EmailRecord[]>([]);
   const [emailPagination, setEmailPagination] = useState<EmailPagination>({
@@ -89,19 +92,29 @@ export default function EmailDashboard() {
       const targetPage =
         typeof page === "number" && page > 0 ? page : emailPageRef.current || 1;
 
+      if (!accessToken) {
+        setError("Authentication required. Please sign in again.");
+        setInitialized(true);
+        if (!silent) {
+          setLoading(false);
+        }
+        return;
+      }
+
       if (!silent) {
         setLoading(true);
       }
 
       try {
         const [statsData, emailData] = await Promise.all([
-          fetchEmailStats(),
+          fetchEmailStats(accessToken),
           fetchRecentEmails({
             page: targetPage,
             perPage:
               emailPagination.perPage > 0
                 ? emailPagination.perPage
                 : DEFAULT_EMAILS_PER_PAGE,
+            accessToken,
           }),
         ]);
         setStats(statsData);
@@ -119,22 +132,39 @@ export default function EmailDashboard() {
         setInitialized(true);
       }
     },
-    [applyEmailResponse, emailPagination.perPage]
+    [accessToken, applyEmailResponse, emailPagination.perPage]
   );
 
   useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
     loadData();
     const interval = setInterval(() => {
       loadData({ silent: true }).catch((err) => console.error("Refresh failed", err));
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [accessToken, loadData]);
 
   const handleClassifyClick = async () => {
     setStatusMessage(null);
     setClassifying(true);
+
+    if (!accessToken) {
+      setStatusMessage({ type: "error", message: "Authentication required. Please sign in again." });
+      setClassifying(false);
+      return;
+    }
+
     try {
-      const response = await fetch("/api/classify-emails", { method: "POST" });
+      const response = await fetch("/api/classify-emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+      });
       const payload = await response.json();
 
       if (!response.ok) {

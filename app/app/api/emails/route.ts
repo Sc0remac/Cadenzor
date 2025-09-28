@@ -5,7 +5,7 @@ import {
   normaliseLabels,
   ensureDefaultLabelCoverage,
 } from "@cadenzor/shared";
-import { createServerSupabaseClient } from "../../../lib/serverSupabase";
+import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,12 +27,12 @@ function mapRow(row: any): EmailRecord {
 }
 
 export async function GET(request: Request) {
-  const clientResult = createServerSupabaseClient();
-  if (!clientResult.ok) {
-    return NextResponse.json({ error: clientResult.error }, { status: 500 });
+  const authResult = await requireAuthenticatedUser(request);
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const { supabase } = clientResult;
+  const { supabase } = authResult;
 
   const { searchParams } = new URL(request.url);
   const pageParam = searchParams.get("page");
