@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "./AuthProvider";
 
 interface ProfileFormState {
+  email: string;
   fullName: string;
   role: string;
   company: string;
@@ -13,6 +14,7 @@ interface ProfileFormState {
 }
 
 const EMPTY_STATE: ProfileFormState = {
+  email: "",
   fullName: "",
   role: "",
   company: "",
@@ -44,7 +46,7 @@ export default function ProfileForm() {
     supabase
       .from("profiles")
       .select(
-        "full_name, role, company, phone, location, bio"
+        "email, full_name, role, company, phone, location, bio"
       )
       .eq("id", userId)
       .maybeSingle()
@@ -62,6 +64,7 @@ export default function ProfileForm() {
 
         if (data) {
           setFormState({
+            email: data.email ?? user?.email ?? "",
             fullName: data.full_name ?? "",
             role: data.role ?? "",
             company: data.company ?? "",
@@ -70,7 +73,10 @@ export default function ProfileForm() {
             bio: data.bio ?? "",
           });
         } else {
-          setFormState(EMPTY_STATE);
+          setFormState({
+            ...EMPTY_STATE,
+            email: user?.email ?? "",
+          });
         }
 
         setLoading(false);
@@ -79,7 +85,7 @@ export default function ProfileForm() {
     return () => {
       isMounted = false;
     };
-  }, [supabase, userId]);
+  }, [supabase, userId, user?.email]);
 
   const isDisabled = useMemo(() => saving || loading || !userId, [saving, loading, userId]);
 
@@ -102,6 +108,7 @@ export default function ProfileForm() {
 
     const payload = {
       id: userId,
+      email: user?.email ?? formState.email.trim(),
       full_name: formState.fullName.trim(),
       role: formState.role.trim(),
       company: formState.company.trim(),
@@ -139,6 +146,21 @@ export default function ProfileForm() {
       className="space-y-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
     >
       <fieldset className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div>
+          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            Email (sign-in)
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            value={formState.email || user?.email || ''}
+            readOnly
+            disabled
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm bg-gray-100 text-gray-600"
+          />
+        </div>
+
         <div>
           <label htmlFor="fullName" className="block text-sm font-medium text-gray-700">
             Full name

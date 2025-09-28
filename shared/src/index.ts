@@ -1,2 +1,3 @@
 export * from "./types";
 export * from "./analyzeEmail";
+export * from "./labelUtils";

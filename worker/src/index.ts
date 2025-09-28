@@ -8,18 +8,10 @@ import {
   EmailRecord,
   ContactRecord,
   analyzeEmail,
+  normaliseLabels,
+  ensureDefaultLabelCoverage,
+  selectPrimaryCategory,
 } from "@cadenzor/shared";
-
-function slugifyLabel(value: string | null | undefined): EmailLabel {
-  if (!value) return "general";
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s_-]/g, "")
-    .replace(/\s+/g, "_")
-    .replace(/_{2,}/g, "_")
-    .trim();
-  return slug || "general";
-}
 
 const HEURISTIC_LABELS: Array<{ regex: RegExp; label: EmailLabel }> = [
   { regex: /\bbooking|gig|show|inquiry|enquiry\b/i, label: "booking" },
@@ -40,8 +32,10 @@ function heuristicLabels(subject: string, body: string): EmailLabel[] {
     }
   }
   if (labels.length === 0) {
-    const fallback = slugifyLabel(subject.split(/[:\-]/)[0]);
-    labels.push(fallback);
+    const fallback = normaliseLabels(subject.split(/[:\-]/)[0])[0];
+    if (fallback) {
+      labels.push(fallback);
+    }
   }
   return Array.from(new Set(labels));
 }
@@ -188,7 +182,7 @@ async function main() {
           fromEmail,
         });
         summary = aiResult.summary;
-        labels = aiResult.labels.map((label) => slugifyLabel(label));
+        labels = normaliseLabels(aiResult.labels);
       } catch (err) {
         console.error(`AI classification failed for message ${msg.id}`, err);
         labels = heuristicLabels(subject, body);
@@ -198,7 +192,12 @@ async function main() {
         labels = heuristicLabels(subject, body);
       }
 
-      const category = labels[0] || "general";
+      labels = ensureDefaultLabelCoverage(labels);
+      if (labels.length === 0) {
+        labels = ["other"];
+      }
+
+      const category = selectPrimaryCategory(labels) ?? "other";
 
       const { error: contactError } = await supabase
         .from("contacts")
