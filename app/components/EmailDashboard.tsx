@@ -1,24 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { EmailCategory, EmailRecord } from "@cadenzor/shared";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { EmailLabel, EmailRecord } from "@cadenzor/shared";
+import { DEFAULT_EMAIL_LABELS } from "@cadenzor/shared";
 import { fetchEmailStats, fetchRecentEmails } from "../lib/supabaseClient";
 
-interface StatsState {
-  [key: string]: number;
-}
-
-const CATEGORIES: EmailCategory[] = [
-  "booking",
-  "promo_time",
-  "promo_submission",
-  "logistics",
-  "assets_request",
-  "finance",
-  "fan_mail",
-  "legal",
-  "other",
-];
+type StatsState = Record<string, number>;
 
 const POLL_INTERVAL_MS = 60 * 1000;
 
@@ -27,8 +14,18 @@ type StatusMessage = {
   message: string;
 };
 
-function formatLabel(label: EmailCategory): string {
-  return label.replace(/_/g, " ");
+function startCase(label: string): string {
+  return label
+    .replace(/[_\-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatLabel(label: EmailLabel): string {
+  if (!label) return "Unlabelled";
+  return startCase(label);
 }
 
 function formatReceivedAt(value: string): string {
@@ -64,7 +61,8 @@ export default function EmailDashboard() {
       setError(null);
     } catch (err) {
       console.error("Failed to load dashboard data", err);
-      setError("Failed to load statistics");
+      const message = err instanceof Error ? err.message : "Failed to load statistics";
+      setError(message);
     } finally {
       if (!silent) {
         setLoading(false);
@@ -122,6 +120,24 @@ export default function EmailDashboard() {
     }
   };
 
+  const categories = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    DEFAULT_EMAIL_LABELS.forEach((label) => {
+      if (!seen.has(label)) {
+        ordered.push(label);
+        seen.add(label);
+      }
+    });
+    Object.keys(stats)
+      .filter((label) => !!label && !seen.has(label))
+      .forEach((label) => {
+        ordered.push(label);
+        seen.add(label);
+      });
+    return ordered;
+  }, [stats]);
+
   if (!initialized && loading) {
     return <p>Loading email statistics…</p>;
   }
@@ -158,14 +174,14 @@ export default function EmailDashboard() {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-        {CATEGORIES.map((category) => {
+        {categories.map((category) => {
           const count = stats[category] ?? 0;
           return (
             <div
-              key={category}
+              key={category || "uncategorised"}
               className="rounded border border-gray-200 bg-white p-4 shadow"
             >
-              <h3 className="text-lg font-semibold capitalize">{formatLabel(category)}</h3>
+              <h3 className="text-lg font-semibold">{formatLabel(category)}</h3>
               <p className="mt-2 text-2xl font-bold text-indigo-600">{count}</p>
             </div>
           );

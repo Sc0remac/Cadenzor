@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { EmailCategory, EmailRecord } from "@cadenzor/shared";
-import { CATEGORY_VALUES } from "@cadenzor/shared";
+import type { EmailLabel, EmailRecord } from "@cadenzor/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
+
+function normaliseLabel(value: unknown, fallback: EmailLabel = "general"): EmailLabel {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim().toLowerCase();
+  }
+  return fallback;
+}
 
 function createServiceClient() {
   const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
@@ -24,22 +30,15 @@ function createServiceClient() {
   return { ok: true as const, supabase };
 }
 
-const CATEGORY_SET = new Set<string>(CATEGORY_VALUES);
-
-function normaliseCategory(value: unknown): EmailCategory {
-  if (typeof value === "string" && CATEGORY_SET.has(value)) {
-    return value as EmailCategory;
-  }
-  return "other";
-}
-
-function normaliseLabels(value: unknown): EmailCategory[] {
+function normaliseLabels(value: unknown): EmailLabel[] {
   if (!value) return [];
   if (Array.isArray(value)) {
-    return value.filter((label): label is EmailCategory => typeof label === "string" && CATEGORY_SET.has(label));
+    return value
+      .map((label) => normaliseLabel(label))
+      .filter((label, index, array) => array.indexOf(label) === index);
   }
-  if (typeof value === "string" && CATEGORY_SET.has(value)) {
-    return [value as EmailCategory];
+  if (typeof value === "string") {
+    return [normaliseLabel(value)];
   }
   return [];
 }
@@ -51,7 +50,7 @@ function mapRow(row: any): EmailRecord {
     fromEmail: row.from_email,
     subject: row.subject,
     receivedAt: row.received_at,
-    category: normaliseCategory(row.category),
+    category: normaliseLabel(row.category),
     isRead: row.is_read,
     summary: row.summary ?? null,
     labels: normaliseLabels(row.labels),

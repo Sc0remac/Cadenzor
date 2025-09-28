@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { EmailCategory, EmailRecord } from "@cadenzor/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
+
+function normaliseLabel(value: unknown): string {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim().toLowerCase();
+  }
+  return "general";
+}
 
 function createServiceClient() {
   const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
@@ -23,15 +29,13 @@ function createServiceClient() {
   return { ok: true as const, supabase };
 }
 
-function normaliseCounts(
-  rows: Array<{ category: EmailRecord["category"]; count: number }>
-): Record<EmailRecord["category"], number> {
-  const result: Partial<Record<EmailCategory, number>> = {};
+function normaliseCounts(rows: Array<{ category: unknown; count: number }>) {
+  const result: Record<string, number> = {};
   for (const row of rows) {
-    if (!row?.category) continue;
-    result[row.category] = (result[row.category] ?? 0) + Number(row.count || 0);
+    const label = normaliseLabel(row.category);
+    result[label] = (result[label] ?? 0) + Number(row.count || 0);
   }
-  return result as Record<EmailRecord["category"], number>;
+  return result;
 }
 
 export async function GET() {
@@ -66,7 +70,7 @@ export async function GET() {
   }
 
   const counts = normaliseCounts(
-    (fallback.data as Array<{ category: EmailRecord["category"] }>).map((row) => ({
+    (fallback.data as Array<{ category: unknown }>).map((row) => ({
       category: row.category,
       count: 1,
     }))

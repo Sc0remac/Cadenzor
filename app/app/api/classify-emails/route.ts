@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { google, gmail_v1 } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
-import { analyzeEmail, type EmailCategory } from "@cadenzor/shared";
+import { analyzeEmail } from "@cadenzor/shared";
+import type { EmailLabel } from "@cadenzor/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,20 +38,40 @@ function validateEnv() {
   };
 }
 
-function classifySubject(subject: string): EmailCategory {
-  const s = (subject || "").toLowerCase();
-  if (/\bbooking|gig|show|inquiry|enquiry\b/.test(s)) return "booking";
-  if (/\bpromo time|interview|press request|press day\b/.test(s)) return "promo_time";
-  if (/\bsubmission|submit demo|new promo\b/.test(s)) return "promo_submission";
-  if (/\bflight|hotel|travel|itinerary|rider|logistics\b/.test(s))
-    return "logistics";
-  if (/\basset request|press kit|photos|artwork|assets\b/.test(s))
-    return "assets_request";
-  if (/\binvoice|payment|settlement|contract|finance\b/.test(s)) return "finance";
-  if (/\bfan mail|love your music|love your work|big fan\b/.test(s))
-    return "fan_mail";
-  if (/\blegal|license|agreement|copyright\b/.test(s)) return "legal";
-  return "other";
+function slugifyLabel(value: string | null | undefined): EmailLabel {
+  if (!value) return "general";
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/_{2,}/g, "_")
+    .trim();
+  return slug || "general";
+}
+
+const HEURISTIC_LABELS: Array<{ regex: RegExp; label: EmailLabel }> = [
+  { regex: /\bbooking|gig|show|inquiry|enquiry\b/i, label: "booking" },
+  { regex: /\bpromo time|interview|press request|press day\b/i, label: "promo_time" },
+  { regex: /\bsubmission|submit demo|new promo\b/i, label: "promo_submission" },
+  { regex: /\bflight|hotel|travel|itinerary|rider|logistics\b/i, label: "logistics" },
+  { regex: /\basset request|press kit|photos|artwork|assets\b/i, label: "assets_request" },
+  { regex: /\binvoice|payment|settlement|contract|finance\b/i, label: "finance" },
+  { regex: /\bfan mail|love your music|love your work|big fan\b/i, label: "fan_mail" },
+  { regex: /\blegal|license|agreement|copyright\b/i, label: "legal" },
+];
+
+function heuristicLabels(subject: string, body: string): EmailLabel[] {
+  const labels: EmailLabel[] = [];
+  for (const { regex, label } of HEURISTIC_LABELS) {
+    if (regex.test(subject) || regex.test(body)) {
+      labels.push(label);
+    }
+  }
+  if (labels.length === 0) {
+    const fallback = slugifyLabel(subject.split(/[:\-]/)[0]);
+    labels.push(fallback);
+  }
+  return Array.from(new Set(labels));
 }
 
 function decodeBase64Url(data: string): string {
@@ -156,7 +177,7 @@ export async function POST() {
       return NextResponse.json({ processed: 0, message: "No unread messages" });
     }
 
-    const processed: Array<{ id: string; category: EmailCategory; labels: EmailCategory[] }> = [];
+    const processed: Array<{ id: string; category: EmailLabel; labels: EmailLabel[] }> = [];
     const failures: Array<{ id: string; error: string }> = [];
 
     for (const msg of messages) {
@@ -181,7 +202,7 @@ export async function POST() {
         const { name: fromName, email: fromEmail } = parseFromHeader(fromHeader);
         const receivedAt = new Date(dateHeader || Date.now()).toISOString();
 
-        let labels: EmailCategory[] = [];
+        let labels: EmailLabel[] = [];
         let summary = "";
         try {
           const aiResult = await analyzeEmail({
@@ -191,17 +212,17 @@ export async function POST() {
             fromEmail,
           });
           summary = aiResult.summary;
-          labels = aiResult.labels;
+          labels = aiResult.labels.map((label) => slugifyLabel(label));
         } catch (err) {
           console.error(`AI classification failed for message ${msg.id}`, err);
-          labels = [classifySubject(subject)];
+          labels = heuristicLabels(subject, body);
         }
 
         if (labels.length === 0) {
-          labels = [classifySubject(subject)];
+          labels = heuristicLabels(subject, body);
         }
 
-        const category = labels[0] || "other";
+        const category = labels[0] || "general";
 
         const { error: contactError } = await supabase
           .from("contacts")
