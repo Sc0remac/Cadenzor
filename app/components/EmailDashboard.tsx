@@ -9,6 +9,7 @@ import {
   fetchEmailStats,
   fetchRecentEmails,
 } from "../lib/supabaseClient";
+import type { EmailStatsScope } from "../lib/supabaseClient";
 import type {
   EmailListResponse,
   EmailPagination,
@@ -22,6 +23,8 @@ type StatusMessage = {
   type: "success" | "error";
   message: string;
 };
+
+type LabelFilterValue = EmailLabel | "all";
 
 function startCase(label: string): string {
   return label
@@ -46,6 +49,19 @@ function formatReceivedAt(value: string): string {
   }
 }
 
+function formatLastRefreshed(value: Date | null): string {
+  if (!value) {
+    return "Never";
+  }
+
+  try {
+    return value.toLocaleString();
+  } catch (err) {
+    console.error("Failed to format timestamp", err);
+    return value.toISOString();
+  }
+}
+
 export default function EmailDashboard() {
   const { session } = useAuth();
   const accessToken = session?.access_token ?? null;
@@ -63,6 +79,9 @@ export default function EmailDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [classifying, setClassifying] = useState(false);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
+  const [statsScope, setStatsScope] = useState<EmailStatsScope>("unread");
+  const [labelFilter, setLabelFilter] = useState<LabelFilterValue>("all");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const emailPageRef = useRef<number>(1);
 
   const applyEmailResponse = useCallback(
@@ -107,7 +126,7 @@ export default function EmailDashboard() {
 
       try {
         const [statsData, emailData] = await Promise.all([
-          fetchEmailStats(accessToken),
+          fetchEmailStats({ accessToken, scope: statsScope }),
           fetchRecentEmails({
             page: targetPage,
             perPage:
@@ -119,6 +138,7 @@ export default function EmailDashboard() {
         ]);
         setStats(statsData);
         applyEmailResponse(emailData, targetPage);
+        setLastRefreshedAt(new Date());
         setError(null);
       } catch (err) {
         console.error("Failed to load dashboard data", err);
@@ -132,8 +152,20 @@ export default function EmailDashboard() {
         setInitialized(true);
       }
     },
-    [accessToken, applyEmailResponse, emailPagination.perPage]
+    [accessToken, applyEmailResponse, emailPagination.perPage, statsScope]
   );
+
+  const handleScopeChange = useCallback((nextScope: EmailStatsScope) => {
+    setStatsScope(nextScope);
+  }, []);
+
+  const handleLabelFilterChange = useCallback((nextValue: LabelFilterValue) => {
+    setLabelFilter(nextValue);
+  }, []);
+
+  const handleManualRefresh = useCallback(() => {
+    void loadData();
+  }, [loadData]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -249,9 +281,38 @@ export default function EmailDashboard() {
       .forEach((label) => {
         ordered.push(label);
         seen.add(label);
-      });
+    });
     return ordered;
   }, [stats]);
+
+  const labelFilterOptions = useMemo(() => {
+    const values: LabelFilterValue[] = ["all"];
+    categories.forEach((label) => {
+      if (label) {
+        values.push(label as EmailLabel);
+      }
+    });
+    return values;
+  }, [categories]);
+
+  const visibleEmails = useMemo(() => {
+    if (labelFilter === "all") {
+      return emails;
+    }
+
+    return emails.filter((email) => {
+      const labels = Array.isArray(email.labels) ? email.labels : [];
+      if (labels.length === 0) {
+        return labelFilter === "unlabelled";
+      }
+      return labels.includes(labelFilter);
+    });
+  }, [emails, labelFilter]);
+
+  const hasLabelFilter = labelFilter !== "all";
+  const activeScopeLabel = statsScope === "unread" ? "Unread only" : "All emails";
+  const activeLabelFilterLabel = hasLabelFilter ? formatLabel(labelFilter as EmailLabel) : "All labels";
+  const lastRefreshedLabel = formatLastRefreshed(lastRefreshedAt);
 
   const currentPage = emailPagination.page > 0 ? emailPagination.page : 1;
   const perPage = emailPagination.perPage > 0 ? emailPagination.perPage : DEFAULT_EMAILS_PER_PAGE;
@@ -264,26 +325,110 @@ export default function EmailDashboard() {
   const disablePrevious = loading || currentPage <= 1;
   const disableNext = loading || (totalPages > 0 ? currentPage >= totalPages : !emailPagination.hasMore);
 
+  const tableSummary = useMemo(() => {
+    if (visibleEmails.length === 0) {
+      if (emails.length === 0) {
+        return "Showing 0 emails";
+      }
+      if (hasLabelFilter) {
+        return `No emails labelled ${activeLabelFilterLabel}`;
+      }
+      return "Showing 0 emails";
+    }
+
+    if (hasLabelFilter) {
+      const count = visibleEmails.length;
+      return `Showing ${count} ${count === 1 ? "email" : "emails"} labelled ${activeLabelFilterLabel}`;
+    }
+
+    return `Showing ${rangeStart}-${rangeEnd} of ${totalEmails} emails`;
+  }, [
+    activeLabelFilterLabel,
+    emails.length,
+    hasLabelFilter,
+    rangeEnd,
+    rangeStart,
+    totalEmails,
+    visibleEmails.length,
+  ]);
+
   if (!initialized && loading) {
     return <p>Loading email statistics…</p>;
   }
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-2xl font-semibold">Unread by category</h2>
-        <div className="flex items-center gap-3">
-          {initialized && loading && (
-            <span className="text-xs text-gray-500">Refreshing…</span>
-          )}
-          <button
-            type="button"
-            onClick={handleClassifyClick}
-            disabled={classifying}
-            className="inline-flex items-center rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-400"
-          >
-            {classifying ? "Classifying…" : "Classify emails"}
-          </button>
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-2xl font-semibold">
+              Emails by category
+              <span className="ml-2 text-sm font-normal text-gray-500">
+                ({activeScopeLabel} · {activeLabelFilterLabel})
+              </span>
+            </h2>
+            <span className="text-xs text-gray-500">Last refreshed: {lastRefreshedLabel}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {initialized && loading && (
+              <span className="text-xs text-gray-500">Refreshing…</span>
+            )}
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={loading}
+              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={handleClassifyClick}
+              disabled={classifying}
+              className="inline-flex items-center rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-400"
+            >
+              {classifying ? "Classifying…" : "Classify emails"}
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">Scope:</span>
+            <div className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1 text-sm shadow-sm">
+              {(["unread", "all"] as EmailStatsScope[]).map((scopeOption) => {
+                const isActive = statsScope === scopeOption;
+                return (
+                  <button
+                    key={scopeOption}
+                    type="button"
+                    onClick={() => handleScopeChange(scopeOption)}
+                    aria-pressed={isActive}
+                    className={`rounded px-3 py-1 font-medium transition ${
+                      isActive
+                        ? "bg-indigo-600 text-white shadow"
+                        : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    {scopeOption === "unread" ? "Unread" : "All"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">Label:</span>
+            <select
+              value={labelFilter}
+              onChange={(event) => handleLabelFilterChange(event.target.value as LabelFilterValue)}
+              className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              {labelFilterOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === "all" ? "All labels" : formatLabel(option as EmailLabel)}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -317,15 +462,15 @@ export default function EmailDashboard() {
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-2xl font-semibold">Latest emails</h2>
-          <span className="text-xs text-gray-500">
-            {emails.length === 0
-              ? "Showing 0 emails"
-              : `Showing ${rangeStart}-${rangeEnd} of ${totalEmails} emails`}
-          </span>
+          <span className="text-xs text-gray-500">{tableSummary}</span>
         </div>
         <div className="overflow-x-auto rounded border border-gray-200 bg-white shadow">
-          {emails.length === 0 ? (
-            <p className="px-6 py-8 text-sm text-gray-600">No recent emails to display.</p>
+          {visibleEmails.length === 0 ? (
+            <p className="px-6 py-8 text-sm text-gray-600">
+              {hasLabelFilter
+                ? `No emails labelled ${activeLabelFilterLabel}.`
+                : "No recent emails to display."}
+            </p>
           ) : (
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -338,7 +483,7 @@ export default function EmailDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {emails.map((email) => {
+                {visibleEmails.map((email) => {
                   const senderName = email.fromName?.trim();
                   return (
                     <tr key={email.id} className="align-top">

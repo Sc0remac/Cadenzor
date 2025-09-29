@@ -3,7 +3,6 @@ import {
   normaliseLabel,
   normaliseLabels,
   ensureDefaultLabelCoverage,
-  selectPrimaryCategory,
 } from "@cadenzor/shared";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 
@@ -18,10 +17,16 @@ export async function GET(request: Request) {
 
   const { supabase } = authResult;
 
-  const { data, error } = await supabase
-    .from("emails")
-    .select("category, labels")
-    .eq("is_read", false);
+  const url = new URL(request.url);
+  const scope = url.searchParams.get("scope");
+  const includeRead = scope === "all";
+
+  let query = supabase.from("emails").select("category, labels");
+  if (!includeRead) {
+    query = query.eq("is_read", false);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -31,19 +36,24 @@ export async function GET(request: Request) {
 
   for (const row of (data as Array<{ category: unknown; labels: unknown }>) ?? []) {
     const parsedLabels = normaliseLabels(row.labels);
-    const withFallback = parsedLabels.length > 0 ? parsedLabels : normaliseLabels([row.category]);
-    const enrichedLabels = ensureDefaultLabelCoverage(withFallback);
+    const fallbackCategory = normaliseLabel(row.category);
 
-    if (enrichedLabels.length === 0) {
+    const baseLabels = parsedLabels.length > 0
+      ? parsedLabels
+      : fallbackCategory
+      ? [fallbackCategory]
+      : [];
+
+    const enrichedLabels = ensureDefaultLabelCoverage(baseLabels);
+    const uniqueLabels = new Set(enrichedLabels.filter(Boolean));
+
+    if (uniqueLabels.size === 0) {
       continue;
     }
 
-    const category = selectPrimaryCategory(enrichedLabels) ?? normaliseLabel(row.category);
-    if (!category) {
-      continue;
+    for (const label of uniqueLabels) {
+      counts[label] = (counts[label] ?? 0) + 1;
     }
-
-    counts[category] = (counts[category] ?? 0) + 1;
   }
 
   return NextResponse.json(counts);

@@ -33,10 +33,26 @@ function buildHeaders(accessToken?: string): HeadersInit {
   return headers;
 }
 
+export type EmailStatsScope = "unread" | "all";
+
+export interface FetchEmailStatsOptions {
+  accessToken?: string;
+  scope?: EmailStatsScope;
+}
+
 export async function fetchEmailStats(
-  accessToken?: string
+  options: FetchEmailStatsOptions = {}
 ): Promise<Record<EmailRecord["category"], number>> {
-  const response = await fetch("/api/email-stats", {
+  const { accessToken, scope } = options;
+
+  const query = new URLSearchParams();
+  if (scope) {
+    query.set("scope", scope);
+  }
+
+  const endpoint = query.toString() ? `/api/email-stats?${query.toString()}` : "/api/email-stats";
+
+  const response = await fetch(endpoint, {
     method: "GET",
     headers: buildHeaders(accessToken),
     cache: "no-store",
