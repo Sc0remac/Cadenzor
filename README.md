@@ -39,7 +39,7 @@ Both the worker and the dashboard rely on environment variables.  Create a `.env
 - **Google / Gmail (worker only)**
   - `GOOGLE_CLIENT_ID` – your Google OAuth client ID
   - `GOOGLE_CLIENT_SECRET` – your Google OAuth client secret
-  - `GOOGLE_REDIRECT_URI` – the redirect URI configured for your OAuth client (not used directly but required by the API client)
+  - `GOOGLE_REDIRECT_URI` – optional; set this to the redirect URI used when you minted the refresh token (e.g. `https://developers.google.com/oauthplayground`). Leave unset if you are unsure.
   - `GMAIL_REFRESH_TOKEN` – a refresh token obtained via the OAuth consent flow for the Gmail account you wish to monitor
 
 You can store these variables in a `.env` file inside the `worker/` directory for local development.  For the dashboard, environment variables prefixed with `NEXT_PUBLIC_` will be exposed to the browser; do not expose your service role key in the frontend.

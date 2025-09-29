@@ -18,7 +18,6 @@ const REQUIRED_ENV = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
-  "GOOGLE_REDIRECT_URI",
   "GMAIL_REFRESH_TOKEN",
 ] as const;
 
@@ -38,7 +37,7 @@ function validateEnv() {
       supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
       googleClientId: process.env.GOOGLE_CLIENT_ID!,
       googleClientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      googleRedirectUri: process.env.GOOGLE_REDIRECT_URI!,
+      googleRedirectUri: process.env.GOOGLE_REDIRECT_URI,
       gmailRefreshToken: process.env.GMAIL_REFRESH_TOKEN!,
     },
   };
@@ -159,28 +158,37 @@ export async function POST(request: Request) {
   } = env.values;
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const oauth2Client = new google.auth.OAuth2(
-    googleClientId,
-    googleClientSecret,
-    googleRedirectUri
-  );
+  const oauth2Client = googleRedirectUri
+    ? new google.auth.OAuth2(googleClientId, googleClientSecret, googleRedirectUri)
+    : new google.auth.OAuth2(googleClientId, googleClientSecret);
   oauth2Client.setCredentials({ refresh_token: gmailRefreshToken });
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
   const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 10);
 
   try {
-    // Cache Gmail label IDs across this run
     const labelCache: Map<string, string> = new Map();
+    let labelsLoaded = false;
+
+    async function loadLabels() {
+      if (labelsLoaded) return;
+      try {
+        const existing = await gmail.users.labels.list({ userId: "me" });
+        for (const label of existing.data.labels || []) {
+          if (label.name && label.id) {
+            labelCache.set(label.name, label.id);
+          }
+        }
+      } finally {
+        labelsLoaded = true;
+      }
+    }
 
     async function ensureLabelId(name: string): Promise<string> {
-      if (labelCache.has(name)) return labelCache.get(name)!;
-      const existing = await gmail.users.labels.list({ userId: "me" });
-      const found = (existing.data.labels || []).find((l) => l.name === name);
-      if (found?.id) {
-        labelCache.set(name, found.id);
-        return found.id;
-      }
+      await loadLabels();
+      const cached = labelCache.get(name);
+      if (cached) return cached;
+
       const created = await gmail.users.labels.create({
         userId: "me",
         requestBody: {
@@ -189,18 +197,39 @@ export async function POST(request: Request) {
           messageListVisibility: "show",
         },
       });
-      const id = created.data.id!;
+
+      const id = created.data.id;
+      if (!id) {
+        throw new Error(`Label creation returned no id for ${name}`);
+      }
+
       labelCache.set(name, id);
       return id;
     }
 
     async function ensureCadenzorLabelIds(labels: EmailLabel[]): Promise<string[]> {
       const base = "Cadenzor";
-      await ensureLabelId(base).catch(() => Promise.resolve(""));
-      const targets = await Promise.all(
-        Array.from(new Set(labels)).map((l) => ensureLabelId(`${base}/${l}`))
-      );
-      return targets.filter(Boolean);
+
+      try {
+        await ensureLabelId(base);
+      } catch (err) {
+        console.error("Failed to ensure base Gmail label", err);
+      }
+
+      const ids: string[] = [];
+      const unique = Array.from(new Set(labels));
+      for (const label of unique) {
+        try {
+          const id = await ensureLabelId(`${base}/${label}`);
+          if (id) {
+            ids.push(id);
+          }
+        } catch (err) {
+          console.error(`Failed to ensure Gmail label for ${label}`, err);
+        }
+      }
+
+      return ids;
     }
 
     const listRes = await gmail.users.messages.list({
