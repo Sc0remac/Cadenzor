@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { useAuth } from "./AuthProvider";
 
@@ -19,16 +19,24 @@ function isActive(pathname: string, href: string): boolean {
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+  const router = useRouter();
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
 
   const handleSignOut = async () => {
     setSignOutError(null);
     setSigningOut(true);
+
     const error = await signOut();
+
     if (error) {
       setSignOutError(error.message ?? "Failed to sign out");
+      setSigningOut(false);
+      return;
     }
+
+    router.replace("/login");
+    router.refresh();
     setSigningOut(false);
   };
 

@@ -126,7 +126,24 @@ export default function ProfileForm() {
       console.error("Failed to update profile", error);
       setErrorMessage(error.message ?? "Unable to save profile details");
     } else {
+      const nextState: ProfileFormState = {
+        email: payload.email,
+        fullName: payload.full_name,
+        role: payload.role,
+        company: payload.company,
+        phone: payload.phone,
+        location: payload.location,
+        bio: payload.bio,
+      };
+
+      setFormState(nextState);
       setStatusMessage("Profile updated successfully");
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("profile:updated", { detail: nextState })
+        );
+      }
     }
 
     setSaving(false);
