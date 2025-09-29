@@ -91,6 +91,8 @@ The worker logs each message ID and its assigned labels.  You can schedule this 
 
 ## Running the dashboard
 
+> Requires Node.js 20 or later. The repository includes an `.nvmrc` to streamline using the correct runtime.
+
 The Next.js dashboard displays a simple grid showing the count of unread emails per category.  It refreshes every minute.  To start it locally:
 
 ```bash
