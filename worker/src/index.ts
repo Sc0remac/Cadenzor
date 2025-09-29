@@ -231,18 +231,37 @@ async function main() {
       let labels: EmailLabel[] = [];
       let summary = "";
 
-      try {
-        const aiResult = await analyzeEmail({
-          subject,
-          body,
-          fromName,
-          fromEmail,
-        });
-        summary = aiResult.summary;
-        labels = normaliseLabels(aiResult.labels);
-      } catch (err) {
-        console.error(`AI classification failed for message ${msg.id}`, err);
-        labels = heuristicLabels(subject, body);
+      const { data: existingEmail, error: existingEmailError } = await supabase
+        .from("emails")
+        .select("summary, labels")
+        .eq("id", msg.id)
+        .maybeSingle();
+
+      if (existingEmailError) {
+        console.error(`Failed to read existing email ${msg.id}`, existingEmailError);
+      }
+
+      if (existingEmail) {
+        if (typeof existingEmail.summary === "string" && existingEmail.summary.trim()) {
+          summary = existingEmail.summary.trim();
+        }
+        labels = normaliseLabels(existingEmail.labels);
+      }
+
+      if (!summary || labels.length === 0) {
+        try {
+          const aiResult = await analyzeEmail({
+            subject,
+            body,
+            fromName,
+            fromEmail,
+          });
+          summary = aiResult.summary;
+          labels = normaliseLabels(aiResult.labels);
+        } catch (err) {
+          console.error(`AI classification failed for message ${msg.id}`, err);
+          labels = heuristicLabels(subject, body);
+        }
       }
 
       if (labels.length === 0) {
