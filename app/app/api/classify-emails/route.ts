@@ -170,6 +170,39 @@ export async function POST(request: Request) {
   const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 10);
 
   try {
+    // Cache Gmail label IDs across this run
+    const labelCache: Map<string, string> = new Map();
+
+    async function ensureLabelId(name: string): Promise<string> {
+      if (labelCache.has(name)) return labelCache.get(name)!;
+      const existing = await gmail.users.labels.list({ userId: "me" });
+      const found = (existing.data.labels || []).find((l) => l.name === name);
+      if (found?.id) {
+        labelCache.set(name, found.id);
+        return found.id;
+      }
+      const created = await gmail.users.labels.create({
+        userId: "me",
+        requestBody: {
+          name,
+          labelListVisibility: "labelShow",
+          messageListVisibility: "show",
+        },
+      });
+      const id = created.data.id!;
+      labelCache.set(name, id);
+      return id;
+    }
+
+    async function ensureCadenzorLabelIds(labels: EmailLabel[]): Promise<string[]> {
+      const base = "Cadenzor";
+      await ensureLabelId(base).catch(() => Promise.resolve(""));
+      const targets = await Promise.all(
+        Array.from(new Set(labels)).map((l) => ensureLabelId(`${base}/${l}`))
+      );
+      return targets.filter(Boolean);
+    }
+
     const listRes = await gmail.users.messages.list({
       userId: "me",
       q: "is:unread",
@@ -267,6 +300,20 @@ export async function POST(request: Request) {
 
         if (emailError) {
           throw new Error(`Failed to upsert email: ${emailError.message}`);
+        }
+
+        // Apply labels back to Gmail
+        try {
+          const addLabelIds = await ensureCadenzorLabelIds(labels);
+          if (addLabelIds.length > 0) {
+            await gmail.users.messages.modify({
+              userId: "me",
+              id: msg.id,
+              requestBody: { addLabelIds },
+            });
+          }
+        } catch (err) {
+          console.error(`Failed to apply Gmail labels for message ${msg.id}`, err);
         }
 
         processed.push({ id: msg.id, category, labels });

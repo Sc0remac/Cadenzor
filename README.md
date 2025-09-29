@@ -103,6 +103,14 @@ npm run dev
 
 Then visit [http://localhost:3000](http://localhost:3000) in your browser.  Ensure that the environment variables in `.env.local` (or your hosting platform) supply `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` so the frontend can connect to Supabase.
 
+## Gmail labels in your inbox
+
+Cadenzor now applies Gmail labels to messages it classifies so you can see them directly in your inbox:
+
+- Labels are created under a parent label `Cadenzor`, e.g. `Cadenzor/booking`, `Cadenzor/promo_time`.
+- If a label does not exist yet, it is created automatically.
+- Ensure the refresh token was granted the `https://www.googleapis.com/auth/gmail.modify` scope so labels can be added.
+
 ## Extending Cadenzor
 
 This project only scratches the surface of the larger Cadenzor vision.  Next steps might include:
@@ -110,7 +118,7 @@ This project only scratches the surface of the larger Cadenzor vision.  Next ste
 * Authenticating users and scoping data per artist/manager.
 * Surfacing individual email details and enabling actions (snooze, reply drafts, timeline creation).
 * Replacing the keyword‐based classifier with a proper machine learning model or more nuanced rule engine.
-* Adding automation to mark messages as read and apply Gmail labels based on the assigned category.
+* Adding automation to mark messages as read (label application is already implemented).
 * Building out the Timeline Studio and Playbooks described in the specification.
 
 Pull requests are welcome—enjoy hacking on Cadenzor!
