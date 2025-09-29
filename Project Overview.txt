@@ -1,0 +1,338 @@
+AI Music Management Assistant — Timeline‑First Spec (v1.2)
+
+English‑only, build‑ready specification for an AI agent or engineer. This revision removes explicit T‑7/T‑2 risk horizons and places Timeline Studio at the heart of the product. Priorities are handled via a general Priority Engine (urgency × impact × confidence × dependencies × calendar proximity) rather than fixed day offsets.
+
+The stack assumes VS Code, Git, and Supabase (Postgres + Auth + Storage). Frontend is Next.js/React. Automation runs in a Node/TypeScript worker. Monorepo recommended.
+
+1. Product overview
+
+Goal. Create an operational layer for artist management that turns email/meetings/files/voice notes into structured entities (tasks, events, leads, tracks, assets) and orchestrates Playbooks with human approval. The source of truth is surfaced as an interactive, shareable Timeline Studio that spans live, promo, writing, brand, and release‑ops.
+
+Users. Primary: Oran (manager). Secondary: artists, assistants. External contacts interact via email links and shared docs.
+
+What changes. Instead of rigid T‑7/T‑2 checks, a flexible Priority Engine ranks items based on due dates, dependencies, event proximity, potential conflicts, and user‑defined importance.
+
+Non‑goals (MVP). No auto‑sending to legal/finance; no unapproved calendar confirmations; no public partner portal.
+
+2. Glossary
+
+Promo time: interviews/guest mixes/press activities requiring calendar time.
+
+Promos (submissions): tracks submitted for listening/feedback.
+
+Timeline Studio: multi‑lane, filterable timeline with dependencies, conflicts, and shareable views.
+
+Playbook: deterministic automation recipe with clear inputs/outputs and an autopilot policy (Auto / Draft‑Only / Notify).
+
+3. Core feature set
+3.0 Project Objects (Workspace Isolation + Context Graph)
+
+What it is. A top‑level object (e.g., Asian Tour 2026) that acts as a self‑contained hub in the UI but remains connected by context on the backend. Each Project owns its own views while sharing the global data graph.
+
+Why. Oran can deliberately bind Drive folders, assets, emails, and tasks to a Project without relying on full auto‑correlation. Labels/metadata then flow from these attachments, enabling reliable filtering and reporting across Projects.
+
+How it looks (Project Hub).
+
+Overview: project summary, KPIs, priority list (from Priority Engine), upcoming key dates.
+
+Timeline (scoped): lanes for Live/Promo/Writing/Brand/Release limited to items linked to this Project; dependencies and conflicts visible inside the scope.
+
+Inbox (scoped): emails linked to the Project and suggestions (see classifier interplay below).
+
+Tasks: the project’s to‑dos with statuses and owners.
+
+Files/Assets: Drive folders/files Oran connected; canonical assets; quick copy links.
+
+People: contacts and orgs most active in this Project.
+
+Approvals & Playbooks: pending approvals and per‑project automation toggles.
+
+Settings: labels/metadata, color, date range, default templates, sources.
+
+Drive connections (explicit > implicit). Oran selects Drive folders to connect. The system indexes metadata only (IDs, names, mime, size, modified, owners, paths) unless a Playbook needs content (e.g., building a Track Report). Optional change‑watch keeps the index fresh.
+
+Labels & metadata. Projects have first‑class labels (territory, phase, quarter, campaign, agency, platform, etc.). Derived labels can be added automatically from connected sources (e.g., folder path includes /JP/ → territory=JP). A context score indicates how confidently new items match the Project.
+
+Email classifier (division of labour). The classifier still focuses on incoming work (bucketing + automation). It does not force assignment to Projects. Instead it proposes Attach to Project suggestions when confidence is high (explicit venue/city/date match, thread with project‑linked contacts, or connected folder mentioned). Oran can one‑click attach; labels propagate to the email/thread and linked entities.
+
+Templates. Creating a Project from a template (e.g., Tour Leg, Single Release, Festival Weekend) seeds timeline items, dependencies, and checklists.
+
+Security. Project membership controls who can see/edit; global admins can see all; worker bypasses via service role.
+
+3.1 Timeline Studio (central feature)
+
+Multi‑lane timelines per artist with lanes for Live, Promo, Writing, Brand/Partnerships, Release‑ops.
+
+Item types: events (shows, interviews), milestones (deliver artwork, send radio edit), tasks, holds, offers/leads, release gates (upload draft, publish, send‑out).
+
+Dependencies: finish‑to‑start, start‑to‑start; visualize blockers; detect circular deps.
+
+Conflict detection: calendar overlaps for the same people/resources; flag travel feasibility issues (buffer windows configurable).
+
+Priorities: computed by Priority Engine; adjustable per item (pin, snooze, escalate).
+
+Views: by category, by territory, next 7/14/30 days, per project/release, per contact/org.
+
+Templates: reusable timeline blueprints (Tour Leg, Single Release, Festival Weekend). Creating from a template populates standard tasks and dependencies.
+
+Versioning & snapshots: capture a snapshot for sharing or historical comparison; diff two snapshots to show changes.
+
+Sharing: generate a read‑only link or export to Google Doc/Sheet (Phase 2: partner view with expiring token).
+
+3.2 Inbox triage and actions
+
+Classify Gmail messages into booking, promo_time, promos_submission, logistics, assets_request, finance, fan_mail, legal.
+
+Extract entities (artist, city/country, venue, dates, budget, duration, attachments); enrich contacts/orgs.
+
+Launch Playbooks (e.g., Booking Enquiry) and save Draft replies; convert relevant items into Timeline Studio entries.
+
+3.3 Tour‑aware scheduling
+
+Cross‑reference promo requests with tour routing and time zones.
+
+Propose slots; create tentative holds; place them directly onto the timeline; attach press kit links; draft replies.
+
+3.4 Meeting intelligence
+
+Ingest Zoom/Google Meet recordings/transcripts.
+
+Generate summaries, decisions, and tasks; attach to the correct timeline and folders.
+
+3.5 Voice‑first capture (Telegram)
+
+Voice/text notes → transcribe, normalise shorthand, classify as task/note/doc; auto‑place on the timeline at appropriate dates or backlog.
+
+3.6 Asset library and scaffolding
+
+Canonical assets per artist (logos, EPK) with versioning; standard Drive scaffolds for shows/projects; link assets to timeline items and replies.
+
+3.7 Brand‑fit scoring (lead quality)
+
+Deterministic enrichment (venue/label/site, RA/Bandsintown/Songkick, Maps/Places, socials/news, internal memory).
+
+Explainable subscores and band (Accept/Caution/Decline) with conditions; output stored with rubric version; leads appear on the timeline.
+
+3.8 Logistics (without T‑x terminology)
+
+Parse itineraries/riders/tech specs; update events and checklists.
+
+Priority Engine elevates missing/late items; conflicts and blockers appear visually in the timeline and on the dashboard.
+
+3.9 Timelines and exports
+
+Compose artist/program timelines; filter, group by territory/category; export snapshots to Doc; generate shareable read‑only views.
+
+3.10 Google Sheets harmoniser
+
+Import Sheets; map columns to canonical schema; diff vs DB; propose updates; approved changes sync back. Imported rows can populate or update timeline items.
+
+3.11 Release‑ops (track pipeline)
+
+Dynamic Track Reports from Drive (WAVs, radio edit, stems, artwork, one‑sheet, credits, ISRC/BPM/Key/tags, status flags). Track Report is linked as a Release lane on the timeline with gates (Upload Draft, Send‑Outs, Publish, Post‑Publish follow‑ups).
+
+SoundCloud upload (API or assisted via Playwright): create private draft, set artwork/tags/permissions, return URL/ID; publish only on approval.
+
+Promo send‑outs: segmented list (radio/DJ/press/artists, territory, previous support), drafted mail‑merge messages, pacing/throttling; add send‑out windows and follow‑ups to the timeline.
+
+Feedback tracking: parse replies, capture supporters/quotes/airplay; update the Track Report; annotate the timeline.
+
+4. Priority Engine (replaces T‑7/T‑2)
+
+Inputs: due date, event start, dependency chain (is it blocking others?), impact (user‑set weight per item type), confidence (classification certainty), calendar density (overlaps), SLA targets (e.g., desired first‑response time), user pins/snoozes.
+
+Output: priority score (0–100) + rationale.
+
+Behaviour: items bubble up on the dashboard and in timeline views; “Top Actions” lists the highest leverage items. Snoozing or completing updates the score in real time.
+
+Config: per‑artist weights and rules; quick presets (Travel‑heavy Week, Release Week, Touring Off‑Week).
+
+5. Dashboard and digest
+
+Dashboard modules
+
+Timeline Overview: the next 14/30 days condensed; conflicts and blockers highlighted; quick filters.
+
+New Leads: score badge + rationale; one‑click actions (accept conditions, request info, decline).
+
+Top Actions: priority‑sorted tasks/approvals (holds, drafts, missing assets, looming dependencies).
+
+Recent Meetings: summaries with one‑click follow‑ups.
+
+Release Control Room: readiness bars, SoundCloud status, send‑out stages, key dates on the timeline.
+
+Daily Digest (08:00 Europe/London)
+
+Priority summary for the day; new leads; holds awaiting approval; yesterday’s meeting outcomes; release updates. Optional Telegram TL;DR with Approve/Reject buttons.
+
+6. Playbooks and autopilot policy
+
+Booking Enquiry: extract → enrich → brand‑fit + routing fit → create lead → optional hold → folder scaffold → reply draft → add to timeline. Draft‑Only.
+
+Promo Time Request: slot proposal → tentative hold → press kit → reply draft → add to timeline. Draft‑Only (Auto allowed later).
+
+Promos Submission: capture links → listening queue → acknowledgement → optional listening tasks on timeline. Auto for ack; Draft‑Only for personalised.
+
+Logistics Update: parse itinerary/rider → update event/checklists → file docs → mark blockers on timeline. Draft‑Only/Notify.
+
+Assets Request: attach canonical assets → reply draft → log distribution → annotate timeline if tied to a campaign. Auto if unambiguous.
+
+Finance/Settlement: extract amounts/due → reminders → place reminders on timeline. Draft‑Only; legal/finance guardrails.
+
+Meeting Ingest: transcribe/summarise → tasks → file → attach to timeline. Auto ingest; Notify for sensitive attendees.
+
+Voice Memo: transcribe/normalise → task/note/doc → place on timeline/backlog. Auto.
+
+Enrich & Score Lead: scoring + conditions; appear in Leads and timeline. Draft‑Only.
+
+Track Report Builder: build/refresh on asset changes; update release lane. Auto.
+
+SoundCloud Uploader: create private draft; metadata; approval required to publish. Draft‑Only; Auto permitted for draft creation.
+
+Promo Send‑Out: generate list + drafts; throttle; add follow‑ups to timeline. Draft‑Only.
+
+Promo Feedback Collector: parse replies; update supporters/quotes; timeline annotations. Auto ingest.
+
+Guardrails: domain/keyword blacklists (legal/finance/confidential); confidence thresholds; per‑artist tone kits; all outbound Draft‑Only by default.
+
+7. User journeys
+
+A. Booking offer → email classified; lead scored; proposed hold and folder created; reply drafted; items appear on the timeline; dashboard highlights top action.
+
+B. Promo interview → system proposes slots around routing; tentative hold added to timeline; reply drafted; Oran approves and sends.
+
+C. Meeting wraps → transcript + summary + actions created; tasks placed on timeline; visible in dashboard.
+
+D. Release workflow (SHEE) → Track Report built from Drive; release gates added to the timeline (Upload Draft, Send‑Outs, Publish); SoundCloud draft created; promo list generated; drafts created; replies parse into supporters/quotes; timeline shows progress.
+
+8. Data model (Supabase/Postgres)
+
+Project tables
+
+projects(id, artist_id, name, slug, description, status, start_date, end_date, color, priority_profile_json, labels jsonb, created_by, created_at)
+
+project_members(id, project_id, user_id, role)
+
+project_labels(id, project_id, key, value, source[manual|derived])
+
+project_sources(id, project_id, kind[drive_folder|sheet|calendar|external_url], external_id, title, scope, watch boolean, last_indexed_at)
+
+project_item_links(id, project_id, ref_table, ref_id, confidence float, source[manual|ai], created_at)
+
+email_project_links(id, project_id, email_id, thread_id, confidence float, source[manual|ai], created_at)
+
+Core tables
+
+artists(id, name, brand_profile_json, default_rubric_id)
+
+contacts(id, name, role, emails text[], phone, org_id, territory, tags text[], notes)
+
+orgs(id, name, type, domain, socials_json, address, capacity, reputation_notes)
+
+emails(id, thread_id, gmail_msg_id, subject, from_contact_id, to text[], received_at, category, confidence, structured_json)
+
+offers(id, artist_id, org_id, contact_id, category, city, country, date_range daterange, terms_json, source_thread_id, status, brand_fit_score, rubric_version, decision_notes)
+
+events(id, artist_id, name, starts_at, ends_at, city, country, venue_id, timezone, status)
+
+checklists(id, event_id, item, due_at, status, owner_id, priority int)
+
+tasks(id, artist_id, project_id, event_id, title, description, due_at, status, source, assignee_id, priority int)
+
+meetings(id, artist_id, event_id, started_at, attendees_json, transcript_url, summary, decisions_json)
+
+assets(id, artist_id, kind, version, storage_path, checksum, canonical boolean)
+
+folders(id, artist_id, event_id, drive_id, path, template_version)
+
+approvals(id, type, payload_json, status, approver_id, channel, audit_json)
+
+brand_rubrics(id, artist_id, weights_json, guardrails_json, examples_json, version, active)
+
+notes(id, artist_id, body, tags text[], source)
+
+audit_logs(id, actor, action, entity_type, entity_id, diff_json, ts)
+
+Timeline tables
+
+timelines(id, artist_id, name, scope[global|project|release], created_by, created_at)
+
+timeline_items(id, timeline_id, type[event|milestone|task|hold|lead|gate], ref_table, ref_id, title, starts_at, ends_at, priority int, lane text, territory text, tags text[], status, metadata jsonb)
+
+timeline_dependencies(id, from_item_id, to_item_id, kind[FS|SS|FF], note)
+
+timeline_views(id, timeline_id, name, filters jsonb, sort text, group_by text)
+
+timeline_snapshots(id, timeline_id, name, captured_at, snapshot jsonb)
+
+Release‑ops tables
+
+tracks(id, artist_id, title, working_title, isrc, bpm, key, primary_genre, tags text[], status, release_date, sc_track_id, sc_url, sc_privacy, description)
+
+track_assets(id, track_id, kind, storage_path, checksum, version, is_final)
+
+track_reports(id, track_id, doc_url, completeness_json, last_built_at)
+
+promo_contacts(id, name, email, role, outlet, territory, tags text[], last_supported_at, notes)
+
+promo_lists(id, track_id, name, filter_json, generated_at)
+
+promo_list_members(id, list_id, contact_id, priority)
+
+sendouts(id, track_id, list_id, template_id, status, sent_at, channel, metrics_json)
+
+sendout_events(id, sendout_id, contact_id, event, payload_json, ts)
+
+soundcloud_jobs(id, track_id, action, payload_json, status, result_json, ts)
+
+Indexes: standard FKs; b‑tree on starts_at, ends_at, priority; GIN on tags/jsonb. Optional pgvector for semantic search in Phase 2.
+
+9. APIs and contracts (internal)
+
+Project API
+
+createProject({artistId,name,dates,labels}) → projectId
+
+attachSource({projectId, kind, externalId, title, watch}) (e.g., connect Drive folder by ID)
+
+indexSource({projectId, sourceId}) → crawl metadata; no content download unless requested
+
+linkItemToProject({projectId, refTable, refId, confidence, source})
+
+unlinkItemFromProject({projectId, refTable, refId})
+
+suggestProjectLinksForEmail(emailId) → [{projectId, score, rationale}]
+
+getProjectHub(projectId) → overview metrics, scoped timeline, scoped inbox, tasks, files, approvals
+
+computeProjectPriorityTopN(projectId, n) → priority list
+
+AI outputs (unchanged): email classification; meeting summary; brand‑fit; Track Report.
+
+Timeline API (unchanged) and Priority Engine apply within a project scope as well as globally.
+
+AI outputs: email classification; meeting summary; brand‑fit; Track Report (schemas remain as in v1.1).
+
+Timeline API
+
+createTimeline(artistId, name, scope)
+
+addItem(timelineId, type, refTable, refId, title, startsAt, endsAt, lane, territory, tags[])
+
+linkDependency(fromItemId, toItemId, kind)
+
+computeConflicts(timelineId) → list of overlapping items with rationale
+
+snapshot(timelineId, name) → stored snapshot
+
+listViews(timelineId) / saveView(filters, sort, groupBy)
+
+Priority Engine
+
+scoreItem(itemId) → {score, rationale}
+
+bulkScore(timelineId) → updates priority columns and returns top actions
+
+Integration adapters
+
+Gmail/Calendar/Drive; transcription; Telegram; SoundCloud (API + Playwright); ESP (optional). Adapters return typed results; all operations idempotent.
