@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { google, gmail_v1 } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
-import { analyzeEmail } from "@cadenzor/shared";
-import type { EmailLabel } from "@cadenzor/shared";
 import {
+  analyzeEmail,
   normaliseLabels,
   ensureDefaultLabelCoverage,
   selectPrimaryCategory,
+  heuristicLabels,
+  EMAIL_FALLBACK_LABEL,
 } from "@cadenzor/shared";
+import type { EmailLabel } from "@cadenzor/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,32 +45,6 @@ function validateEnv() {
   };
 }
 
-const HEURISTIC_LABELS: Array<{ regex: RegExp; label: EmailLabel }> = [
-  { regex: /\bbooking|gig|show|inquiry|enquiry\b/i, label: "booking" },
-  { regex: /\bpromo time|interview|press request|press day\b/i, label: "promo_time" },
-  { regex: /\bsubmission|submit demo|new promo\b/i, label: "promo_submission" },
-  { regex: /\bflight|hotel|travel|itinerary|rider|logistics\b/i, label: "logistics" },
-  { regex: /\basset request|press kit|photos|artwork|assets\b/i, label: "assets_request" },
-  { regex: /\binvoice|payment|settlement|contract|finance\b/i, label: "finance" },
-  { regex: /\bfan mail|love your music|love your work|big fan\b/i, label: "fan_mail" },
-  { regex: /\blegal|license|agreement|copyright\b/i, label: "legal" },
-];
-
-function heuristicLabels(subject: string, body: string): EmailLabel[] {
-  const labels: EmailLabel[] = [];
-  for (const { regex, label } of HEURISTIC_LABELS) {
-    if (regex.test(subject) || regex.test(body)) {
-      labels.push(label);
-    }
-  }
-  if (labels.length === 0) {
-    const fallback = normaliseLabels(subject.split(/[:\-]/)[0])[0];
-    if (fallback) {
-      labels.push(fallback);
-    }
-  }
-  return Array.from(new Set(labels));
-}
 
 function decodeBase64Url(data: string): string {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
@@ -304,16 +280,16 @@ export async function POST(request: Request) {
           }
         }
 
-        if (labels.length === 0) {
-          labels = heuristicLabels(subject, body);
-        }
+      if (labels.length === 0) {
+        labels = heuristicLabels(subject, body);
+      }
 
-        labels = ensureDefaultLabelCoverage(labels);
-        if (labels.length === 0) {
-          labels = ["other"];
-        }
+      labels = ensureDefaultLabelCoverage(labels);
+      if (labels.length === 0) {
+        labels = [EMAIL_FALLBACK_LABEL];
+      }
 
-        const category = selectPrimaryCategory(labels) ?? "other";
+      const category = selectPrimaryCategory(labels) ?? EMAIL_FALLBACK_LABEL;
 
         const { error: contactError } = await supabase
           .from("contacts")

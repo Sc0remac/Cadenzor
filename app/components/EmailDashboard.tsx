@@ -27,6 +27,11 @@ type StatusMessage = {
 type LabelFilterValue = EmailLabel | "all";
 
 function startCase(label: string): string {
+  if (!label) return "";
+  if (label === label.toUpperCase()) {
+    return label;
+  }
+
   return label
     .replace(/[_\-]+/g, " ")
     .split(" ")
@@ -37,7 +42,34 @@ function startCase(label: string): string {
 
 function formatLabel(label: EmailLabel): string {
   if (!label) return "Unlabelled";
-  return startCase(label);
+  const segments = label.split("/");
+  if (segments.length === 1) {
+    return startCase(segments[0]);
+  }
+
+  const [prefix, ...rest] = segments;
+
+  const formatSegment = (segment: string, isPrefix = false) => {
+    if (!segment) {
+      return "";
+    }
+
+    if (!isPrefix && /^\d{4}-\d{2}-\d{2}$/.test(segment)) {
+      return segment;
+    }
+
+    if (segment === segment.toUpperCase()) {
+      return segment;
+    }
+
+    return startCase(segment);
+  };
+
+  const formatted = [formatSegment(prefix, true), ...rest.map((part) => formatSegment(part))].filter(
+    Boolean
+  );
+
+  return formatted.join(" / ");
 }
 
 function formatReceivedAt(value: string): string {
