@@ -166,6 +166,7 @@ export default function EmailDashboard() {
                 ? emailPagination.perPage
                 : DEFAULT_EMAILS_PER_PAGE,
             accessToken,
+            label: labelFilter !== "all" ? labelFilter : undefined,
           }),
         ]);
         setStats(statsData);
@@ -184,7 +185,7 @@ export default function EmailDashboard() {
         setInitialized(true);
       }
     },
-    [accessToken, applyEmailResponse, emailPagination.perPage, statsScope]
+    [accessToken, applyEmailResponse, emailPagination.perPage, statsScope, labelFilter]
   );
 
   const handleScopeChange = useCallback((nextScope: EmailStatsScope) => {
@@ -192,7 +193,12 @@ export default function EmailDashboard() {
   }, []);
 
   const handleLabelFilterChange = useCallback((nextValue: LabelFilterValue) => {
+    emailPageRef.current = 1;
     setLabelFilter(nextValue);
+    setEmailPagination((prev) => ({
+      ...prev,
+      page: 1,
+    }));
   }, []);
 
   const handleManualRefresh = useCallback(() => {

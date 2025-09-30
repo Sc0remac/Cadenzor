@@ -26,3 +26,10 @@ out/
 # VSCode / IDE
 .vscode/
 .idea/
+
+# Supabase migrations
+supabase/
+
+# Misc project docs
+Oran Questionnaire Responses.txt
+Project Overview.txt

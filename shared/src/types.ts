@@ -1,16 +1,283 @@
-export const DEFAULT_EMAIL_LABELS = [
-  "booking",
-  "promo_time",
-  "promo_submission",
-  "logistics",
-  "assets_request",
-  "finance",
-  "fan_mail",
-  "legal",
-  "other",
-] as const;
-
 export type EmailLabel = string;
+
+export interface LabelDefinition {
+  name: EmailLabel;
+  meaning: string;
+  whyItMatters: string;
+}
+
+export interface CrossLabelDefinition {
+  prefix: string;
+  meaning: string;
+  whyItMatters: string;
+}
+
+export const PRIMARY_LABEL_DEFINITIONS: ReadonlyArray<LabelDefinition> = [
+  {
+    name: "LEGAL/Contract_Draft",
+    meaning: "Draft agreements, redlines, and tracked changes requiring review.",
+    whyItMatters: "Requires review cycles and can block booking and promo work until resolved.",
+  },
+  {
+    name: "LEGAL/Contract_Executed",
+    meaning: "Fully signed contracts and addenda that are legally binding.",
+    whyItMatters: "Triggers downstream actions like invoicing and logistics lock-ins.",
+  },
+  {
+    name: "LEGAL/Addendum_or_Amendment",
+    meaning: "Changes to contract terms, fees, or dates after execution.",
+    whyItMatters: "Can invalidate prior holds and budgets so teams must review immediately.",
+  },
+  {
+    name: "LEGAL/NDA_or_Clearance",
+    meaning: "NDAs, image or recording clearances, and sync licences.",
+    whyItMatters: "Gates promo content and releases until clearances are confirmed.",
+  },
+  {
+    name: "LEGAL/Insurance_Indemnity",
+    meaning: "Certificates of insurance and liability clauses.",
+    whyItMatters: "Required by venues and festivals; missing documents create show risk.",
+  },
+  {
+    name: "LEGAL/Compliance",
+    meaning: "GDPR, data requests, and policy updates impacting legal compliance.",
+    whyItMatters: "Needs careful handling and retention to satisfy regulatory requirements.",
+  },
+  {
+    name: "FINANCE/Settlement",
+    meaning: "Post-show settlements covering fees, costs, taxes, and net payouts.",
+    whyItMatters: "Directly impacts cash flow and must be reconciled and stored.",
+  },
+  {
+    name: "FINANCE/Invoice",
+    meaning: "Invoices sent to or received from promoters, agencies, or brands.",
+    whyItMatters: "Drives accounts receivable/payable workflows and payment tracking.",
+  },
+  {
+    name: "FINANCE/Payment_Remittance",
+    meaning: "Payment confirmations and remittance advice closing the loop on invoices.",
+    whyItMatters: "Updates ledgers and payment status for financial reporting.",
+  },
+  {
+    name: "FINANCE/Banking_Details",
+    meaning: "Updates to IBAN, SWIFT, and payee banking information.",
+    whyItMatters: "High fraud risk requiring strict verification playbooks.",
+  },
+  {
+    name: "FINANCE/Tax_Docs",
+    meaning: "Tax documents such as W-8, W-9, VAT, and withholding certificates.",
+    whyItMatters: "Affects net payouts and must be retained for each territory.",
+  },
+  {
+    name: "FINANCE/Expenses_Receipts",
+    meaning: "Reimbursable expenses, per diems, and travel receipts.",
+    whyItMatters: "Required for accounting and accurate settlements.",
+  },
+  {
+    name: "FINANCE/Royalties_Publishing",
+    meaning: "Statements from labels or publishers covering royalties.",
+    whyItMatters: "Supports long-term revenue tracking and separate reporting.",
+  },
+  {
+    name: "LOGISTICS/Itinerary_DaySheet",
+    meaning: "Day schedules with contacts, set times, and on-site details.",
+    whyItMatters: "Serves as the single source of truth feeding the project timeline.",
+  },
+  {
+    name: "LOGISTICS/Travel",
+    meaning: "Flight, train, ferry bookings and travel changes.",
+    whyItMatters: "Time-sensitive information for conflict checking and buffers.",
+  },
+  {
+    name: "LOGISTICS/Accommodation",
+    meaning: "Hotel or Airbnb confirmations and changes.",
+    whyItMatters: "Needs alignment with routing and budget planning.",
+  },
+  {
+    name: "LOGISTICS/Ground_Transport",
+    meaning: "Drivers, ride shares, and pickup logistics.",
+    whyItMatters: "Connects arrivals to venues; failures create show risk.",
+  },
+  {
+    name: "LOGISTICS/Visas_Immigration",
+    meaning: "Visa letters, approvals, and immigration appointments.",
+    whyItMatters: "Hard blocker for international performances.",
+  },
+  {
+    name: "LOGISTICS/Technical_Advance",
+    meaning: "Technical riders, stage plots, backline, and FOH/monitor details.",
+    whyItMatters: "Ensures performance readiness and triggers asset shipments.",
+  },
+  {
+    name: "LOGISTICS/Passes_Access",
+    meaning: "Accreditation, wristbands, and AAA lists.",
+    whyItMatters: "Reduces on-site friction and needs early submission.",
+  },
+  {
+    name: "BOOKING/Offer",
+    meaning: "Initial show offers covering city, venue, date, fee, and terms.",
+    whyItMatters: "Creates holds and triggers brand-fit scoring and reply drafts.",
+  },
+  {
+    name: "BOOKING/Hold_or_Availability",
+    meaning: "Requests to hold dates or check availability.",
+    whyItMatters: "Generates tentative calendar holds to prevent clashes.",
+  },
+  {
+    name: "BOOKING/Confirmation",
+    meaning: "Pre-contract confirmations that a show is proceeding.",
+    whyItMatters: "Promotes the opportunity into contract and logistics setup.",
+  },
+  {
+    name: "BOOKING/Reschedule_or_Cancel",
+    meaning: "Changes to dates or terms, including cancellations.",
+    whyItMatters: "Triggers cascading updates to timelines, travel, and promotion.",
+  },
+  {
+    name: "PROMO/Promo_Time_Request",
+    meaning: "Requests for interviews, guest mixes, or press slots tied to timing.",
+    whyItMatters: "Needs routing-aware scheduling and reply drafts with proposed slots.",
+  },
+  {
+    name: "PROMO/Press_Feature",
+    meaning: "Articles, reviews, and photo requests from press.",
+    whyItMatters: "Requires asset coordination and approvals.",
+  },
+  {
+    name: "PROMO/Radio_Playlist",
+    meaning: "Radio plays, playlist adds, and premiere opportunities.",
+    whyItMatters: "Feeds track reports and logs supporter quotes.",
+  },
+  {
+    name: "PROMO/Deliverables",
+    meaning: "Requests for liners, bios, quotes, or promo copy.",
+    whyItMatters: "Creates asset creation tasks with deadlines.",
+  },
+  {
+    name: "PROMO/Promos_Submission",
+    meaning: "People sending tracks or promos for listening.",
+    whyItMatters: "Needs acknowledgement and routing to the listening queue.",
+  },
+  {
+    name: "ASSETS/Artwork",
+    meaning: "Artwork assets such as covers, banners, and social crops.",
+    whyItMatters: "Supports version control and connects to releases and promoters.",
+  },
+  {
+    name: "ASSETS/Audio",
+    meaning: "Audio files like WAVs, masters, radio edits, instrumentals, or stems.",
+    whyItMatters: "Drives SoundCloud drafts and track report completeness.",
+  },
+  {
+    name: "ASSETS/Video",
+    meaning: "Video assets including teasers, trailers, live clips, and reels.",
+    whyItMatters: "Large files with rights considerations that feed scheduling.",
+  },
+  {
+    name: "ASSETS/Photos",
+    meaning: "Press or live photo assets.",
+    whyItMatters: "Used for EPK distribution and consistency across channels.",
+  },
+  {
+    name: "ASSETS/Logos_Brand",
+    meaning: "Logos, lockups, and style guides.",
+    whyItMatters: "Prevents incorrect branding versions from circulating.",
+  },
+  {
+    name: "ASSETS/EPK_OneSheet",
+    meaning: "Press kits, one-pagers, and electronic press kits.",
+    whyItMatters: "Should auto-attach in replies and serve as a central reference.",
+  },
+  {
+    name: "FAN/Support_or_Thanks",
+    meaning: "Supportive or appreciative fan messages.",
+    whyItMatters: "Enables friendly auto-acks and inclusion in weekly digests.",
+  },
+  {
+    name: "FAN/Request",
+    meaning: "Personal requests such as birthdays or giveaways.",
+    whyItMatters: "Needs polite decline templates with optional human review.",
+  },
+  {
+    name: "FAN/Issues_or_Safety",
+    meaning: "Sensitive or urgent community issues flagged by fans.",
+    whyItMatters: "Must escalate to a human immediately with no automation.",
+  },
+  {
+    name: "MISC/Uncategorized",
+    meaning: "Messages that cannot be confidently classified yet.",
+    whyItMatters: "Feeds the active learning pool for manual tagging.",
+  },
+];
+
+export const CROSS_LABEL_DEFINITIONS: ReadonlyArray<CrossLabelDefinition> = [
+  {
+    prefix: "artist",
+    meaning: "Labels scoped to a specific artist, e.g. artist/Barry_Cant_Swim.",
+    whyItMatters: "Enables multi-artist filtering and access rules.",
+  },
+  {
+    prefix: "project",
+    meaning: "Associates the message with a project slug, e.g. project/Asian_Tour_2026.",
+    whyItMatters: "Links to project objects and scoped hubs.",
+  },
+  {
+    prefix: "territory",
+    meaning: "ISO2 territory code such as territory/JP.",
+    whyItMatters: "Supports routing, compliance, and derived data.",
+  },
+  {
+    prefix: "city",
+    meaning: "City names like city/Tokyo.",
+    whyItMatters: "Improves routing context and localisation.",
+  },
+  {
+    prefix: "venue",
+    meaning: "Venue names, normalised when possible.",
+    whyItMatters: "Supports brand-fit enrichment and de-duplication.",
+  },
+  {
+    prefix: "date",
+    meaning: "Key dates in ISO format, e.g. date/2026-05-10.",
+    whyItMatters: "Enables scheduling precision and conflict checks.",
+  },
+  {
+    prefix: "tz",
+    meaning: "Time zone labels using IANA names, e.g. tz/Europe/London.",
+    whyItMatters: "Clarifies scheduling context across regions.",
+  },
+  {
+    prefix: "approval",
+    meaning: "Approval states such as approval/legal or approval/manager.",
+    whyItMatters: "Blocks automation until the required owner signs off.",
+  },
+  {
+    prefix: "confidential",
+    meaning: "Flags sensitive content like confidential/true.",
+    whyItMatters: "Restricts visibility and sharing.",
+  },
+  {
+    prefix: "status",
+    meaning: "Pipeline states such as status/signed or status/pending_info.",
+    whyItMatters: "Feeds reporting on negotiation and fulfilment states.",
+  },
+  {
+    prefix: "assettype",
+    meaning: "Asset types including assettype/artwork or assettype/wav.",
+    whyItMatters: "Speeds up asset routing across systems.",
+  },
+  {
+    prefix: "risk",
+    meaning: "Risk flags like risk/missing_contract or risk/payment_delay.",
+    whyItMatters: "Escalates issues to dashboards for follow-up.",
+  },
+];
+
+export const DEFAULT_EMAIL_LABELS = PRIMARY_LABEL_DEFINITIONS.map(
+  (definition) => definition.name
+) as ReadonlyArray<EmailLabel>;
+
+export const EMAIL_FALLBACK_LABEL: EmailLabel = "MISC/Uncategorized";
 
 /**
  * A simple shape representing an email stored in the database. It contains

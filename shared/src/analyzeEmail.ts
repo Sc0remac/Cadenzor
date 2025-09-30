@@ -1,5 +1,10 @@
-import { DEFAULT_EMAIL_LABELS } from "./types";
+import {
+  CROSS_LABEL_DEFINITIONS,
+  EMAIL_FALLBACK_LABEL,
+  PRIMARY_LABEL_DEFINITIONS,
+} from "./types";
 import type { EmailLabel } from "./types";
+import { normaliseLabels } from "./labelUtils";
 
 export interface EmailAnalysisInput {
   subject: string;
@@ -19,6 +24,61 @@ const MAX_ATTEMPTS = Number(process.env.OPENAI_MAX_RETRIES || 4);
 const BASE_RETRY_DELAY_MS = Number(process.env.OPENAI_RETRY_DELAY_MS || 1500);
 const MAX_RETRY_DELAY_MS = Number(process.env.OPENAI_MAX_RETRY_DELAY_MS || 12000);
 
+const PRIMARY_LABEL_GUIDE = PRIMARY_LABEL_DEFINITIONS.map(
+  ({ name, meaning, whyItMatters }) => `- ${name}: ${meaning} Why: ${whyItMatters}`
+).join("\n");
+
+const CROSS_LABEL_GUIDE = CROSS_LABEL_DEFINITIONS.map(
+  ({ prefix, meaning, whyItMatters }) => `- ${prefix}/{value}: ${meaning} Why: ${whyItMatters}`
+).join("\n");
+
+const PLAYBOOK_CUES: Array<{ scope: string; instruction: string }> = [
+  {
+    scope: "LEGAL/",
+    instruction:
+      "Never auto-send. Keep drafts only, route to owner or manager for approval, extract key terms (fee, exclusivity, territory, dates), attach them to Projects and Bookings, and enforce tight retention with restricted sharing.",
+  },
+  {
+    scope: "FINANCE/Settlement",
+    instruction:
+      "Parse statements into line items, costs, taxes, and net; update the ledger; tag city/venue/date; link to the show Project; require two-step verification for banking changes; remind teams about unpaid invoices or mismatched remittances.",
+  },
+  {
+    scope: "LOGISTICS/",
+    instruction:
+      "Create or refresh timeline items for travel, accommodation, and technical advance. Validate buffers and conflicts, and push key contacts plus day sheets to the Project hub.",
+  },
+  {
+    scope: "BOOKING/",
+    instruction:
+      "Create a lead, propose or set holds, scaffold the show folder, draft a reply, kick off brand-fit scoring, and attach to an existing Project or suggest a new one.",
+  },
+  {
+    scope: "PROMO/Promo_Time_Request",
+    instruction:
+      "Propose time-zone-aware slots based on routing, generate reply drafts, and set tentative promo holds on the Project timeline.",
+  },
+  {
+    scope: "PROMO/Promos_Submission",
+    instruction:
+      "Acknowledge receipt automatically, add to the listening queue, and tag the sender as a promo contact.",
+  },
+  {
+    scope: "ASSETS/",
+    instruction:
+      "Canonicalise filenames, store items in the asset library, update track report completeness, and auto-attach correct links in replies.",
+  },
+  {
+    scope: "FAN/",
+    instruction:
+      "Send a friendly auto-acknowledgement, include in the weekly digest, and escalate only if flagged as issues or safety.",
+  },
+];
+
+const PLAYBOOK_GUIDE = PLAYBOOK_CUES.map(
+  ({ scope, instruction }) => `- ${scope}: ${instruction}`
+).join("\n");
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -32,26 +92,12 @@ function ensureApiKey(): string {
 }
 
 function parseLabels(value: unknown): EmailLabel[] {
-  if (!Array.isArray(value)) return ["general"];
-
-  const mapped = value
-    .map((item) =>
-      typeof item === "string"
-        ? item
-            .trim()
-            .toLowerCase()
-            .replace(/[^a-z0-9\s_-]/g, "")
-            .replace(/\s+/g, "_")
-        : null
-    )
-    .filter((item): item is string => !!item);
-
-  if (mapped.length === 0) {
-    return ["general"];
+  const normalised = normaliseLabels(value);
+  if (normalised.length === 0) {
+    return [EMAIL_FALLBACK_LABEL];
   }
 
-  const unique = Array.from(new Set(mapped));
-  return unique.slice(0, MAX_LABELS);
+  return normalised.slice(0, MAX_LABELS);
 }
 
 function parseSummary(value: unknown): string {
@@ -119,7 +165,24 @@ export async function analyzeEmail(
 ): Promise<EmailAnalysisResult> {
   const apiKey = ensureApiKey();
 
-  const systemMessage = `You are an assistant labelling inbox emails for an artist manager. You must always return at least one label. Start from these defaults when they apply: ${DEFAULT_EMAIL_LABELS.join(", ")}. If none apply, invent a concise new label that uses lowercase words joined by underscores (e.g. "tour_planning"). Put the most specific label first.`;
+  const systemMessage = [
+    "You are an assistant labelling inbox emails for an artist manager.",
+    `Return between 1 and ${MAX_LABELS} labels for each message.`,
+    "Primary labels (always include at least one and place it first):",
+    PRIMARY_LABEL_GUIDE,
+    "",
+    "Cross-tag prefixes (optional, append after the primary label only when evidence exists):",
+    CROSS_LABEL_GUIDE,
+    "",
+    "Playbook cues:",
+    PLAYBOOK_GUIDE,
+    "",
+    "Rules:",
+    "- Use the exact label names and casing shown above.",
+    `- Never invent new primary labels; use ${EMAIL_FALLBACK_LABEL} alone when nothing fits.`,
+    "- Optional cross-tags must follow the format prefix/value using the supported prefixes.",
+    "- Prioritise concise, factual summaries supporting the chosen labels.",
+  ].join("\n");
 
   const sanitizedSubject = normaliseSubject(input.subject);
   const sanitizedBody = normaliseBody(input.body);
@@ -142,7 +205,7 @@ export async function analyzeEmail(
         content: [
           {
             type: "text",
-            text: `Summarise the email in no more than 120 words and return JSON with keys "summary" (string) and "labels" (array of ${MAX_LABELS} lowercase underscore labels). Always include at least one label. Email data: ${JSON.stringify(
+            text: `Summarise the email in no more than 120 words and return JSON with keys "summary" (string) and "labels" (array of up to ${MAX_LABELS} strings). Labelling rules: (1) include at least one primary label and put it first, (2) append any supported cross-tags after the primary label when the content provides that metadata, (3) use the exact casing provided in the taxonomy, (4) if no primary label fits, use only ${EMAIL_FALLBACK_LABEL}. Email data: ${JSON.stringify(
               userPayload
             )}`,
           },

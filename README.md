@@ -1,6 +1,6 @@
 # Cadenzor
 
-Cadenzor is an early prototype of an artist‑management tool derived from the “Aura” vision.  This v1 focuses on the **email triage / classifier** portion of the platform.  The system connects to Gmail, classifies unread messages into high‑level categories (e.g. booking, promo, logistics) and writes the results into a Supabase database.  A lightweight web interface built with Next.js displays aggregated counts of unread emails by category.  Contact information is also stored so that future features can enrich and de‑duplicate artist relationships.
+Cadenzor is an early prototype of an artist‑management tool derived from the “Aura” vision.  This v1 focuses on the **email triage / classifier** portion of the platform.  The system connects to Gmail, classifies unread messages using the detailed LEGAL/… — FINANCE/… — LOGISTICS/… taxonomy, and writes the results into a Supabase database.  A lightweight web interface built with Next.js displays aggregated counts of unread emails by category.  Contact information is also stored so that future features can enrich and de‑duplicate artist relationships.
 
 > **Note:** This project scaffolding is intentionally minimal—there is no authentication or production‑ready error handling.  It is designed as a starting point that you can expand upon.  You will need to provision your own Supabase project, obtain Google OAuth credentials and a Gmail refresh token, and configure environment variables as described below.
 
@@ -103,13 +103,70 @@ npm run dev
 
 Then visit [http://localhost:3000](http://localhost:3000) in your browser.  Ensure that the environment variables in `.env.local` (or your hosting platform) supply `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` so the frontend can connect to Supabase.
 
+## Timeline Studio
+
+The project hub now includes a timeline workspace that mirrors the specification. Key capabilities:
+
+- Multi-lane visualisation for Live, Promo, Writing, Brand, Release and ad-hoc lanes.
+- Finish-to-start and start-to-start dependency edges rendered directly on the timeline.
+- Tunable travel buffer with automatic conflict alerts for overlapping slots or territory jumps.
+- Unscheduled backlog list so items without dates remain visible until placed.
+
 ## Gmail labels in your inbox
 
 Cadenzor now applies Gmail labels to messages it classifies so you can see them directly in your inbox:
 
-- Labels are created under a parent label `Cadenzor`, e.g. `Cadenzor/booking`, `Cadenzor/promo_time`.
+- Labels are created under a parent label `Cadenzor`, e.g. `Cadenzor/LEGAL/Contract_Draft` or `Cadenzor/FINANCE/Settlement` plus any cross-tag metadata such as `Cadenzor/artist/Barry_Cant_Swim`.
 - If a label does not exist yet, it is created automatically.
 - Ensure the refresh token was granted the `https://www.googleapis.com/auth/gmail.modify` scope so labels can be added.
+
+## Email taxonomy
+
+Cadenzor’s classifier now aligns with the detailed taxonomy supplied by the artist management team. Primary labels (one is required per email) are:
+
+- LEGAL/Contract_Draft — Draft agreements, redlines, tracked changes.
+- LEGAL/Contract_Executed — Fully signed contracts and addenda.
+- LEGAL/Addendum_or_Amendment — Changes to terms, fees, or dates.
+- LEGAL/NDA_or_Clearance — NDAs, image/recording clearances, sync licences.
+- LEGAL/Insurance_Indemnity — Certificates of insurance and liability clauses.
+- LEGAL/Compliance — GDPR, data requests, policy updates.
+- FINANCE/Settlement — Post-show settlements covering fees, costs, taxes, and net payouts.
+- FINANCE/Invoice — Invoices to or from promoters, agencies, brands.
+- FINANCE/Payment_Remittance — Payment confirmations and remittance advice.
+- FINANCE/Banking_Details — IBAN/SWIFT updates and payee changes.
+- FINANCE/Tax_Docs — W-8/W-9, VAT, withholding certificates.
+- FINANCE/Expenses_Receipts — Reimbursables, per diems, travel receipts.
+- FINANCE/Royalties_Publishing — Statements from labels/publishers.
+- LOGISTICS/Itinerary_DaySheet — Day schedules, contacts, set times.
+- LOGISTICS/Travel — Flights, trains, ferries, ticket changes.
+- LOGISTICS/Accommodation — Hotels/Airbnbs and confirmations.
+- LOGISTICS/Ground_Transport — Drivers, pickups, ride shares.
+- LOGISTICS/Visas_Immigration — Visa letters, approvals, appointments.
+- LOGISTICS/Technical_Advance — Tech rider, stage plot, backline.
+- LOGISTICS/Passes_Access — Accreditation, wristbands, AAA lists.
+- BOOKING/Offer — Initial offers with city, venue, fee, terms.
+- BOOKING/Hold_or_Availability — Date holds and availability checks.
+- BOOKING/Confirmation — Pre-contract confirmation emails.
+- BOOKING/Reschedule_or_Cancel — Date or term changes and cancellations.
+- PROMO/Promo_Time_Request — Interviews, guest mixes, press slots.
+- PROMO/Press_Feature — Articles, reviews, photo requests.
+- PROMO/Radio_Playlist — Radio plays, playlist adds, premieres.
+- PROMO/Deliverables — Liners, bios, quotes, promo copy requests.
+- PROMO/Promos_Submission — Tracks and promos submitted for listening.
+- ASSETS/Artwork — Covers, banners, social crops.
+- ASSETS/Audio — WAVs, masters, radio edits, stems.
+- ASSETS/Video — Teasers, trailers, live clips, reels.
+- ASSETS/Photos — Press shots and live photos.
+- ASSETS/Logos_Brand — Logos, lockups, style guides.
+- ASSETS/EPK_OneSheet — Press kits and one-pagers.
+- FAN/Support_or_Thanks — General appreciation from fans.
+- FAN/Request — Birthday, wedding, giveaway requests.
+- FAN/Issues_or_Safety — Sensitive or urgent community issues.
+- MISC/Uncategorized — Used only when nothing else fits.
+
+Cross-tag prefixes (optional and applied alongside primary labels) include: `artist/{name}`, `project/{slug}`, `territory/{ISO2}`, `city/{name}`, `venue/{name}`, `date/{YYYY-MM-DD}`, `tz/{IANA}`, `approval/{type}`, `confidential/{flag}`, `status/{state}`, `assettype/{kind}`, and `risk/{flag}`.
+
+Existing email classifications are reset to `MISC/Uncategorized` by the accompanying migration so you can re-run the classifier with the new taxonomy.
 
 ## Extending Cadenzor
 

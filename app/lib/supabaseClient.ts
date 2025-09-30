@@ -30,6 +30,7 @@ type FetchEmailsOptions = {
   page?: number;
   perPage?: number;
   accessToken?: string;
+  label?: string | null;
 };
 
 function buildHeaders(accessToken?: string): HeadersInit {
@@ -81,7 +82,7 @@ export async function fetchEmailStats(
 export async function fetchRecentEmails(
   options: FetchEmailsOptions = {}
 ): Promise<EmailListResponse> {
-  const { page, perPage, accessToken } = options;
+  const { page, perPage, accessToken, label } = options;
 
   const query = new URLSearchParams();
   if (page != null) {
@@ -89,6 +90,9 @@ export async function fetchRecentEmails(
   }
   if (perPage != null) {
     query.set("perPage", String(perPage));
+  }
+  if (label) {
+    query.set("label", label);
   }
 
   const queryString = query.toString();
