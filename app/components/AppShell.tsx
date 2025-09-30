@@ -7,10 +7,11 @@ import { useAuth } from "./AuthProvider";
 
 const NAV_LINKS = [
   { href: "/", label: "Dashboard" },
+  { href: "/projects", label: "Projects" },
   { href: "/profile", label: "Profile" },
 ];
 
-const PLACEHOLDER_BUTTONS = ["Clients", "Projects", "Reports"];
+const PLACEHOLDER_BUTTONS = ["Clients", "Reports"];
 
 function isActive(pathname: string, href: string): boolean {
   return pathname === href;

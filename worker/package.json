@@ -6,7 +6,8 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p .",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "refresh-projects": "node dist/projectJobs.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.1",
