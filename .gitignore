@@ -28,7 +28,7 @@ out/
 .idea/
 
 # Supabase migrations
-supabase/
+/supabase
 
 # Misc project docs
 Oran Questionnaire Responses.txt
