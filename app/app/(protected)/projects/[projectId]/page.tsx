@@ -16,6 +16,7 @@ import {
   type ProjectHubResponse,
 } from "../../../../lib/supabaseClient";
 import { useAuth } from "../../../../components/AuthProvider";
+import { TimelineStudio, type DependencyKind } from "../../../../components/projects/TimelineStudio";
 
 const TABS = [
   { value: "overview", label: "Overview" },
@@ -47,6 +48,8 @@ interface TimelineFormState {
   lane: string;
   territory: string;
   priority: number;
+  dependencies: string[];
+  dependencyKind: DependencyKind;
 }
 
 interface TaskFormState {
@@ -65,6 +68,8 @@ const INITIAL_TIMELINE_FORM: TimelineFormState = {
   lane: "Live",
   territory: "",
   priority: 50,
+  dependencies: [],
+  dependencyKind: "FS",
 };
 
 const INITIAL_TASK_FORM: TaskFormState = {
@@ -141,6 +146,11 @@ export default function ProjectHubPage() {
     setTimelineForm((prev) => ({ ...prev, [name]: name === "priority" ? Number(value) : value }));
   };
 
+  const handleTimelineDependencies = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const selected = Array.from(event.target.selectedOptions).map((option) => option.value);
+    setTimelineForm((prev) => ({ ...prev, dependencies: selected }));
+  };
+
   const handleTaskField = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = event.target;
     setTaskForm((prev) => ({ ...prev, [name]: name === "priority" ? Number(value) : value }));
@@ -154,6 +164,15 @@ export default function ProjectHubPage() {
     }
 
     try {
+      const metadata = timelineForm.dependencies.length
+        ? {
+            dependencies: timelineForm.dependencies.map((dependencyId) => ({
+              itemId: dependencyId,
+              kind: timelineForm.dependencyKind,
+            })),
+          }
+        : undefined;
+
       await createTimelineItem(
         projectId,
         {
@@ -164,6 +183,7 @@ export default function ProjectHubPage() {
           lane: timelineForm.lane || null,
           territory: timelineForm.territory || null,
           priority: timelineForm.priority,
+          metadata,
         },
         accessToken
       );
@@ -422,20 +442,11 @@ export default function ProjectHubPage() {
       <TimelineForm
         form={timelineForm}
         onFieldChange={handleTimelineField}
+        onDependenciesChange={handleTimelineDependencies}
         onSubmit={submitTimelineItem}
+        existingItems={hub?.timelineItems ?? []}
       />
-      <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-        <h3 className="text-lg font-semibold text-gray-900">Timeline items</h3>
-        {hub.timelineItems.length === 0 ? (
-          <p className="mt-2 text-sm text-gray-500">No timeline entries yet.</p>
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {hub.timelineItems.map((item) => (
-              <TimelineRow key={item.id} item={item} onRemove={() => void removeTimelineItem(item.id)} />
-            ))}
-          </ul>
-        )}
-      </div>
+      <TimelineStudio items={hub?.timelineItems ?? []} />
     </div>
   );
 
@@ -719,12 +730,26 @@ function StatsCard({ title, value }: { title: string; value: number }) {
 function TimelineForm({
   form,
   onFieldChange,
+  onDependenciesChange,
   onSubmit,
+  existingItems,
 }: {
   form: TimelineFormState;
   onFieldChange: (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+  onDependenciesChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  existingItems: TimelineItemRecord[];
 }) {
+  const sortedTimelineItems = useMemo(() => {
+    return [...existingItems].sort((a, b) => {
+      const aValueRaw = a.startsAt ? Date.parse(a.startsAt) : Number.POSITIVE_INFINITY;
+      const bValueRaw = b.startsAt ? Date.parse(b.startsAt) : Number.POSITIVE_INFINITY;
+      const aValue = Number.isNaN(aValueRaw) ? Number.POSITIVE_INFINITY : aValueRaw;
+      const bValue = Number.isNaN(bValueRaw) ? Number.POSITIVE_INFINITY : bValueRaw;
+      return aValue - bValue;
+    });
+  }, [existingItems]);
+
   return (
     <form onSubmit={onSubmit} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
       <h3 className="text-lg font-semibold text-gray-900">Add timeline item</h3>
@@ -784,6 +809,43 @@ function TimelineForm({
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
           />
         </label>
+        <label className="md:col-span-2 text-xs font-semibold uppercase text-gray-500">
+          Dependencies
+          <select
+            name="dependencies"
+            multiple
+            value={form.dependencies}
+            onChange={onDependenciesChange}
+            disabled={sortedTimelineItems.length === 0}
+            size={Math.min(6, Math.max(3, sortedTimelineItems.length || 3))}
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+          >
+            {sortedTimelineItems.map((item) => {
+              const label = item.startsAt
+                ? `${item.title} - ${new Date(item.startsAt).toLocaleDateString()}`
+                : item.title;
+              return (
+                <option key={item.id} value={item.id}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
+          <span className="mt-1 block text-[0.65rem] text-gray-400">Hold Ctrl/Cmd to select multiple blockers.</span>
+        </label>
+        <label className="text-xs font-semibold uppercase text-gray-500">
+          Dependency mode
+          <select
+            name="dependencyKind"
+            value={form.dependencyKind}
+            onChange={onFieldChange}
+            disabled={form.dependencies.length === 0}
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+          >
+            <option value="FS">Finish to Start</option>
+            <option value="SS">Start to Start</option>
+          </select>
+        </label>
         <label className="text-xs font-semibold uppercase text-gray-500">
           Territory
           <input
@@ -819,32 +881,7 @@ function TimelineForm({
   );
 }
 
-function TimelineRow({
-  item,
-  onRemove,
-}: {
-  item: TimelineItemRecord;
-  onRemove: () => void;
-}) {
-  return (
-    <li className="flex flex-col gap-2 rounded border border-gray-200 p-3 text-sm text-gray-700 md:flex-row md:items-center md:justify-between">
-      <div>
-        <p className="font-semibold text-gray-900">{item.title}</p>
-        <p className="text-xs text-gray-500">
-          {item.type.toUpperCase()} • {item.lane || "General"}
-          {item.startsAt ? ` • ${new Date(item.startsAt).toLocaleString()}` : ""}
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="self-start rounded-md border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-100"
-      >
-        Remove
-      </button>
-    </li>
-  );
-}
+
 
 function TaskForm({
   form,
