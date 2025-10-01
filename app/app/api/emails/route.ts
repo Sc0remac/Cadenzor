@@ -64,7 +64,8 @@ export async function GET(request: Request) {
     .order("received_at", { ascending: false });
 
   if (labelFilter) {
-    query = query.contains("labels", [labelFilter]);
+    // Supabase's jsonb contains filter expects a JSON-encoded string input.
+    query = query.contains("labels", JSON.stringify([labelFilter]));
   }
 
   const { data, error, count } = await query.range(from, to);

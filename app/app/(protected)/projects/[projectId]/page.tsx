@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { EmailRecord, ProjectRecord, ProjectTaskRecord, TimelineItemRecord } from "@cadenzor/shared";
 import {
@@ -658,7 +658,7 @@ export default function ProjectHubPage() {
     </div>
   );
 
-  const tabContent: Record<TabKey, JSX.Element> = {
+  const tabContent: Record<TabKey, ReactElement> = {
     overview: renderOverview(),
     timeline: renderTimeline(),
     inbox: renderInbox(),

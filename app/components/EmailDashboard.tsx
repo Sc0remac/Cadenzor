@@ -201,6 +201,14 @@ export default function EmailDashboard() {
     }));
   }, []);
 
+  const handleLabelTileClick = useCallback(
+    (label: EmailLabel) => {
+      const nextValue: LabelFilterValue = labelFilter === label ? "all" : label;
+      handleLabelFilterChange(nextValue);
+    },
+    [handleLabelFilterChange, labelFilter]
+  );
+
   const handleManualRefresh = useCallback(() => {
     void loadData();
   }, [loadData]);
@@ -305,33 +313,61 @@ export default function EmailDashboard() {
     handlePageChange((emailPageRef.current || 1) - 1);
   }, [handlePageChange]);
 
-  const categories = useMemo(() => {
-    const seen = new Set<string>();
-    const ordered: string[] = [];
+  const labelStatsEntries = useMemo(() => {
+    const defaultOrder = new Map<string, number>();
+    DEFAULT_EMAIL_LABELS.forEach((label, index) => {
+      defaultOrder.set(label, index);
+    });
+
+    const aggregated = new Map<string, number>();
+
     DEFAULT_EMAIL_LABELS.forEach((label) => {
-      if (!seen.has(label)) {
-        ordered.push(label);
-        seen.add(label);
+      const count = stats[label];
+      aggregated.set(
+        label,
+        typeof count === "number" && Number.isFinite(count) ? count : 0
+      );
+    });
+
+    Object.entries(stats).forEach(([label, value]) => {
+      if (!label) {
+        return;
       }
+      const count = typeof value === "number" && Number.isFinite(value) ? value : 0;
+      aggregated.set(label, count);
     });
-    Object.keys(stats)
-      .filter((label) => !!label && !seen.has(label))
-      .forEach((label) => {
-        ordered.push(label);
-        seen.add(label);
-    });
-    return ordered;
+
+    return Array.from(aggregated.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) {
+          return b.count - a.count;
+        }
+        const aRank = defaultOrder.has(a.label)
+          ? defaultOrder.get(a.label) ?? Number.MAX_SAFE_INTEGER
+          : Number.MAX_SAFE_INTEGER;
+        const bRank = defaultOrder.has(b.label)
+          ? defaultOrder.get(b.label) ?? Number.MAX_SAFE_INTEGER
+          : Number.MAX_SAFE_INTEGER;
+        if (aRank !== bRank) {
+          return aRank - bRank;
+        }
+        return a.label.localeCompare(b.label);
+      });
   }, [stats]);
+
+  const topLabelEntries = labelStatsEntries.slice(0, 3);
+  const otherLabelEntries = labelStatsEntries.slice(3);
 
   const labelFilterOptions = useMemo(() => {
     const values: LabelFilterValue[] = ["all"];
-    categories.forEach((label) => {
+    labelStatsEntries.forEach(({ label }) => {
       if (label) {
         values.push(label as EmailLabel);
       }
     });
     return values;
-  }, [categories]);
+  }, [labelStatsEntries]);
 
   const visibleEmails = useMemo(() => {
     if (labelFilter === "all") {
@@ -483,19 +519,67 @@ export default function EmailDashboard() {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-        {categories.map((category) => {
-          const count = stats[category] ?? 0;
-          return (
-            <div
-              key={category || "uncategorised"}
-              className="rounded border border-gray-200 bg-white p-4 shadow"
-            >
-              <h3 className="text-lg font-semibold">{formatLabel(category)}</h3>
-              <p className="mt-2 text-2xl font-bold text-indigo-600">{count}</p>
-            </div>
-          );
-        })}
+        {topLabelEntries.length === 0 ? (
+          <div className="col-span-full rounded border border-dashed border-gray-200 bg-white p-6 text-center shadow">
+            <p className="text-sm text-gray-500">No label activity yet.</p>
+          </div>
+        ) : (
+          topLabelEntries.map(({ label, count }, index) => {
+            const isActive = labelFilter === label;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => handleLabelTileClick(label as EmailLabel)}
+                className={`flex h-full flex-col items-start justify-between rounded border bg-white p-4 text-left shadow transition ${
+                  isActive
+                    ? "border-indigo-500 ring-1 ring-indigo-200"
+                    : "border-gray-200 hover:border-indigo-200 hover:shadow-md"
+                }`}
+              >
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    #{index + 1}
+                  </h3>
+                  <p className="mt-1 text-lg font-semibold text-gray-900">{formatLabel(label)}</p>
+                </div>
+                <p className="mt-4 text-3xl font-bold text-indigo-600">{count}</p>
+                <span className="mt-2 text-xs text-gray-500">
+                  {isActive ? "Filtering applied" : "Click to filter by this label"}
+                </span>
+              </button>
+            );
+          })
+        )}
       </div>
+
+      {otherLabelEntries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Other labels
+          </span>
+          {otherLabelEntries.map(({ label, count }) => {
+            const isActive = labelFilter === label;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => handleLabelTileClick(label as EmailLabel)}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  isActive
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                    : "border-gray-200 bg-white text-gray-600 hover:border-indigo-200 hover:text-indigo-700"
+                }`}
+              >
+                <span>{formatLabel(label)}</span>
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
