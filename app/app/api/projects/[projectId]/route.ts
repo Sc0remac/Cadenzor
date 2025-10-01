@@ -9,13 +9,22 @@ import {
   mapProjectTaskRow,
   mapProjectItemLinkRow,
   mapProjectEmailLinkRow,
+  mapTimelineDependencyRow,
+  mapApprovalRow,
 } from "../../../../lib/projectMappers";
-import type { ProjectRecord, EmailRecord } from "@cadenzor/shared";
+import type {
+  ProjectRecord,
+  EmailRecord,
+  TimelineItemRecord,
+  ProjectConflictRecord,
+  ProjectTopAction,
+} from "@cadenzor/shared";
 import {
   ensureDefaultLabelCoverage,
   normaliseLabel,
   normaliseLabels,
 } from "@cadenzor/shared";
+import { buildTopActions } from "@cadenzor/shared";
 
 interface Params {
   params: {
@@ -63,7 +72,7 @@ export async function GET(request: Request, { params }: Params) {
 
   const project = mapProjectRow(projectRow);
 
-  const [membersRes, sourcesRes, timelineRes, tasksRes, linksRes, emailLinksRes] = await Promise.all([
+  const [membersRes, sourcesRes, timelineRes, dependenciesRes, tasksRes, linksRes, emailLinksRes, approvalsRes] = await Promise.all([
     supabase
       .from("project_members")
       .select("id, project_id, user_id, role, created_at")
@@ -78,6 +87,10 @@ export async function GET(request: Request, { params }: Params) {
       .eq("project_id", projectId)
       .order("starts_at", { ascending: true }),
     supabase
+      .from("timeline_dependencies")
+      .select("*")
+      .eq("project_id", projectId),
+    supabase
       .from("project_tasks")
       .select("*")
       .eq("project_id", projectId)
@@ -91,6 +104,12 @@ export async function GET(request: Request, { params }: Params) {
       .from("project_email_links")
       .select("*")
       .eq("project_id", projectId),
+    supabase
+      .from("approvals")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: true }),
   ]);
 
   if (membersRes.error) {
@@ -101,6 +120,9 @@ export async function GET(request: Request, { params }: Params) {
   }
   if (timelineRes.error) {
     return formatError(timelineRes.error.message, 500);
+  }
+  if (dependenciesRes.error) {
+    return formatError(dependenciesRes.error.message, 500);
   }
   if (tasksRes.error) {
     return formatError(tasksRes.error.message, 500);
@@ -143,6 +165,7 @@ export async function GET(request: Request, { params }: Params) {
 
   const sources = (sourcesRes.data ?? []).map(mapProjectSourceRow);
   const timelineItems = (timelineRes.data ?? []).map(mapTimelineItemRow);
+  const timelineDependencies = (dependenciesRes.data ?? []).map(mapTimelineDependencyRow);
   const tasks = (tasksRes.data ?? []).map(mapProjectTaskRow);
   const itemLinks = (linksRes.data ?? []).map(mapProjectItemLinkRow);
 
@@ -173,12 +196,23 @@ export async function GET(request: Request, { params }: Params) {
     email: row.email_id ? emailsById.get(row.email_id as string) ?? null : null,
   }));
 
+  if (approvalsRes.error) {
+    return formatError(approvalsRes.error.message, 500);
+  }
+
+  const approvals = (approvalsRes.data ?? []).map(mapApprovalRow);
+
+  const { conflicts, conflictItemIds } = detectConflicts(timelineItems, 4);
+  const topActions = buildTopActions(timelineItems, tasks, conflictItemIds, 8);
+
   const stats = {
     memberCount: members.length,
     sourceCount: sources.length,
     linkedEmailCount: emailLinks.length,
     openTaskCount: tasks.filter((task) => task.status !== "done" && task.status !== "completed").length,
     upcomingTimelineCount: timelineItems.filter((item) => item.startsAt && new Date(item.startsAt) >= new Date()).length,
+    conflictCount: conflicts.length,
+    lastUpdatedAt: new Date().toISOString(),
   };
 
   return NextResponse.json({
@@ -186,11 +220,69 @@ export async function GET(request: Request, { params }: Params) {
     members,
     sources,
     timelineItems,
+    timelineDependencies,
     tasks,
     itemLinks,
     emailLinks,
+    approvals,
+    conflicts,
+    topActions,
     stats,
   });
+}
+
+function detectConflicts(items: TimelineItemRecord[], bufferHours: number): {
+  conflicts: ProjectConflictRecord[];
+  conflictItemIds: Set<string>;
+} {
+  const conflicts: ProjectConflictRecord[] = [];
+  const conflictItemIds = new Set<string>();
+  const scheduled = items
+    .map((item) => {
+      const start = item.startsAt ? Date.parse(item.startsAt) : null;
+      const end = item.endsAt ? Date.parse(item.endsAt) : null;
+      if (start == null) return null;
+      const effectiveEnd = end && end > start ? end : start + 2 * 60 * 60 * 1000;
+      return { item, start, end: effectiveEnd };
+    })
+    .filter((value): value is { item: TimelineItemRecord; start: number; end: number } => Boolean(value));
+
+  const bufferMs = bufferHours * 60 * 60 * 1000;
+
+  for (let i = 0; i < scheduled.length; i += 1) {
+    for (let j = i + 1; j < scheduled.length; j += 1) {
+      const a = scheduled[i];
+      const b = scheduled[j];
+
+      const overlaps = a.end > b.start && b.end > a.start;
+      if (overlaps && a.item.lane === b.item.lane) {
+        conflictItemIds.add(a.item.id);
+        conflictItemIds.add(b.item.id);
+        conflicts.push({
+          id: `${a.item.id}:${b.item.id}:overlap`,
+          itemIds: [a.item.id, b.item.id],
+          severity: "warning",
+          message: `${a.item.title} overlaps with ${b.item.title} in ${a.item.lane || "General"}`,
+        });
+      }
+
+      if (a.item.territory && b.item.territory && a.item.territory === b.item.territory) {
+        const delta = Math.abs(a.start - b.start);
+        if (delta < bufferMs) {
+          conflictItemIds.add(a.item.id);
+          conflictItemIds.add(b.item.id);
+          conflicts.push({
+            id: `${a.item.id}:${b.item.id}:territory`,
+            itemIds: [a.item.id, b.item.id],
+            severity: "error",
+            message: `${a.item.title} and ${b.item.title} are both in ${a.item.territory} without ${bufferHours}h buffer`,
+          });
+        }
+      }
+    }
+  }
+
+  return { conflicts, conflictItemIds };
 }
 
 export async function PATCH(request: Request, { params }: Params) {

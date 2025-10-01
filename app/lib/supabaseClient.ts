@@ -6,9 +6,16 @@ import type {
   ProjectItemLinkRecord,
   ProjectEmailLinkRecord,
   TimelineItemRecord,
+  TimelineDependencyRecord,
   ProjectTaskRecord,
   ProjectTemplateRecord,
   ProjectTemplateItemRecord,
+  ApprovalRecord,
+  ApprovalStatus,
+  ApprovalDecisionInput,
+  ProjectHubStats,
+  ProjectConflictRecord,
+  ProjectTopAction,
 } from "@cadenzor/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -219,10 +226,14 @@ export interface ProjectHubResponse {
   members: Array<{ member: ProjectMemberRecord; profile: { fullName: string | null; email: string | null } | null }>;
   sources: ProjectSourceRecord[];
   timelineItems: TimelineItemRecord[];
+  timelineDependencies: TimelineDependencyRecord[];
   tasks: ProjectTaskRecord[];
   itemLinks: ProjectItemLinkRecord[];
   emailLinks: Array<{ link: ProjectEmailLinkRecord; email: EmailRecord | null }>;
-  stats: Record<string, number>;
+  approvals: ApprovalRecord[];
+  conflicts: ProjectConflictRecord[];
+  topActions: ProjectTopAction[];
+  stats: ProjectHubStats;
 }
 
 export async function fetchProjectHub(
@@ -263,6 +274,54 @@ export async function updateProject(
   }
 
   return payload.project as ProjectRecord;
+}
+
+export async function fetchApprovals(
+  projectId: string,
+  options: { status?: ApprovalStatus; accessToken?: string } = {}
+): Promise<ApprovalRecord[]> {
+  const { status, accessToken } = options;
+  const query = new URLSearchParams();
+  query.set("projectId", projectId);
+  if (status) {
+    query.set("status", status);
+  }
+
+  const endpoint = `/api/approvals?${query.toString()}`;
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load approvals");
+  }
+
+  return Array.isArray(payload?.approvals) ? (payload.approvals as ApprovalRecord[]) : [];
+}
+
+export async function decideApproval(
+  approvalId: string,
+  decision: ApprovalDecisionInput,
+  accessToken?: string
+): Promise<ApprovalRecord> {
+  const response = await fetch(`/api/approvals/${approvalId}/decision`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(decision),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to update approval");
+  }
+
+  return payload.approval as ApprovalRecord;
 }
 
 export async function fetchProjectTemplates(accessToken?: string): Promise<

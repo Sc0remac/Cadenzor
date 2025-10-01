@@ -46,6 +46,7 @@ export async function PATCH(request: Request, { params }: Params) {
     refTable: string | null;
     refId: string | null;
     metadata: Record<string, unknown>;
+    dependencies: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
   }>;
 
   try {
@@ -67,7 +68,7 @@ export async function PATCH(request: Request, { params }: Params) {
   if (payload.refId !== undefined) updatePayload["ref_id"] = payload.refId;
   if (payload.metadata !== undefined) updatePayload["metadata"] = payload.metadata;
 
-  if (Object.keys(updatePayload).length === 0) {
+  if (Object.keys(updatePayload).length === 0 && payload.dependencies === undefined) {
     return formatError("No fields to update", 400);
   }
 
@@ -85,6 +86,44 @@ export async function PATCH(request: Request, { params }: Params) {
 
   if (!data) {
     return formatError("Timeline item not found", 404);
+  }
+
+  if (!data) {
+    return formatError("Timeline item not found", 404);
+  }
+
+  if (payload.dependencies !== undefined) {
+    const dependencies = Array.isArray(payload.dependencies)
+      ? payload.dependencies.filter((entry) => entry?.itemId)
+      : [];
+
+    const { error: deleteError } = await supabase
+      .from("timeline_dependencies")
+      .delete()
+      .eq("project_id", projectId)
+      .eq("to_item_id", itemId);
+
+    if (deleteError) {
+      return formatError(deleteError.message, 400);
+    }
+
+    if (dependencies.length > 0) {
+      const insertDependencies = dependencies.map((dependency) => ({
+        project_id: projectId,
+        from_item_id: dependency.itemId,
+        to_item_id: itemId,
+        kind: dependency.kind === "SS" ? "SS" : "FS",
+        note: dependency.note ?? null,
+      }));
+
+      const { error: insertError } = await supabase
+        .from("timeline_dependencies")
+        .insert(insertDependencies);
+
+      if (insertError) {
+        return formatError(insertError.message, 400);
+      }
+    }
   }
 
   return NextResponse.json({ item: mapTimelineItemRow(data) });

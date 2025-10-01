@@ -77,6 +77,7 @@ export async function POST(request: Request, { params }: Params) {
     refTable?: string | null;
     refId?: string | null;
     metadata?: Record<string, unknown>;
+    dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
   };
 
   try {
@@ -119,5 +120,29 @@ export async function POST(request: Request, { params }: Params) {
     return formatError("Failed to create timeline item", 500);
   }
 
-  return NextResponse.json({ item: mapTimelineItemRow(data) });
+  const createdItem = mapTimelineItemRow(data);
+
+  const dependencies = Array.isArray(payload.dependencies)
+    ? payload.dependencies.filter((entry) => entry?.itemId)
+    : [];
+
+  if (dependencies.length > 0) {
+    const insertDependencies = dependencies.map((dependency) => ({
+      project_id: projectId,
+      from_item_id: dependency.itemId,
+      to_item_id: createdItem.id,
+      kind: dependency.kind === "SS" ? "SS" : "FS",
+      note: dependency.note ?? null,
+    }));
+
+    const { error: dependencyError } = await supabase
+      .from("timeline_dependencies")
+      .insert(insertDependencies);
+
+    if (dependencyError) {
+      return formatError(dependencyError.message, 400);
+    }
+  }
+
+  return NextResponse.json({ item: createdItem });
 }

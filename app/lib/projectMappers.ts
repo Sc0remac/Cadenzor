@@ -8,6 +8,9 @@ import type {
   ProjectTaskRecord,
   ProjectTemplateRecord,
   ProjectTemplateItemRecord,
+  TimelineDependencyRecord,
+  ApprovalRecord,
+  ApprovalStatus,
 } from "@cadenzor/shared";
 
 function parseDateTime(value: any): string | null {
@@ -122,6 +125,18 @@ export function mapTimelineItemRow(row: any): TimelineItemRecord {
   };
 }
 
+export function mapTimelineDependencyRow(row: any): TimelineDependencyRecord {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    fromItemId: row.from_item_id as string,
+    toItemId: row.to_item_id as string,
+    kind: (row.kind as TimelineDependencyRecord["kind"]) ?? "FS",
+    note: (row.note as string) ?? null,
+    createdAt: String(row.created_at),
+  };
+}
+
 export function mapProjectTaskRow(row: any): ProjectTaskRecord {
   return {
     id: row.id as string,
@@ -133,6 +148,31 @@ export function mapProjectTaskRow(row: any): ProjectTaskRecord {
     priority: Number(row.priority ?? 0),
     assigneeId: (row.assignee_id as string) ?? null,
     createdBy: (row.created_by as string) ?? null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function parseApprovalStatus(value: any): ApprovalStatus {
+  if (value === "approved" || value === "declined" || value === "pending") {
+    return value;
+  }
+  return "pending";
+}
+
+export function mapApprovalRow(row: any): ApprovalRecord {
+  return {
+    id: row.id as string,
+    projectId: (row.project_id as string) ?? null,
+    type: (row.type as string) ?? "unknown",
+    status: parseApprovalStatus(row.status),
+    payload: parseJson(row.payload),
+    requestedBy: (row.requested_by as string) ?? null,
+    createdBy: (row.created_by as string) ?? null,
+    approverId: (row.approver_id as string) ?? null,
+    approvedAt: row.approved_at ? String(row.approved_at) : null,
+    declinedAt: row.declined_at ? String(row.declined_at) : null,
+    resolutionNote: (row.resolution_note as string) ?? null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
