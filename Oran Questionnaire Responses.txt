@@ -1,0 +1,82 @@
+What types of emails really matter?
+(Booking, promo, logistics, assets, fan, legal, misc) — which of these do you actually want the system to recognise and treat differently?
+1. Legal emails are really important. Often the most lengthy emails / hard to read. Overly worded. But contracts + legal emails very important. 
+ 2. 'Settlements' which are financial threads. Usually post gigs. They contain information relating to bank details, tax information, tax-deductible costs. All of which are factored into the final 'settlement' i.e. the net payout from a show. 
+3. Logistics third. It's so important to keep this clean + organised and for all parties (Artist - Manager - Gig Promoter - Agent) to know where the artist is. I'm speaking in the context of shows + touring. 
+But also on a more general level, outside of gigs, I need to move the artist between sessions - appointments - promo interviews - meetings. 
+4. Assets a close 4th. Of course it's the foundation of marketing and releasing music (or any new product e.g. merch). It's a lot of collating assets, downloading, filing, organising, then circulating and responding to respective parties to make sure everyone is dialled in and sharing the same assets.
+5. Fan emails last. Obviously important and should be monitored with a personal tone. But by far the least vital from a business mgmt perspective. 
+For each type, what’s the ideal outcome?
+(E.g. a booking → create a hold + draft reply; a promo → propose a time slot; logistics → checklist update.)
+→ This locks the “playbook” definition.
+- Legal email received e.g a contract for review -> bot reads the contract, pulls key points and relevative information -> shows me the info, suggests a draft response 
+
+- Settlement -> statement received -> copy in the accountant -> send any requested info (e.g. tax deductible costs, taxi receipts, flight costs, W8-BEN (foreign national tax form) -> bonus points if the bot can check / manage my back-end bookkeeping, to ensure everything is kept a tally of. Example of my personal bookkeeping from SHEE's US Tour here - (Tab 3). 
+
+- Logistics -> summarise promo opportunity (key details include date requested / time required / what is the promo (e.g. radio interview, written interview, guestmix, social media video?) -> where will the final promo 'product' be posted (e.g. DJ Mag page, BBC R1) -> what other artists have done this promo recently? -> bonus points if the bot can evaluate how worthwhile the promo is but that's very subjective -> and yes, final step is proposing time slot and placing a hold in the calendar. 
+
+NB - the same playbook could be applied to a gig promoter saying for example, 'Hey, I think the train going from London - Manchester at 15:00 arriving 18:00 looks good. It costs £100. Does this work for you guys?' 
+
+Then the bot summarises details, checks calendar, and comes to me like 'Hey Oran, this time is ok. But I suggest we leave at 14:00 to give Dave more time to rest + prepare before his set at 21:00'. Same pathway...
+
+
+What do you need surfaced each morning to feel in control?
+(Upcoming shows? Risks like missing travel/backline? New leads? Top 3 things for today?)
+→ This defines the dashboard/digest.
+Main thing is summarising all the different sub-projects I have to manage. For example, right now my main objectives in this quarter are: 
+
+1. New record deal for BCS
+2. Confirm the next releases for SHEE (8months) 
+3. Promote the upcoming releases on BCS' label (Earths Only Paradise)
+4. A lot of housekeeping business bits on BCS. Like insurance, accounting etc. 
+
+These change quarter-by-quarter. So I guess if it's fairly malleable and I can set agenda goals for each quarter. Or at least have it fluid to add / remove projects as they pass by. 
+
+If you asked me this question in May. I would have said the two main projects are: BCS' album + the All Points East live show. Those two projects alone would have >100 subpoints and tasks within them. 
+
+Top 3 things for today always helpful. Emails that I haven't responded to. Perhaps if I have the ability to flag them as 'priority for x week'. Or if Jarvis can figure that out himself by saying e.g. 'Hey Oran, I see you've got the next Earths Only Paradise release next week. Perhaps I should draft some promo emails so that you can make sure that Danny Howard, Pete Tong, and your usual contacts have a copy?'
+
+
+ 
+How do you want to interact with it?
+(Do you want approvals and nudges in Telegram? Or just a daily email? Or a web portal you check?)
+→ This sets the communication channel.
+Web portal would be best for me. I already get snowed under in Whatsapp so I don't think I'd enjoy checking Telegram as well. Daily emails are ok. 
+ 
+Where should the assistant never act alone?
+(Which categories or scenarios must always be draft-only or notify-only — e.g. legal, sensitive negotiations?)
+→ This sets the guardrails.
+
+For the start, never. Full stop. When we're building this I want full approval over everything it's doing. It's so so important that no one thinks I'm a cyber bot. 
+ 
+How do you want scheduling handled around tours?(Should the system look at Josh’s routing and propose interview/promo slots automatically?)→ This defines the intelligence level of the promo playbook.
+
+Yes that could work. But I guess we need to put some parameters / filters in place to make it efficient. For example, if someone from Coleraine Uni Radio requests a 2hour interview I'm like fucking no chance, won't even consider it (0/10). But if someone from BBC R1 pops up I would rank that as 7/10 important. 
+
+But definitely from a perspective of time management / scheduling, Jarvis can do the legwork. For example, if Dave flies from Chicago - NYC on a Monday. He arrives at 11am. And there's a prospective interview at 2pm. Usually I would go and google 'how long it takes to get from NYC airport - hotel - interview location'. Then I can go to Dave and say 'Hey man, so you land at 11am, it takes 1hr to get to hotel, you can have a 1hr lunch breather, then it takes 1hr to get the subway to interview location'. 
+
+That would save me a lot of time. And in another example, if Josh has two interviews that are requested for a similar time slot. The bot could be like 'Hey Oran, these two interviews won't work in current scheduling. But BBC R1 did mention that they could do 12-1pm, instead of 1-2pm. Shall I suggest that we move it earlier in the day to allow time for both interviews?' 
+ 
+What do you expect it to do with meeting recordings?
+(Just file them? Or also transcribe, summarise, and turn into action items?)
+→ This defines the Zoom/Teams workflow.
+Exactly. Transcribe, summarise, action items, circulated to internal teams (of my choosing). Even file them into relevant subfolders based on topic (e.g. LIVE / MARKETING / ALBUM / SHEE / US TOUR / MERCH). Then we have a running note bank in each project. Which I can access from the beautiful portal!  
+ 
+What level of context do you want on people and companies?
+(Is a simple name/email enough, or do you want enriched profiles with org type, past interactions, reliability?)
+→ This defines the contact/org database.
+Past contact would be good. Location. Most people who email me have their info in their signature (e.g. company info, artists they manage or work with, website). Helps me figure out context of who I'm talking to and what their intentions might be.  
+
+What’s the MVP that would feel valuable straight away?
+(E.g. labels + booking playbook + daily digest) — what’s the minimum working version that would already save you time?
+→ This anchors scope.
+First thing is downloading and assorting files. It's a real time drainer. 
+The portal of having the projects in one place for the start of my way. 
+Tbh I dream about having a set up like that, where I can dip into a project visually. Then dip out of it. Having it colour coded to show how much progress has been made on it this week. Goals ticked off. 
+I remember I did this e-learning course when I was 18, and the little progress bars would turn red-orange-yellow-green. That shit gets my dick hard.  
+
+How will you measure success?
+(Fewer missed bookings? Faster replies? Less time spent in Gmail?)
+→ This sets acceptance criteria.
+Speed. In the sense of I can reply quicker. Move faster. And have more time freed up to think.
+Also, having all my resources + intel in one place. So that when it comes to the creative 'think tank' moments. I can easily have all information in hand.  
