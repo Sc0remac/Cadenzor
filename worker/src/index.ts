@@ -13,6 +13,52 @@ import {
   EMAIL_FALLBACK_LABEL,
 } from "@cadenzor/shared";
 
+type ProjectRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  status: string;
+  labels: Record<string, unknown> | null;
+};
+
+interface ProjectCandidate {
+  id: string;
+  name: string;
+  slug: string | null;
+  normalizedSlug: string | null;
+  status: string;
+  labels: Record<string, unknown>;
+  keywords: string[];
+}
+
+interface LabelEntry {
+  prefix: string;
+  value: string;
+}
+
+interface EmailContext {
+  emailId: string;
+  subject: string;
+  body: string;
+  summary: string;
+  labels: EmailLabel[];
+  labelEntries: LabelEntry[];
+  category: EmailLabel;
+  fromEmail: string;
+  fromName: string | null;
+  receivedAt: string;
+}
+
+interface ProjectSuggestion {
+  project: ProjectCandidate;
+  score: number;
+  rationales: string[];
+  timelineItem?: Record<string, unknown> | null;
+  confidence?: number;
+}
+
+type SupabaseClientType = ReturnType<typeof createClient>;
+
 function decodeBase64Url(data: string): string {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
   const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
@@ -78,6 +124,324 @@ function parseFromHeader(from: string): { name: string | null; email: string } {
   return { name, email };
 }
 
+function normaliseToken(value: unknown): string | null {
+  if (typeof value === "string") {
+    const token = value.trim().toLowerCase();
+    return token.length > 0 ? token : null;
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  return null;
+}
+
+function collectKeywordsFromValue(value: unknown, keywords: Set<string>): void {
+  if (value == null) return;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectKeywordsFromValue(entry, keywords);
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      collectKeywordsFromValue(entry, keywords);
+    }
+    return;
+  }
+
+  const token = normaliseToken(value);
+  if (!token) return;
+  keywords.add(token);
+  for (const part of token.split(/[^a-z0-9]+/g)) {
+    if (part.length >= 3) {
+      keywords.add(part);
+    }
+  }
+}
+
+function buildProjectCandidate(row: ProjectRow): ProjectCandidate {
+  const keywords = new Set<string>();
+  collectKeywordsFromValue(row.name, keywords);
+  collectKeywordsFromValue(row.slug, keywords);
+  collectKeywordsFromValue(row.labels, keywords);
+
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    normalizedSlug: row.slug ? row.slug.toLowerCase() : null,
+    status: row.status,
+    labels: row.labels ?? {},
+    keywords: Array.from(keywords),
+  };
+}
+
+async function fetchActiveProjects(
+  supabase: SupabaseClientType
+): Promise<ProjectCandidate[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, name, slug, status, labels")
+    .in("status", ["active", "paused"]);
+
+  if (error) {
+    console.error("Failed to fetch projects for suggestions", error);
+    return [];
+  }
+
+  const rows = (data as ProjectRow[]) ?? [];
+  return rows.map(buildProjectCandidate);
+}
+
+function parseLabel(label: EmailLabel): LabelEntry | null {
+  if (!label) return null;
+  const parts = label.split("/");
+  if (parts.length < 2) {
+    return {
+      prefix: label.toLowerCase(),
+      value: label.toLowerCase(),
+    };
+  }
+
+  const prefix = parts[0]?.trim().toLowerCase() ?? "";
+  const value = parts.slice(1).join("/").trim().toLowerCase();
+  if (!prefix || !value) {
+    return null;
+  }
+  return { prefix, value };
+}
+
+function parseEmailLabels(labels: EmailLabel[]): LabelEntry[] {
+  const entries: LabelEntry[] = [];
+  for (const label of labels) {
+    const entry = parseLabel(label);
+    if (entry) {
+      entries.push(entry);
+    }
+  }
+  return entries;
+}
+
+function buildTimelineSuggestion(category: EmailLabel, subject: string, receivedAt: string) {
+  if (category.startsWith("PROMO/Promo_Time_Request")) {
+    return {
+      title: subject,
+      type: "event",
+      lane: "Promo",
+      startsAt: null,
+      priority: 65,
+      metadata: { category },
+    };
+  }
+
+  if (category.startsWith("LOGISTICS/")) {
+    return {
+      title: subject,
+      type: "milestone",
+      lane: "Live",
+      startsAt: receivedAt,
+      priority: 50,
+      metadata: { category },
+    };
+  }
+
+  if (category === "BOOKING/Offer" || category === "BOOKING/Hold_or_Availability") {
+    return {
+      title: subject,
+      type: "lead",
+      lane: "Live",
+      startsAt: null,
+      priority: 70,
+      metadata: { category },
+    };
+  }
+
+  return null;
+}
+
+function scoreProjectForContext(project: ProjectCandidate, context: EmailContext): ProjectSuggestion | null {
+  let score = 0;
+  const rationaleSet = new Set<string>();
+  const keywordSet = new Set(project.keywords);
+  const subjectLower = context.subject.toLowerCase();
+  const summaryLower = context.summary.toLowerCase();
+  const bodyLower = context.body.slice(0, 1500).toLowerCase();
+
+  if (project.normalizedSlug) {
+    for (const entry of context.labelEntries) {
+      if (entry.prefix === "project" && entry.value === project.normalizedSlug) {
+        score += 75;
+        rationaleSet.add(`Label references project/${project.normalizedSlug}`);
+      }
+    }
+  }
+
+  const fromDomain = context.fromEmail.split("@")[1]?.toLowerCase();
+
+  for (const entry of context.labelEntries) {
+    if (keywordSet.has(entry.value)) {
+      score += 25;
+      rationaleSet.add(`Label ${entry.prefix}/${entry.value} matches project metadata`);
+    }
+    if (entry.prefix === "artist" && keywordSet.has(entry.value)) {
+      score += 35;
+      rationaleSet.add(`Artist tag ${entry.value} aligns with project`);
+    }
+  }
+
+  for (const keyword of keywordSet) {
+    if (!keyword || keyword.length < 3) continue;
+    if (subjectLower.includes(keyword)) {
+      score += 12;
+      rationaleSet.add(`Subject contains "${keyword}"`);
+    } else if (summaryLower.includes(keyword)) {
+      score += 8;
+      rationaleSet.add(`Summary references "${keyword}"`);
+    } else if (bodyLower.includes(keyword)) {
+      score += 5;
+      rationaleSet.add(`Body references "${keyword}"`);
+    }
+  }
+
+  if (fromDomain && keywordSet.has(fromDomain)) {
+    score += 10;
+    rationaleSet.add(`Sender domain ${fromDomain} matches project metadata`);
+  }
+
+  if (context.category.startsWith("LEGAL/")) {
+    score += 8;
+    rationaleSet.add("Legal category email");
+  }
+
+  if (context.category.startsWith("LOGISTICS/")) {
+    score += 12;
+    rationaleSet.add("Logistics update likely tied to timeline");
+  }
+
+  if (context.category.startsWith("PROMO/")) {
+    score += 10;
+    rationaleSet.add("Promo request needs project routing");
+  }
+
+  if (score <= 0) {
+    return null;
+  }
+
+  const timelineItem = buildTimelineSuggestion(context.category, context.subject, context.receivedAt);
+
+  return {
+    project,
+    score,
+    rationales: Array.from(rationaleSet),
+    timelineItem,
+    confidence: score,
+  };
+}
+
+function computeProjectSuggestions(
+  projects: ProjectCandidate[],
+  context: EmailContext
+): ProjectSuggestion[] {
+  const suggestions: ProjectSuggestion[] = [];
+  for (const project of projects) {
+    if (project.status === "archived") continue;
+    const suggestion = scoreProjectForContext(project, context);
+    if (suggestion) {
+      suggestions.push(suggestion);
+    }
+  }
+  return suggestions.sort((a, b) => b.score - a.score);
+}
+
+async function ensureProjectEmailApproval(
+  supabase: SupabaseClientType,
+  suggestion: ProjectSuggestion,
+  context: EmailContext
+): Promise<void> {
+  const { project, score, rationales, timelineItem } = suggestion;
+
+  const { data: existingApproval, error: approvalLookupError } = await supabase
+    .from("approvals")
+    .select("id")
+    .eq("project_id", project.id)
+    .eq("type", "project_email_link")
+    .eq("status", "pending")
+    .eq("payload->>emailId", context.emailId)
+    .maybeSingle();
+
+  if (approvalLookupError) {
+    console.error("Failed to check existing approvals", approvalLookupError);
+    return;
+  }
+
+  if (existingApproval) {
+    return;
+  }
+
+  const payload = {
+    emailId: context.emailId,
+    subject: context.subject,
+    fromEmail: context.fromEmail,
+    fromName: context.fromName,
+    category: context.category,
+    labels: context.labels,
+    score,
+    rationales,
+    summary: context.summary,
+    timelineItem,
+    suggestedAt: new Date().toISOString(),
+    source: "worker",
+    confidence: score,
+  };
+
+  const { error } = await supabase.from("approvals").insert({
+    project_id: project.id,
+    type: "project_email_link",
+    payload,
+  });
+
+  if (error) {
+    console.error("Failed to create project email approval", error);
+  } else {
+    console.log(
+      `Queued approval to link email ${context.emailId} to project ${project.name} (score=${score})`
+    );
+  }
+}
+
+async function handleProjectSuggestions(
+  supabase: SupabaseClientType,
+  projects: ProjectCandidate[],
+  context: EmailContext
+): Promise<void> {
+  if (projects.length === 0) return;
+
+  const { data: existingLinks, error: linkError } = await supabase
+    .from("project_email_links")
+    .select("project_id")
+    .eq("email_id", context.emailId);
+
+  if (linkError) {
+    console.error("Failed to load existing project email links", linkError);
+    return;
+  }
+
+  const linkedProjectIds = new Set((existingLinks ?? []).map((row: any) => row.project_id as string));
+
+  const suggestions = computeProjectSuggestions(projects, context)
+    .filter((suggestion) => suggestion.score >= 45 && !linkedProjectIds.has(suggestion.project.id))
+    .slice(0, 3);
+
+  for (const suggestion of suggestions) {
+    await ensureProjectEmailApproval(supabase, suggestion, context);
+  }
+}
+
 async function main() {
   const {
     SUPABASE_URL,
@@ -113,6 +477,8 @@ async function main() {
       console.log("No unread messages.");
       return;
     }
+
+    const projectCandidates = await fetchActiveProjects(supabase);
 
     // Cache Gmail label IDs to avoid repeated lookups/creates
     const labelCache: Map<string, string> = new Map();
@@ -297,6 +663,22 @@ async function main() {
       } catch (err) {
         console.error(`Failed to apply Gmail labels for message ${msg.id}`, err);
       }
+
+      const labelEntries = parseEmailLabels(labels);
+      const context: EmailContext = {
+        emailId: msg.id,
+        subject,
+        body,
+        summary,
+        labels,
+        labelEntries,
+        category,
+        fromEmail,
+        fromName,
+        receivedAt,
+      };
+
+      await handleProjectSuggestions(supabase, projectCandidates, context);
 
       console.log(
         `Processed message ${msg.id} -> ${category} (${labels.join(", ")}) summary length=${summary.length}`

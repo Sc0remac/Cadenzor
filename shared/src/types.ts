@@ -375,6 +375,8 @@ export interface ProjectEmailLinkRecord {
 
 export type TimelineItemType = "event" | "milestone" | "task" | "hold" | "lead" | "gate";
 
+export type TimelineDependencyKind = "FS" | "SS";
+
 export interface TimelineItemRecord {
   id: string;
   projectId: string;
@@ -392,6 +394,16 @@ export interface TimelineItemRecord {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TimelineDependencyRecord {
+  id: string;
+  projectId: string;
+  fromItemId: string;
+  toItemId: string;
+  kind: TimelineDependencyKind;
+  note: string | null;
+  createdAt: string;
 }
 
 export interface ProjectTaskRecord {
@@ -428,4 +440,66 @@ export interface ProjectTemplateItemRecord {
   durationDays: number;
   metadata: Record<string, unknown>;
   createdAt: string;
+}
+
+export type ApprovalStatus = "pending" | "approved" | "declined";
+
+export type ApprovalType =
+  | "project_email_link"
+  | "timeline_item_create"
+  | "project_task_create";
+
+export interface ApprovalRecord {
+  id: string;
+  projectId: string | null;
+  type: ApprovalType | string;
+  status: ApprovalStatus;
+  payload: Record<string, unknown>;
+  requestedBy: string | null;
+  createdBy: string | null;
+  approverId: string | null;
+  approvedAt: string | null;
+  declinedAt: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApprovalDecisionInput {
+  status: Exclude<ApprovalStatus, "pending">;
+  approverId?: string | null;
+  resolutionNote?: string | null;
+}
+
+export interface ProjectHubStats {
+  memberCount: number;
+  sourceCount: number;
+  linkedEmailCount: number;
+  openTaskCount: number;
+  upcomingTimelineCount: number;
+  conflictCount: number;
+  lastUpdatedAt?: string | null;
+}
+
+export type ProjectConflictSeverity = "warning" | "error";
+
+export interface ProjectConflictRecord {
+  id: string;
+  itemIds: string[];
+  message: string;
+  severity: ProjectConflictSeverity;
+}
+
+export type ProjectTopActionKind = "timeline" | "task" | "email";
+
+export interface ProjectTopAction {
+  id: string;
+  kind: ProjectTopActionKind;
+  title: string;
+  score: number;
+  rationale: string[];
+  dueAt?: string | null;
+  lane?: string | null;
+  relatedEmailId?: string | null;
+  metadata?: Record<string, unknown>;
 }

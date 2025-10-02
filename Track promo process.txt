@@ -1,0 +1,16 @@
+One of Orans team an update for tracks coming out and created a report for it with the links to all the assets etc.
+
+Hand written reports for upcoming tracks releases. The idea would be to have a template for track reports that can dynamically pull in all of the associated links and supporting documents, write ups etc.
+
+Oran would then take the assets and download them from g drive to upload them to Soundcloud, potentially this could be automated?
+
+Take the wavs, manually type in the album titles, upload the thumbnail.
+
+Has to go and find the artwork somewhere in the g drive and upload it to the Soundcloud track. This should be automated.
+
+Add in genre tags to Soundcloud etc, setting the permissions etc
+
+Oran is releasing a track for SHEE in a couple of weeks, once the track is published to Soundcloud Oran then takes the link and sends it to loads of his contacts (radio, other artists to listen to and play in their own sets) Promo and hype built up around it and gauging interest in the track. 
+
+
+Oran would like to have a spreadsheet of all the relevant contacts to send the track to and draft an email to send to them (semi automated but final approval sits with Oran)
