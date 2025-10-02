@@ -24,7 +24,7 @@ import {
   normaliseLabel,
   normaliseLabels,
 } from "@cadenzor/shared";
-import { buildTopActions } from "@cadenzor/shared";
+import * as sharedModule from "@cadenzor/shared";
 
 interface Params {
   params: {
@@ -203,7 +203,24 @@ export async function GET(request: Request, { params }: Params) {
   const approvals = (approvalsRes.data ?? []).map(mapApprovalRow);
 
   const { conflicts, conflictItemIds } = detectConflicts(timelineItems, 4);
-  const topActions = buildTopActions(timelineItems, tasks, conflictItemIds, 8);
+
+  const buildTopActionsExport = (sharedModule as Record<string, unknown>)[
+    "buildTopActions"
+  ];
+  let topActions: ProjectTopAction[] = [];
+
+  if (typeof buildTopActionsExport === "function") {
+    topActions = (buildTopActionsExport as typeof sharedModule.buildTopActions)(
+      timelineItems,
+      tasks,
+      conflictItemIds,
+      8,
+    );
+  } else {
+    console.warn(
+      "[api/projects/[projectId]] buildTopActions export missing. Falling back to empty top actions list.",
+    );
+  }
 
   const stats = {
     memberCount: members.length,
