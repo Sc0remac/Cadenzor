@@ -12,6 +12,7 @@ import {
   heuristicLabels,
   EMAIL_FALLBACK_LABEL,
 } from "@cadenzor/shared";
+import { classifyEmail } from "./classifyEmail.js";
 
 function decodeBase64Url(data: string): string {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
@@ -214,39 +215,30 @@ async function main() {
         console.error(`Failed to read existing email ${msg.id}`, existingEmailError);
       }
 
-      if (existingEmail) {
-        if (typeof existingEmail.summary === "string" && existingEmail.summary.trim()) {
-          summary = existingEmail.summary.trim();
+      const classification = await classifyEmail(
+        {
+          subject,
+          body,
+          fromName,
+          fromEmail,
+          cachedSummary: existingEmail?.summary ?? null,
+          cachedLabels: existingEmail?.labels ?? null,
+        },
+        {
+          analyzeEmail,
+          heuristicLabels,
+          normaliseLabels,
+          ensureDefaultLabelCoverage,
+          selectPrimaryCategory,
+          onError: (error) => {
+            console.error(`AI classification failed for message ${msg.id}`, error);
+          },
         }
-        labels = normaliseLabels(existingEmail.labels);
-      }
+      );
 
-      if (!summary || labels.length === 0) {
-        try {
-          const aiResult = await analyzeEmail({
-            subject,
-            body,
-            fromName,
-            fromEmail,
-          });
-          summary = aiResult.summary;
-          labels = normaliseLabels(aiResult.labels);
-        } catch (err) {
-          console.error(`AI classification failed for message ${msg.id}`, err);
-          labels = heuristicLabels(subject, body);
-        }
-      }
-
-      if (labels.length === 0) {
-        labels = heuristicLabels(subject, body);
-      }
-
-      labels = ensureDefaultLabelCoverage(labels);
-      if (labels.length === 0) {
-        labels = [EMAIL_FALLBACK_LABEL];
-      }
-
-      const category = selectPrimaryCategory(labels) ?? EMAIL_FALLBACK_LABEL;
+      summary = classification.summary;
+      labels = classification.labels;
+      const category = classification.category;
 
       const { error: contactError } = await supabase
         .from("contacts")
