@@ -1,21 +1,22 @@
 {
-  "name": "cadenzor",
-  "private": true,
-  "version": "0.1.0",
-  "scripts": {
-    "build:shared": "npm --prefix shared run build",
-    "build:worker": "npm --prefix worker run build",
-    "build:app": "npm --prefix app run build",
-    "build": "npm run build:shared && npm run build:worker && npm run build:app",
+   "name": "cadenzor",
+   "private": true,
+   "version": "0.1.0",
+   "scripts": {
+     "build:shared": "npm --prefix shared run build",
+     "build:worker": "npm --prefix worker run build",
+     "build:app": "npm --prefix app run build",
+     "build": "npm run build:shared && npm run build:worker && npm run build:app",
     "test": "vitest run",
-    "dev": "npm --prefix app run dev",
-    "start": "npm --prefix worker run start"
-  },
-  "devDependencies": {
+    "seed:fixtures": "npm run build:shared && npm run build:worker && npm --prefix worker run seed:fixtures",
+     "dev": "npm --prefix app run dev",
+     "start": "npm --prefix worker run start"
+   },
+   "devDependencies": {
     "typescript": "^5.2.2",
     "vitest": "^1.6.0"
-  },
-  "engines": {
-    "node": ">=20"
-  }
-}
+   },
+   "engines": {
+     "node": ">=20"
+   }
+ }

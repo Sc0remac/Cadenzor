@@ -89,6 +89,18 @@ Required environment variables now include `OPENAI_API_KEY` and optional `MAX_EM
 
 The worker logs each message ID and its assigned labels.  You can schedule this script via a cron job or integrate it into a queue for continuous operation.
 
+## Seeding realistic fixture emails
+
+If you want to preview a fully labelled inbox without sending real Gmail traffic, run the seeded classification script. It fabricates realistic LEGAL/…, FINANCE/…, LOGISTICS/…, BOOKING/…, PROMO/…, ASSETS/…, FAN/…, and MISC/Uncategorized messages, runs each one through the live `classifyEmail` helper (including the OpenAI prompt), and upserts the results into Supabase so they appear in the dashboard.
+
+```bash
+# from the repository root
+# ensure worker/.env defines SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY
+npm run seed:fixtures
+```
+
+The command rebuilds the shared and worker packages, then executes `worker/src/scripts/classifyFixtures.ts`. Each fixture has a stable `seed-*` message ID so you can re-run the script safely; existing rows are overwritten with the latest classification. Inspect the console output to compare the predicted category against the intended label, and then open the dashboard to verify the seeded emails render as expected.
+
 ## Running the dashboard
 
 > Requires Node.js 20 or later. The repository includes an `.nvmrc` to streamline using the correct runtime.
