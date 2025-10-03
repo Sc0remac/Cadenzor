@@ -2,10 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useParams, useRouter } from "next/navigation";
-import type { EmailRecord, ProjectRecord, ProjectTaskRecord, TimelineItemRecord } from "@cadenzor/shared";
+import type {
+  ApprovalRecord,
+  EmailRecord,
+  ProjectRecord,
+  ProjectTaskRecord,
+  ProjectTopAction,
+  TimelineItemRecord,
+} from "@cadenzor/shared";
 import {
   createProjectTask,
   createTimelineItem,
+  decideApproval,
   deleteProjectTask,
   deleteTimelineItem,
   fetchProjectHub,
@@ -97,6 +105,8 @@ export default function ProjectHubPage() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [decisionInFlight, setDecisionInFlight] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!projectId || !accessToken) {
@@ -133,13 +143,88 @@ export default function ProjectHubPage() {
       .slice(0, 5);
   }, [hub]);
 
-  const topTasks = useMemo(() => {
-    if (!hub?.tasks) return [];
-    return hub.tasks
-      .filter((task) => !["done", "completed"].includes(task.status))
-      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
-      .slice(0, 5);
+  const topActions = useMemo<ProjectTopAction[]>(() => {
+    if (!hub?.topActions) return [];
+    return hub.topActions.slice(0, Math.max(5, hub.topActions.length));
   }, [hub]);
+
+  const emailSuggestions = useMemo(() => {
+    return (hub?.approvals ?? []).filter((approval) => approval.type === "project_email_link");
+  }, [hub?.approvals]);
+
+  const pendingApprovals = useMemo(() => {
+    return (hub?.approvals ?? []).filter((approval) => approval.type !== "project_email_link");
+  }, [hub?.approvals]);
+
+  const extractEmailSuggestion = (approval: ApprovalRecord) => {
+    const payload = approval.payload ?? {};
+    const rationales = Array.isArray((payload as any).rationales)
+      ? ((payload as any).rationales as unknown[]).map((entry) => String(entry))
+      : [];
+    const scoreValue =
+      typeof (payload as any).score === "number"
+        ? Math.round((payload as any).score as number)
+        : Number((payload as any).score ?? NaN);
+    const timelineItem =
+      payload && typeof (payload as any).timelineItem === "object"
+        ? ((payload as any).timelineItem as Record<string, unknown>)
+        : null;
+    const labels = Array.isArray((payload as any).labels)
+      ? ((payload as any).labels as unknown[]).map((entry) => String(entry))
+      : [];
+
+    return {
+      subject:
+        typeof (payload as any).subject === "string" && (payload as any).subject.trim().length > 0
+          ? ((payload as any).subject as string).trim()
+          : (payload as any).emailId || "Linked email",
+      fromEmail: typeof (payload as any).fromEmail === "string" ? ((payload as any).fromEmail as string) : null,
+      fromName: typeof (payload as any).fromName === "string" ? ((payload as any).fromName as string) : null,
+      summary: typeof (payload as any).summary === "string" ? ((payload as any).summary as string) : null,
+      rationales,
+      score: Number.isFinite(scoreValue) ? Math.round(scoreValue) : null,
+      timelineItem,
+      labels,
+    };
+  };
+
+  const describeApproval = (approval: ApprovalRecord) => {
+    const payload = approval.payload ?? {};
+    switch (approval.type) {
+      case "timeline_item_create": {
+        const title = typeof (payload as any).title === "string" ? ((payload as any).title as string) : "New timeline item";
+        const lane = typeof (payload as any).lane === "string" ? `Lane: ${(payload as any).lane as string}` : null;
+        const type = typeof (payload as any).type === "string" ? `Type: ${(payload as any).type as string}` : null;
+        const starts =
+          typeof (payload as any).startsAt === "string"
+            ? `Starts ${new Date((payload as any).startsAt as string).toLocaleString()}`
+            : null;
+        return {
+          title: `Timeline item • ${title}`,
+          details: [type, lane, starts].filter(Boolean).join(" • "),
+        };
+      }
+      case "project_task_create": {
+        const title = typeof (payload as any).title === "string" ? ((payload as any).title as string) : "New task";
+        const due =
+          typeof (payload as any).dueAt === "string"
+            ? `Due ${new Date((payload as any).dueAt as string).toLocaleDateString()}`
+            : null;
+        const status = typeof (payload as any).status === "string" ? `Status: ${(payload as any).status as string}` : null;
+        const description = typeof (payload as any).description === "string" ? ((payload as any).description as string) : null;
+        return {
+          title: `Task • ${title}`,
+          details: [status, due].filter(Boolean).join(" • "),
+          description,
+        };
+      }
+      default:
+        return {
+          title: `Approval • ${approval.type}`,
+          details: "",
+        };
+    }
+  };
 
   const handleTimelineField = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = event.target;
@@ -164,15 +249,6 @@ export default function ProjectHubPage() {
     }
 
     try {
-      const metadata = timelineForm.dependencies.length
-        ? {
-            dependencies: timelineForm.dependencies.map((dependencyId) => ({
-              itemId: dependencyId,
-              kind: timelineForm.dependencyKind,
-            })),
-          }
-        : undefined;
-
       await createTimelineItem(
         projectId,
         {
@@ -183,7 +259,16 @@ export default function ProjectHubPage() {
           lane: timelineForm.lane || null,
           territory: timelineForm.territory || null,
           priority: timelineForm.priority,
-          metadata,
+          metadata: timelineForm.territory
+            ? { territory: timelineForm.territory }
+            : undefined,
+          dependencies:
+            timelineForm.dependencies.length > 0
+              ? timelineForm.dependencies.map((dependencyId) => ({
+                  itemId: dependencyId,
+                  kind: timelineForm.dependencyKind,
+                }))
+              : undefined,
         },
         accessToken
       );
@@ -273,6 +358,35 @@ export default function ProjectHubPage() {
       await loadHub();
     } catch (err: any) {
       setError(err?.message || "Failed to unlink email");
+    }
+  };
+
+  const handleApprovalDecision = async (
+    approval: ApprovalRecord,
+    status: "approved" | "declined",
+    message?: string
+  ) => {
+    if (!accessToken) {
+      setError("Authentication expired. Please sign in again.");
+      return;
+    }
+
+    setDecisionInFlight(approval.id);
+    setError(null);
+    setInfoMessage(null);
+
+    try {
+      await decideApproval(approval.id, { status }, accessToken);
+      await loadHub();
+      if (message) {
+        setInfoMessage(message);
+      } else {
+        setInfoMessage(status === "approved" ? "Approval applied." : "Approval declined.");
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to update approval");
+    } finally {
+      setDecisionInFlight(null);
     }
   };
 
@@ -375,10 +489,11 @@ export default function ProjectHubPage() {
 
   const renderOverview = () => (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard title="Open tasks" value={hub.stats.openTaskCount ?? 0} />
         <StatsCard title="Upcoming timeline" value={upcomingTimeline.length} />
         <StatsCard title="Linked emails" value={hub.stats.linkedEmailCount ?? 0} />
+        <StatsCard title="Conflicts" value={hub.stats.conflictCount ?? 0} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -402,15 +517,42 @@ export default function ProjectHubPage() {
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
           <h3 className="text-lg font-semibold text-gray-900">Top actions</h3>
-          {topTasks.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-500">No outstanding tasks.</p>
+          {topActions.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-500">Nothing urgent right now.</p>
           ) : (
             <ul className="mt-3 space-y-3 text-sm text-gray-700">
-              {topTasks.map((task) => (
-                <li key={task.id} className="rounded border border-gray-200 p-3">
-                  <p className="font-semibold text-gray-900">{task.title}</p>
-                  {task.dueAt ? (
-                    <p className="text-xs text-gray-500">Due {new Date(task.dueAt).toLocaleDateString()}</p>
+              {topActions.slice(0, 5).map((action) => (
+                <li
+                  key={`${action.kind}-${action.id}`}
+                  className="rounded border border-gray-200 p-3"
+                  title={action.rationale.join(", ")}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="font-semibold text-gray-900">{action.title}</p>
+                      <p className="text-xs text-gray-500">
+                        {action.kind === "timeline" ? "Timeline" : action.kind === "task" ? "Task" : "Email"}
+                        {action.metadata?.type ? ` • ${String(action.metadata.type)}` : ""}
+                        {action.lane ? ` • ${action.lane}` : ""}
+                      </p>
+                      {action.dueAt ? (
+                        <p className="text-xs text-gray-500">
+                          Due {new Date(action.dueAt).toLocaleString()}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span className="rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white">
+                      Score {action.score}
+                    </span>
+                  </div>
+                  {action.rationale.length ? (
+                    <div className="mt-2 flex flex-wrap gap-2 text-[0.65rem] text-gray-600">
+                      {action.rationale.map((reason, index) => (
+                        <span key={`${action.id}-reason-${index}`} className="rounded bg-gray-100 px-2 py-0.5">
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
                   ) : null}
                 </li>
               ))}
@@ -446,12 +588,122 @@ export default function ProjectHubPage() {
         onSubmit={submitTimelineItem}
         existingItems={hub?.timelineItems ?? []}
       />
-      <TimelineStudio items={hub?.timelineItems ?? []} />
+      <TimelineStudio items={hub?.timelineItems ?? []} dependencies={hub?.timelineDependencies ?? []} />
     </div>
   );
 
   const renderInbox = () => (
     <div className="space-y-6">
+      {emailSuggestions.length > 0 ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-blue-900">Suggested project links</h3>
+              <p className="text-sm text-blue-700">
+                Review new classified emails and attach them directly from here.
+              </p>
+            </div>
+            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">Draft queue</span>
+          </div>
+          <ul className="mt-4 space-y-4">
+            {emailSuggestions.map((approval) => {
+              const suggestion = extractEmailSuggestion(approval);
+              const timelineItem = suggestion.timelineItem;
+              const timelineTitle =
+                timelineItem && typeof timelineItem.title === "string"
+                  ? (timelineItem.title as string)
+                  : "Email follow-up";
+              const timelineType =
+                timelineItem && typeof timelineItem.type === "string"
+                  ? (timelineItem.type as string)
+                  : null;
+              const timelineLane =
+                timelineItem && typeof timelineItem.lane === "string"
+                  ? (timelineItem.lane as string)
+                  : null;
+              const timelineStarts =
+                timelineItem && typeof timelineItem.startsAt === "string"
+                  ? (timelineItem.startsAt as string)
+                  : null;
+              const timelineEnds =
+                timelineItem && typeof timelineItem.endsAt === "string"
+                  ? (timelineItem.endsAt as string)
+                  : null;
+              const disabled = decisionInFlight === approval.id;
+              return (
+                <li key={approval.id} className="rounded-md border border-blue-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-base font-semibold text-gray-900">{suggestion.subject}</p>
+                      <p className="text-xs text-gray-500">
+                        {suggestion.fromName ? `${suggestion.fromName} • ` : ""}
+                        {suggestion.fromEmail ?? "Sender unknown"}
+                      </p>
+                      {suggestion.summary ? (
+                        <p className="text-sm text-gray-600">{suggestion.summary}</p>
+                      ) : null}
+                    </div>
+                    {suggestion.score != null ? (
+                      <span className="rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white">
+                        Score {suggestion.score}
+                      </span>
+                    ) : null}
+                  </div>
+                  {suggestion.rationales.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2 text-[0.65rem] text-gray-600">
+                      {suggestion.rationales.map((reason, index) => (
+                        <span key={`${approval.id}-reason-${index}`} className="rounded bg-gray-100 px-2 py-0.5">
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {suggestion.labels.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2 text-[0.65rem] text-gray-500">
+                      {suggestion.labels.map((label, index) => (
+                        <span key={`${approval.id}-label-${index}`} className="rounded-full bg-blue-50 px-2 py-0.5">
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {timelineItem ? (
+                    <div className="mt-4 rounded-md border border-dashed border-blue-200 bg-blue-50 p-3 text-xs text-gray-700">
+                      <p className="font-semibold text-gray-800">Proposed timeline item</p>
+                      <p>{timelineTitle}</p>
+                      <p className="mt-1 text-[0.7rem] text-gray-600">
+                        {timelineType ? `Type: ${timelineType}` : null}
+                        {timelineLane ? ` • Lane: ${timelineLane}` : ""}
+                        {timelineStarts ? ` • Starts ${new Date(timelineStarts).toLocaleString()}` : ""}
+                        {timelineEnds ? ` • Ends ${new Date(timelineEnds).toLocaleString()}` : ""}
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => void handleApprovalDecision(approval, "declined", "Suggestion dismissed.")}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => void handleApprovalDecision(approval, "approved", "Email linked to project.")}
+                      className="rounded-md bg-gray-900 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-500"
+                    >
+                      {disabled ? "Processing…" : "Attach to project"}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+
       <form onSubmit={submitEmailLink} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900">Attach email by ID</h3>
         <div className="mt-3 flex gap-3">
@@ -572,8 +824,68 @@ export default function ProjectHubPage() {
   );
 
   const renderApprovals = () => (
-    <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500">
-      Approval queues and playbook toggles will live here. Wire up automations to populate this surface.
+    <div className="space-y-6">
+      <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Pending approvals</h3>
+            <p className="text-sm text-gray-600">
+              Approve or decline automation drafts awaiting sign-off for this project.
+            </p>
+          </div>
+          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
+            {pendingApprovals.length} open
+          </span>
+        </div>
+        {pendingApprovals.length === 0 ? (
+          <p className="mt-4 text-sm text-gray-500">No pending approvals. You&#39;re all caught up.</p>
+        ) : (
+          <ul className="mt-4 space-y-4">
+            {pendingApprovals.map((approval) => {
+              const description = describeApproval(approval);
+              const disabled = decisionInFlight === approval.id;
+              return (
+                <li key={approval.id} className="rounded-md border border-gray-200 p-4 shadow-sm">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-base font-semibold text-gray-900">{description.title}</p>
+                      {description.details ? <p className="text-xs text-gray-500">{description.details}</p> : null}
+                      {description.description ? <p className="text-sm text-gray-600">{description.description}</p> : null}
+                      <p className="text-[0.65rem] uppercase tracking-wide text-gray-400">
+                        Draft created {new Date(approval.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="flex flex-shrink-0 items-center gap-2 self-end md:self-start">
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => void handleApprovalDecision(approval, "declined")}
+                        className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Decline
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => void handleApprovalDecision(approval, "approved")}
+                        className="rounded-md bg-gray-900 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-500"
+                      >
+                        {disabled ? "Processing…" : "Approve"}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {emailSuggestions.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
+          Automated link suggestions will appear in the Inbox tab.
+        </div>
+      ) : null}
     </div>
   );
 
@@ -694,6 +1006,19 @@ export default function ProjectHubPage() {
           <span>{hub.sources.length} source{hub.sources.length === 1 ? "" : "s"}</span>
         </div>
       </header>
+
+      {infoMessage ? (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <span>{infoMessage}</span>
+          <button
+            type="button"
+            onClick={() => setInfoMessage(null)}
+            className="rounded border border-emerald-200 px-2 py-0.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
 
       <nav className="flex flex-wrap gap-2">
         {TABS.map((tab) => {

@@ -374,6 +374,7 @@ export interface CreateTimelineItemInput {
   refTable?: string | null;
   refId?: string | null;
   metadata?: Record<string, unknown>;
+  dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
 }
 
 export async function createTimelineItem(

@@ -14,13 +14,58 @@ export interface ScoreResult {
   rationale: string[];
 }
 
+interface ScoreContribution {
+  label: string;
+  delta: number;
+}
+
 const MS_PER_HOUR = 60 * 60 * 1000;
-const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 function toMs(value: string | null): number | null {
   if (!value) return null;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
+}
+
+function formatRationale(contributions: ScoreContribution[]): string[] {
+  if (contributions.length === 0) {
+    return ["No urgency signals"];
+  }
+
+  return contributions
+    .filter((entry) => Math.round(entry.delta) !== 0)
+    .map((entry) => {
+      const rounded = Math.round(entry.delta);
+      const sign = rounded > 0 ? "+" : "";
+      return `${entry.label} (${sign}${rounded})`;
+    });
+}
+
+function applyManualPriority(
+  priority: number,
+  contributions: ScoreContribution[]
+) {
+  if (!Number.isFinite(priority) || priority <= 0) {
+    return;
+  }
+
+  const weight = Math.min(25, Math.max(6, priority * 0.35));
+  contributions.push({
+    label: `Manual priority ${Math.round(priority)}`,
+    delta: weight,
+  });
+}
+
+function applyConflictPenalty(
+  itemId: string,
+  conflictIds: Set<string>,
+  contributions: ScoreContribution[]
+) {
+  if (!conflictIds.has(itemId)) {
+    return;
+  }
+
+  contributions.push({ label: "Conflict penalty", delta: -18 });
 }
 
 export function scoreTimelineItem(
@@ -35,56 +80,61 @@ export function scoreTimelineItem(
     return { score: 0, rationale: ["Completed"] };
   }
 
-  const rationale: string[] = [];
-  let score = 0;
+  const contributions: ScoreContribution[] = [];
 
   const startMs = toMs(item.startsAt);
   const endMs = toMs(item.endsAt);
-  const manualPriority = Number.isFinite(item.priority) ? item.priority : 0;
+  const manualPriority = Number.isFinite(item.priority) ? Number(item.priority) : 0;
 
-  if (manualPriority > 0) {
-    score += Math.min(30, Math.max(5, manualPriority * 0.3));
-    rationale.push(`Manual priority (${manualPriority})`);
-  }
+  applyManualPriority(manualPriority, contributions);
+  applyConflictPenalty(item.id, conflicts, contributions);
 
   if (startMs != null) {
-    const delta = startMs - nowMs;
+    const deltaHours = (startMs - nowMs) / MS_PER_HOUR;
 
-    if (delta <= 0) {
-      const overdueHours = Math.abs(delta) / MS_PER_HOUR;
-      const overdueScore = Math.min(40, 10 + overdueHours * 0.75);
-      score += overdueScore;
-      rationale.push(`Overdue by ${overdueHours.toFixed(1)}h`);
-    } else if (delta < 48 * MS_PER_HOUR) {
-      const urgencyScore = 35 - (delta / (48 * MS_PER_HOUR)) * 10;
-      score += urgencyScore;
-      rationale.push(`Starts in ${(delta / MS_PER_HOUR).toFixed(1)}h`);
-    } else if (delta < 7 * MS_PER_DAY) {
-      const urgencyScore = 15 - (delta / (7 * MS_PER_DAY)) * 10;
-      score += Math.max(5, urgencyScore);
-      rationale.push(`Starts in ${(delta / MS_PER_DAY).toFixed(1)}d`);
+    if (deltaHours <= -1) {
+      const overdueHours = Math.abs(deltaHours);
+      contributions.push({
+        label: `Started ${overdueHours.toFixed(1)}h ago`,
+        delta: 62,
+      });
+      const penalty = Math.min(38, overdueHours * 1.35);
+      contributions.push({ label: "Overdue penalty", delta: -penalty });
+    } else if (deltaHours < 1) {
+      contributions.push({ label: "Starts now", delta: 48 - Math.abs(deltaHours) * 6 });
+    } else if (deltaHours <= 24) {
+      const base = 42 - deltaHours * 0.9;
+      contributions.push({ label: `Starts in ${deltaHours.toFixed(1)}h`, delta: base });
+    } else if (deltaHours <= 72) {
+      const base = 28 - (deltaHours - 24) * 0.4;
+      contributions.push({ label: `Starts in ${(deltaHours / 24).toFixed(1)}d`, delta: base });
+    } else if (deltaHours <= 7 * 24) {
+      const base = 16 - (deltaHours - 72) * 0.15;
+      contributions.push({ label: `Starts in ${(deltaHours / 24).toFixed(1)}d`, delta: base });
+    } else {
+      contributions.push({ label: "Future scheduled", delta: 6 });
     }
+  } else if (endMs != null) {
+    const deltaHours = (endMs - nowMs) / MS_PER_HOUR;
+    if (deltaHours < 0) {
+      const overdue = Math.abs(deltaHours);
+      contributions.push({
+        label: `Ended ${overdue.toFixed(1)}h ago`,
+        delta: 34,
+      });
+      contributions.push({ label: "Overdue penalty", delta: -Math.min(28, overdue * 1.1) });
+    } else {
+      contributions.push({ label: "Ends soon", delta: 18 });
+    }
+  } else {
+    contributions.push({ label: "No schedule set", delta: 12 });
   }
 
-  if (endMs != null && endMs < nowMs) {
-    const tailDelta = (nowMs - endMs) / MS_PER_HOUR;
-    score += Math.min(20, 5 + tailDelta * 0.25);
-    rationale.push(`Ended ${tailDelta.toFixed(1)}h ago`);
-  }
-
-  if (conflicts.has(item.id)) {
-    score += 20;
-    rationale.push("Conflict detected");
-  }
-
-  if (!item.startsAt && !item.endsAt) {
-    score += 10;
-    rationale.push("Unsheduled item");
-  }
+  const score = contributions.reduce((total, entry) => total + entry.delta, 0);
 
   return {
-    score: Math.max(0, Math.round(score)),
-    rationale: rationale.length > 0 ? rationale : ["No urgency signals"],
+    score: Math.round(score),
+    rationale: formatRationale(contributions),
   };
 }
 
@@ -99,41 +149,46 @@ export function scoreProjectTask(
     return { score: 0, rationale: ["Completed"] };
   }
 
-  const rationale: string[] = [];
-  let score = 0;
+  const contributions: ScoreContribution[] = [];
 
   const dueMs = toMs(task.dueAt);
-  const manualPriority = Number.isFinite(task.priority) ? task.priority : 0;
+  const manualPriority = Number.isFinite(task.priority) ? Number(task.priority) : 0;
 
-  if (manualPriority > 0) {
-    score += Math.min(30, Math.max(5, manualPriority * 0.3));
-    rationale.push(`Manual priority (${manualPriority})`);
-  }
+  applyManualPriority(manualPriority, contributions);
 
   if (dueMs != null) {
-    const delta = dueMs - nowMs;
-    if (delta <= 0) {
-      const overdueHours = Math.abs(delta) / MS_PER_HOUR;
-      score += Math.min(40, 10 + overdueHours * 0.75);
-      rationale.push(`Overdue by ${overdueHours.toFixed(1)}h`);
-    } else if (delta < 24 * MS_PER_HOUR) {
-      score += 25;
-      rationale.push("Due in <24h");
-    } else if (delta < 3 * MS_PER_DAY) {
-      score += 15;
-      rationale.push("Due in <3d");
+    const deltaHours = (dueMs - nowMs) / MS_PER_HOUR;
+    if (deltaHours <= -1) {
+      const overdue = Math.abs(deltaHours);
+      contributions.push({ label: `Due ${overdue.toFixed(1)}h ago`, delta: 58 });
+      contributions.push({ label: "Overdue penalty", delta: -Math.min(42, overdue * 1.6) });
+    } else if (deltaHours < 2) {
+      contributions.push({ label: "Due now", delta: 46 - deltaHours * 6 });
+    } else if (deltaHours <= 24) {
+      contributions.push({ label: "Due in <24h", delta: 34 - (deltaHours - 2) * 0.9 });
+    } else if (deltaHours <= 72) {
+      contributions.push({ label: "Due in <3d", delta: 24 - (deltaHours - 24) * 0.35 });
+    } else if (deltaHours <= 14 * 24) {
+      contributions.push({
+        label: `Due in ${(deltaHours / 24).toFixed(1)}d`,
+        delta: 14 - (deltaHours - 72) * 0.1,
+      });
     } else {
-      score += Math.max(5, 10 - delta / (14 * MS_PER_DAY));
-      rationale.push(`Due in ${(delta / MS_PER_DAY).toFixed(1)}d`);
+      contributions.push({ label: "Future task", delta: 6 });
     }
   } else {
-    score += 8;
-    rationale.push("No due date");
+    contributions.push({ label: "No due date", delta: 10 });
   }
 
+  if (task.status === "waiting") {
+    contributions.push({ label: "Waiting status", delta: -6 });
+  }
+
+  const score = contributions.reduce((total, entry) => total + entry.delta, 0);
+
   return {
-    score: Math.max(0, Math.round(score)),
-    rationale: rationale.length > 0 ? rationale : ["No urgency signals"],
+    score: Math.round(score),
+    rationale: formatRationale(contributions),
   };
 }
 
@@ -144,11 +199,11 @@ export function buildTopActions(
   limit = 8
 ): ProjectTopAction[] {
   const now = new Date();
+  const minimum = Math.max(limit, 5);
   const actions: ProjectTopAction[] = [];
 
   for (const item of timelineItems) {
     const { score, rationale } = scoreTimelineItem(item, { now, conflictItemIds });
-    if (score <= 0) continue;
     actions.push({
       id: item.id,
       kind: "timeline",
@@ -157,13 +212,13 @@ export function buildTopActions(
       rationale,
       dueAt: item.startsAt,
       lane: item.lane ?? undefined,
-      metadata: { type: item.type },
+      relatedEmailId: item.refTable === "emails" ? item.refId ?? undefined : undefined,
+      metadata: { type: item.type, status: item.status ?? undefined },
     });
   }
 
   for (const task of tasks) {
     const { score, rationale } = scoreProjectTask(task, { now });
-    if (score <= 0) continue;
     actions.push({
       id: task.id,
       kind: "task",
@@ -177,5 +232,5 @@ export function buildTopActions(
 
   return actions
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .slice(0, minimum);
 }

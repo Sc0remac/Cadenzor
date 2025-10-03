@@ -23,8 +23,9 @@ import {
   ensureDefaultLabelCoverage,
   normaliseLabel,
   normaliseLabels,
+  buildTopActions,
+  detectTimelineConflicts,
 } from "@cadenzor/shared";
-import * as sharedModule from "@cadenzor/shared";
 
 interface Params {
   params: {
@@ -202,25 +203,11 @@ export async function GET(request: Request, { params }: Params) {
 
   const approvals = (approvalsRes.data ?? []).map(mapApprovalRow);
 
-  const { conflicts, conflictItemIds } = detectConflicts(timelineItems, 4);
+  const { conflicts, conflictItemIds } = detectTimelineConflicts(timelineItems, {
+    bufferHours: 4,
+  });
 
-  const buildTopActionsExport = (sharedModule as Record<string, unknown>)[
-    "buildTopActions"
-  ];
-  let topActions: ProjectTopAction[] = [];
-
-  if (typeof buildTopActionsExport === "function") {
-    topActions = (buildTopActionsExport as typeof sharedModule.buildTopActions)(
-      timelineItems,
-      tasks,
-      conflictItemIds,
-      8,
-    );
-  } else {
-    console.warn(
-      "[api/projects/[projectId]] buildTopActions export missing. Falling back to empty top actions list.",
-    );
-  }
+  const topActions = buildTopActions(timelineItems, tasks, conflictItemIds, 8);
 
   const stats = {
     memberCount: members.length,
@@ -246,60 +233,6 @@ export async function GET(request: Request, { params }: Params) {
     topActions,
     stats,
   });
-}
-
-function detectConflicts(items: TimelineItemRecord[], bufferHours: number): {
-  conflicts: ProjectConflictRecord[];
-  conflictItemIds: Set<string>;
-} {
-  const conflicts: ProjectConflictRecord[] = [];
-  const conflictItemIds = new Set<string>();
-  const scheduled = items
-    .map((item) => {
-      const start = item.startsAt ? Date.parse(item.startsAt) : null;
-      const end = item.endsAt ? Date.parse(item.endsAt) : null;
-      if (start == null) return null;
-      const effectiveEnd = end && end > start ? end : start + 2 * 60 * 60 * 1000;
-      return { item, start, end: effectiveEnd };
-    })
-    .filter((value): value is { item: TimelineItemRecord; start: number; end: number } => Boolean(value));
-
-  const bufferMs = bufferHours * 60 * 60 * 1000;
-
-  for (let i = 0; i < scheduled.length; i += 1) {
-    for (let j = i + 1; j < scheduled.length; j += 1) {
-      const a = scheduled[i];
-      const b = scheduled[j];
-
-      const overlaps = a.end > b.start && b.end > a.start;
-      if (overlaps && a.item.lane === b.item.lane) {
-        conflictItemIds.add(a.item.id);
-        conflictItemIds.add(b.item.id);
-        conflicts.push({
-          id: `${a.item.id}:${b.item.id}:overlap`,
-          itemIds: [a.item.id, b.item.id],
-          severity: "warning",
-          message: `${a.item.title} overlaps with ${b.item.title} in ${a.item.lane || "General"}`,
-        });
-      }
-
-      if (a.item.territory && b.item.territory && a.item.territory === b.item.territory) {
-        const delta = Math.abs(a.start - b.start);
-        if (delta < bufferMs) {
-          conflictItemIds.add(a.item.id);
-          conflictItemIds.add(b.item.id);
-          conflicts.push({
-            id: `${a.item.id}:${b.item.id}:territory`,
-            itemIds: [a.item.id, b.item.id],
-            severity: "error",
-            message: `${a.item.title} and ${b.item.title} are both in ${a.item.territory} without ${bufferHours}h buffer`,
-          });
-        }
-      }
-    }
-  }
-
-  return { conflicts, conflictItemIds };
 }
 
 export async function PATCH(request: Request, { params }: Params) {

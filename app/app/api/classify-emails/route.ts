@@ -146,7 +146,7 @@ export async function POST(request: Request) {
     const labelCache: Map<string, string> = new Map();
     let labelsLoaded = false;
 
-    async function loadLabels() {
+    const loadLabels = async () => {
       if (labelsLoaded) return;
       try {
         const existing = await gmail.users.labels.list({ userId: "me" });
@@ -158,9 +158,9 @@ export async function POST(request: Request) {
       } finally {
         labelsLoaded = true;
       }
-    }
+    };
 
-    async function ensureLabelId(name: string): Promise<string> {
+    const ensureLabelId = async (name: string): Promise<string> => {
       await loadLabels();
       const cached = labelCache.get(name);
       if (cached) return cached;
@@ -181,9 +181,9 @@ export async function POST(request: Request) {
 
       labelCache.set(name, id);
       return id;
-    }
+    };
 
-    async function ensureCadenzorLabelIds(labels: EmailLabel[]): Promise<string[]> {
+    const ensureCadenzorLabelIds = async (labels: EmailLabel[]): Promise<string[]> => {
       const base = "Cadenzor";
 
       try {
@@ -206,7 +206,7 @@ export async function POST(request: Request) {
       }
 
       return ids;
-    }
+    };
 
     const listRes = await gmail.users.messages.list({
       userId: "me",

@@ -2,7 +2,7 @@ import { config } from "dotenv";
 config();
 
 import { google, gmail_v1 } from "googleapis";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   EmailLabel,
   analyzeEmail,
@@ -57,7 +57,7 @@ interface ProjectSuggestion {
   confidence?: number;
 }
 
-type SupabaseClientType = ReturnType<typeof createClient>;
+type SupabaseClientType = SupabaseClient<any, any, any, any, any>;
 
 function decodeBase64Url(data: string): string {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/");

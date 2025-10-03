@@ -70,6 +70,12 @@ export default function ProjectCreateDialog({
       return;
     }
 
+    if (!accessToken) {
+      setTemplates([]);
+      setLoadingTemplates(false);
+      return;
+    }
+
     setLoadingTemplates(true);
     fetchProjectTemplates(accessToken)
       .then((result) => {

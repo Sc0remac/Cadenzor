@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TimelineItemRecord } from "@cadenzor/shared";
+import type { TimelineDependencyRecord, TimelineItemRecord } from "@cadenzor/shared";
 
 const DEFAULT_LANES = ["Live", "Promo", "Writing", "Brand", "Release", "General"];
 const MIN_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -13,12 +13,6 @@ const ROW_GAP = 10;
 const AXIS_HEIGHT = 44;
 
 export type DependencyKind = "FS" | "SS";
-
-interface DependencyMeta {
-  itemId: string;
-  kind?: DependencyKind;
-  note?: string;
-}
 
 interface ParsedItem {
   item: TimelineItemRecord;
@@ -78,47 +72,6 @@ function ensureDuration(start: number, end: number | null): number {
   return end;
 }
 
-function extractDependencies(item: TimelineItemRecord): DependencyMeta[] {
-  const maybeDeps = (item.metadata as Record<string, unknown>)?.dependencies;
-  if (!maybeDeps) return [];
-
-  const buildFromObject = (entry: any): DependencyMeta | null => {
-    if (!entry || typeof entry !== "object" || !("itemId" in entry)) {
-      return null;
-    }
-    const candidate = entry as { itemId?: unknown; kind?: unknown; note?: unknown };
-    if (typeof candidate.itemId !== "string" || candidate.itemId.length === 0) {
-      return null;
-    }
-    const kind = candidate.kind === "SS" ? "SS" : candidate.kind === "FS" ? "FS" : undefined;
-    const note = typeof candidate.note === "string" ? candidate.note : undefined;
-    return { itemId: candidate.itemId, kind, note };
-  };
-
-  const results: DependencyMeta[] = [];
-
-  if (Array.isArray(maybeDeps)) {
-    for (const entry of maybeDeps) {
-      if (typeof entry === "string" && entry.trim()) {
-        results.push({ itemId: entry.trim() });
-        continue;
-      }
-      const normalised = buildFromObject(entry);
-      if (normalised) {
-        results.push(normalised);
-      }
-    }
-    return results;
-  }
-
-  if (typeof maybeDeps === "string" && maybeDeps.trim()) {
-    return [{ itemId: maybeDeps.trim() }];
-  }
-
-  const single = buildFromObject(maybeDeps);
-  return single ? [single] : [];
-}
-
 function buildTimeScale(rangeStart: number, rangeEnd: number) {
   const total = Math.max(rangeEnd - rangeStart, DAY_MS);
   const segments: Array<{ leftRatio: number; label: string }> = [];
@@ -153,7 +106,13 @@ function getTypeStyles(type: TimelineItemRecord["type"]): string {
   }
 }
 
-export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
+export function TimelineStudio({
+  items,
+  dependencies = [],
+}: {
+  items: TimelineItemRecord[];
+  dependencies?: TimelineDependencyRecord[];
+}) {
   const [bufferHours, setBufferHours] = useState(4);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [timelineWidth, setTimelineWidth] = useState(0);
@@ -284,23 +243,32 @@ export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
   const { layouts, totalHeight } = laneLayouts;
 
   const edges = useMemo(() => {
-    if (!items.length) return [] as DependencyEdge[];
-    const byId = new Map(items.map((item) => [item.id, item]));
-    const result: DependencyEdge[] = [];
-    for (const item of items) {
-      const deps = extractDependencies(item);
-      for (const dep of deps) {
-        if (!dep.itemId || !byId.has(dep.itemId)) continue;
-        result.push({
-          fromId: dep.itemId,
-          toId: item.id,
-          kind: dep.kind === "SS" ? "SS" : "FS",
-          note: dep.note,
-        });
+    if (!items.length || dependencies.length === 0) {
+      return [] as DependencyEdge[];
+    }
+    const itemIds = new Set(items.map((item) => item.id));
+    return dependencies
+      .filter((dependency) => itemIds.has(dependency.fromItemId) && itemIds.has(dependency.toItemId))
+      .map<DependencyEdge>((dependency) => ({
+        fromId: dependency.fromItemId,
+        toId: dependency.toItemId,
+        kind: dependency.kind === "SS" ? "SS" : "FS",
+        note: dependency.note ?? undefined,
+      }));
+  }, [dependencies, items]);
+
+  const dependencyLookup = useMemo(() => {
+    const map = new Map<string, DependencyEdge[]>();
+    for (const edge of edges) {
+      const list = map.get(edge.toId);
+      if (list) {
+        list.push(edge);
+      } else {
+        map.set(edge.toId, [edge]);
       }
     }
-    return result;
-  }, [items]);
+    return map;
+  }, [edges]);
 
   const positionLookup = useMemo(() => {
     const map = new Map<string, PositionedItem & { left: number; width: number }>();
@@ -443,7 +411,7 @@ export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
                           const cardLeft = `${positioned.leftRatio * 100}%`;
                           const cardWidth = `${Math.min(100, positioned.widthRatio * 100)}%`;
                           const isConflicted = conflictItemIds.has(positioned.item.id);
-                          const dependencies = extractDependencies(positioned.item);
+                          const dependenciesForItem = dependencyLookup.get(positioned.item.id) ?? [];
                           return (
                             <div
                               key={positioned.item.id}
@@ -468,7 +436,11 @@ export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
                               </p>
                               <div className="mt-1 flex flex-wrap gap-2 text-[0.65rem] text-gray-600">
                                 <span>{positioned.item.territory ?? "No territory"}</span>
-                                {dependencies.length ? <span className="rounded bg-white/70 px-2 py-0.5">{dependencies.length} deps</span> : null}
+                                {dependenciesForItem.length ? (
+                                  <span className="rounded bg-white/70 px-2 py-0.5">
+                                    {dependenciesForItem.length} deps
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
                           );

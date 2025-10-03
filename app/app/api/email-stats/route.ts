@@ -51,9 +51,9 @@ export async function GET(request: Request) {
       continue;
     }
 
-    for (const label of uniqueLabels) {
+    uniqueLabels.forEach((label) => {
       counts[label] = (counts[label] ?? 0) + 1;
-    }
+    });
   }
 
   return NextResponse.json(counts);
