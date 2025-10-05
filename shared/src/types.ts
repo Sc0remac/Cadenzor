@@ -373,6 +373,19 @@ export interface ProjectEmailLinkRecord {
   createdAt: string;
 }
 
+export type TimelineDependencyKind = "FS" | "SS";
+
+export interface TimelineDependencyRecord {
+  id: string;
+  projectId: string;
+  fromItemId: string;
+  toItemId: string;
+  kind: TimelineDependencyKind;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type TimelineItemType = "event" | "milestone" | "task" | "hold" | "lead" | "gate";
 
 export interface TimelineItemRecord {
@@ -406,6 +419,48 @@ export interface ProjectTaskRecord {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ApprovalStatus = "pending" | "approved" | "declined";
+
+export type ApprovalType =
+  | "project_email_link"
+  | "timeline_item_from_email"
+  | "timeline_dependency"
+  | "generic";
+
+export interface ApprovalRecord {
+  id: string;
+  projectId: string | null;
+  type: ApprovalType | string;
+  status: ApprovalStatus;
+  payload: Record<string, unknown>;
+  requestedBy: string | null;
+  createdBy: string | null;
+  approverId: string | null;
+  approvedAt: string | null;
+  declinedAt: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ProjectTopActionEntity = "task" | "timeline" | "email";
+
+export interface ProjectTopAction {
+  id: string;
+  projectId: string;
+  entityType: ProjectTopActionEntity;
+  title: string;
+  score: number;
+  rationale: string[];
+  dueAt: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  status: string | null;
+  refTable: string;
+  refId: string;
+  priority: number | null;
 }
 
 export interface ProjectTemplateRecord {
