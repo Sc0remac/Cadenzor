@@ -9,8 +9,9 @@ import {
   fetchEmailStats,
   fetchRecentEmails,
 } from "../lib/supabaseClient";
-import type { EmailStatsScope } from "../lib/supabaseClient";
 import type {
+  EmailStatsScope,
+  EmailSourceFilter,
   EmailListResponse,
   EmailPagination,
 } from "../lib/supabaseClient";
@@ -112,6 +113,7 @@ export default function EmailDashboard() {
   const [classifying, setClassifying] = useState(false);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const [statsScope, setStatsScope] = useState<EmailStatsScope>("unread");
+  const [sourceFilter, setSourceFilter] = useState<EmailSourceFilter>("all");
   const [labelFilter, setLabelFilter] = useState<LabelFilterValue>("all");
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const emailPageRef = useRef<number>(1);
@@ -158,7 +160,7 @@ export default function EmailDashboard() {
 
       try {
         const [statsData, emailData] = await Promise.all([
-          fetchEmailStats({ accessToken, scope: statsScope }),
+          fetchEmailStats({ accessToken, scope: statsScope, source: sourceFilter }),
           fetchRecentEmails({
             page: targetPage,
             perPage:
@@ -167,6 +169,7 @@ export default function EmailDashboard() {
                 : DEFAULT_EMAILS_PER_PAGE,
             accessToken,
             label: labelFilter !== "all" ? labelFilter : undefined,
+            source: sourceFilter,
           }),
         ]);
         setStats(statsData);
@@ -185,11 +188,28 @@ export default function EmailDashboard() {
         setInitialized(true);
       }
     },
-    [accessToken, applyEmailResponse, emailPagination.perPage, statsScope, labelFilter]
+    [
+      accessToken,
+      applyEmailResponse,
+      emailPagination.perPage,
+      statsScope,
+      labelFilter,
+      sourceFilter,
+    ]
   );
 
   const handleScopeChange = useCallback((nextScope: EmailStatsScope) => {
     setStatsScope(nextScope);
+  }, []);
+
+  const handleSourceChange = useCallback((nextSource: EmailSourceFilter) => {
+    emailPageRef.current = 1;
+    setSourceFilter(nextSource);
+    setLabelFilter("all");
+    setEmailPagination((prev) => ({
+      ...prev,
+      page: 1,
+    }));
   }, []);
 
   const handleLabelFilterChange = useCallback((nextValue: LabelFilterValue) => {
@@ -386,6 +406,8 @@ export default function EmailDashboard() {
   const hasLabelFilter = labelFilter !== "all";
   const activeScopeLabel = statsScope === "unread" ? "Unread only" : "All emails";
   const activeLabelFilterLabel = hasLabelFilter ? formatLabel(labelFilter as EmailLabel) : "All labels";
+  const activeSourceLabel = sourceFilter === "seeded" ? "Seeded only" : "All sources";
+  const filterSummary = `${activeScopeLabel} · ${activeLabelFilterLabel} · ${activeSourceLabel}`;
   const lastRefreshedLabel = formatLastRefreshed(lastRefreshedAt);
 
   const currentPage = emailPagination.page > 0 ? emailPagination.page : 1;
@@ -400,28 +422,31 @@ export default function EmailDashboard() {
   const disableNext = loading || (totalPages > 0 ? currentPage >= totalPages : !emailPagination.hasMore);
 
   const tableSummary = useMemo(() => {
+    const sourceSummarySuffix = sourceFilter === "seeded" ? " (seeded fixtures)" : "";
+
     if (visibleEmails.length === 0) {
       if (emails.length === 0) {
-        return "Showing 0 emails";
+        return `Showing 0 emails${sourceSummarySuffix}`;
       }
       if (hasLabelFilter) {
-        return `No emails labelled ${activeLabelFilterLabel}`;
+        return `No emails labelled ${activeLabelFilterLabel}${sourceSummarySuffix}`;
       }
-      return "Showing 0 emails";
+      return `Showing 0 emails${sourceSummarySuffix}`;
     }
 
     if (hasLabelFilter) {
       const count = visibleEmails.length;
-      return `Showing ${count} ${count === 1 ? "email" : "emails"} labelled ${activeLabelFilterLabel}`;
+      return `Showing ${count} ${count === 1 ? "email" : "emails"} labelled ${activeLabelFilterLabel}${sourceSummarySuffix}`;
     }
 
-    return `Showing ${rangeStart}-${rangeEnd} of ${totalEmails} emails`;
+    return `Showing ${rangeStart}-${rangeEnd} of ${totalEmails} emails${sourceSummarySuffix}`;
   }, [
     activeLabelFilterLabel,
     emails.length,
     hasLabelFilter,
     rangeEnd,
     rangeStart,
+    sourceFilter,
     totalEmails,
     visibleEmails.length,
   ]);
@@ -438,7 +463,7 @@ export default function EmailDashboard() {
             <h2 className="text-2xl font-semibold">
               Emails by category
               <span className="ml-2 text-sm font-normal text-gray-500">
-                ({activeScopeLabel} · {activeLabelFilterLabel})
+                ({filterSummary})
               </span>
             </h2>
             <span className="text-xs text-gray-500">Last refreshed: {lastRefreshedLabel}</span>
@@ -484,6 +509,34 @@ export default function EmailDashboard() {
                     }`}
                   >
                     {scopeOption === "unread" ? "Unread" : "All"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">Source:</span>
+            <div className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1 text-sm shadow-sm">
+              {(["all", "seeded"] as EmailSourceFilter[]).map((sourceOption) => {
+                const isActive = sourceFilter === sourceOption;
+                return (
+                  <button
+                    key={sourceOption}
+                    type="button"
+                    onClick={() => handleSourceChange(sourceOption)}
+                    aria-pressed={isActive}
+                    className={`rounded px-3 py-1 font-medium transition ${
+                      isActive
+                        ? "bg-indigo-600 text-white shadow"
+                        : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                    title={
+                      sourceOption === "seeded"
+                        ? "Show only seeded (fake) demo emails"
+                        : "Show all emails"
+                    }
+                  >
+                    {sourceOption === "seeded" ? "Seeded" : "All"}
                   </button>
                 );
               })}

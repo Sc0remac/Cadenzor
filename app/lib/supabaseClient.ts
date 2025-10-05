@@ -13,6 +13,8 @@ import type {
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
 
+export type EmailSourceFilter = "all" | "seeded";
+
 export interface EmailPagination {
   page: number;
   perPage: number;
@@ -31,6 +33,7 @@ type FetchEmailsOptions = {
   perPage?: number;
   accessToken?: string;
   label?: string | null;
+  source?: EmailSourceFilter;
 };
 
 function buildHeaders(accessToken?: string): HeadersInit {
@@ -50,16 +53,20 @@ export type EmailStatsScope = "unread" | "all";
 export interface FetchEmailStatsOptions {
   accessToken?: string;
   scope?: EmailStatsScope;
+  source?: EmailSourceFilter;
 }
 
 export async function fetchEmailStats(
   options: FetchEmailStatsOptions = {}
 ): Promise<Record<EmailRecord["category"], number>> {
-  const { accessToken, scope } = options;
+  const { accessToken, scope, source } = options;
 
   const query = new URLSearchParams();
   if (scope) {
     query.set("scope", scope);
+  }
+  if (source && source !== "all") {
+    query.set("source", source);
   }
 
   const endpoint = query.toString() ? `/api/email-stats?${query.toString()}` : "/api/email-stats";
@@ -82,7 +89,7 @@ export async function fetchEmailStats(
 export async function fetchRecentEmails(
   options: FetchEmailsOptions = {}
 ): Promise<EmailListResponse> {
-  const { page, perPage, accessToken, label } = options;
+  const { page, perPage, accessToken, label, source } = options;
 
   const query = new URLSearchParams();
   if (page != null) {
@@ -93,6 +100,9 @@ export async function fetchRecentEmails(
   }
   if (label) {
     query.set("label", label);
+  }
+  if (source && source !== "all") {
+    query.set("source", source);
   }
 
   const queryString = query.toString();

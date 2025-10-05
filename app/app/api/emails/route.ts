@@ -39,11 +39,14 @@ export async function GET(request: Request) {
   const pageParam = searchParams.get("page");
   const perPageParam = searchParams.get("perPage") ?? searchParams.get("limit");
   const labelParam = searchParams.get("label");
+  const sourceParam = searchParams.get("source");
 
   const page = Math.max(Number(pageParam) || 1, 1);
   const perPage = Math.min(Math.max(Number(perPageParam) || 10, 1), 100);
   const from = (page - 1) * perPage;
   const to = from + perPage - 1;
+
+  const seededOnly = sourceParam === "seeded" || sourceParam === "fake";
 
   let labelFilter: string | null = null;
   if (labelParam) {
@@ -66,6 +69,10 @@ export async function GET(request: Request) {
   if (labelFilter) {
     // Supabase's jsonb contains filter expects a JSON-encoded string input.
     query = query.contains("labels", JSON.stringify([labelFilter]));
+  }
+
+  if (seededOnly) {
+    query = query.like("id", "seed-%");
   }
 
   const { data, error, count } = await query.range(from, to);

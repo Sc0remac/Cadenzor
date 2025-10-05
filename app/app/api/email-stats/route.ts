@@ -19,11 +19,17 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const scope = url.searchParams.get("scope");
+  const sourceParam = url.searchParams.get("source");
   const includeRead = scope === "all";
+  const seededOnly = sourceParam === "seeded" || sourceParam === "fake";
 
   let query = supabase.from("emails").select("category, labels");
   if (!includeRead) {
     query = query.eq("is_read", false);
+  }
+
+  if (seededOnly) {
+    query = query.like("id", "seed-%");
   }
 
   const { data, error } = await query;
