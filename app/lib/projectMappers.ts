@@ -8,6 +8,8 @@ import type {
   ProjectTaskRecord,
   ProjectTemplateRecord,
   ProjectTemplateItemRecord,
+  TimelineDependencyRecord,
+  ApprovalRecord,
 } from "@cadenzor/shared";
 
 function parseDateTime(value: any): string | null {
@@ -101,6 +103,19 @@ export function mapProjectEmailLinkRow(row: any): ProjectEmailLinkRecord {
   };
 }
 
+export function mapTimelineDependencyRow(row: any): TimelineDependencyRecord {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    fromItemId: row.from_item_id as string,
+    toItemId: row.to_item_id as string,
+    kind: row.kind as TimelineDependencyRecord["kind"],
+    note: (row.note as string) ?? null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
 export function mapTimelineItemRow(row: any): TimelineItemRecord {
   return {
     id: row.id as string,
@@ -117,6 +132,24 @@ export function mapTimelineItemRow(row: any): TimelineItemRecord {
     refId: (row.ref_id as string) ?? null,
     metadata: parseJson(row.metadata),
     createdBy: (row.created_by as string) ?? null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export function mapApprovalRow(row: any): ApprovalRecord {
+  return {
+    id: row.id as string,
+    projectId: (row.project_id as string) ?? null,
+    type: row.type as ApprovalRecord["type"],
+    status: row.status as ApprovalRecord["status"],
+    payload: parseJson<Record<string, unknown>>(row.payload),
+    requestedBy: (row.requested_by as string) ?? null,
+    createdBy: (row.created_by as string) ?? null,
+    approverId: (row.approver_id as string) ?? null,
+    approvedAt: parseDateTime(row.approved_at),
+    declinedAt: parseDateTime(row.declined_at),
+    resolutionNote: (row.resolution_note as string) ?? null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };

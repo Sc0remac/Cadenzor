@@ -9,12 +9,16 @@ import {
   mapProjectTaskRow,
   mapProjectItemLinkRow,
   mapProjectEmailLinkRow,
+  mapTimelineDependencyRow,
+  mapApprovalRow,
 } from "../../../../lib/projectMappers";
 import type { ProjectRecord, EmailRecord } from "@cadenzor/shared";
 import {
   ensureDefaultLabelCoverage,
   normaliseLabel,
   normaliseLabels,
+  detectTimelineConflicts,
+  computeTopActions,
 } from "@cadenzor/shared";
 
 interface Params {
@@ -63,7 +67,16 @@ export async function GET(request: Request, { params }: Params) {
 
   const project = mapProjectRow(projectRow);
 
-  const [membersRes, sourcesRes, timelineRes, tasksRes, linksRes, emailLinksRes] = await Promise.all([
+  const [
+    membersRes,
+    sourcesRes,
+    timelineRes,
+    tasksRes,
+    linksRes,
+    emailLinksRes,
+    dependenciesRes,
+    approvalsRes,
+  ] = await Promise.all([
     supabase
       .from("project_members")
       .select("id, project_id, user_id, role, created_at")
@@ -91,6 +104,16 @@ export async function GET(request: Request, { params }: Params) {
       .from("project_email_links")
       .select("*")
       .eq("project_id", projectId),
+    supabase
+      .from("timeline_dependencies")
+      .select("*")
+      .eq("project_id", projectId),
+    supabase
+      .from("approvals")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: true }),
   ]);
 
   if (membersRes.error) {
@@ -110,6 +133,12 @@ export async function GET(request: Request, { params }: Params) {
   }
   if (emailLinksRes.error) {
     return formatError(emailLinksRes.error.message, 500);
+  }
+  if (dependenciesRes.error) {
+    return formatError(dependenciesRes.error.message, 500);
+  }
+  if (approvalsRes.error) {
+    return formatError(approvalsRes.error.message, 500);
   }
 
   const memberRows = membersRes.data ?? [];
@@ -145,6 +174,8 @@ export async function GET(request: Request, { params }: Params) {
   const timelineItems = (timelineRes.data ?? []).map(mapTimelineItemRow);
   const tasks = (tasksRes.data ?? []).map(mapProjectTaskRow);
   const itemLinks = (linksRes.data ?? []).map(mapProjectItemLinkRow);
+  const timelineDependencies = (dependenciesRes.data ?? []).map(mapTimelineDependencyRow);
+  const approvals = (approvalsRes.data ?? []).map(mapApprovalRow);
 
   const emailLinkRows = emailLinksRes.data ?? [];
   const emailIds = emailLinkRows
@@ -173,12 +204,19 @@ export async function GET(request: Request, { params }: Params) {
     email: row.email_id ? emailsById.get(row.email_id as string) ?? null : null,
   }));
 
+  const conflicts = detectTimelineConflicts(timelineItems);
+  const topActions = computeTopActions({
+    tasks,
+    timelineItems,
+    dependencies: timelineDependencies,
+    conflicts,
+  });
+
   const stats = {
-    memberCount: members.length,
-    sourceCount: sources.length,
-    linkedEmailCount: emailLinks.length,
     openTaskCount: tasks.filter((task) => task.status !== "done" && task.status !== "completed").length,
     upcomingTimelineCount: timelineItems.filter((item) => item.startsAt && new Date(item.startsAt) >= new Date()).length,
+    linkedEmailCount: emailLinks.length,
+    conflictCount: conflicts.length,
   };
 
   return NextResponse.json({
@@ -186,10 +224,13 @@ export async function GET(request: Request, { params }: Params) {
     members,
     sources,
     timelineItems,
+    timelineDependencies,
     tasks,
     itemLinks,
     emailLinks,
+    approvals,
     stats,
+    topActions,
   });
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../../../lib/serverAuth";
 import { mapProjectRow } from "../../../../../lib/projectMappers";
+import { suggestProjectsForEmail } from "@cadenzor/shared";
 
 interface SuggestProjectPayload {
   emailId: string;
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
 
   const { data: emailRow, error: emailError } = await supabase
     .from("emails")
-    .select("id, subject, labels, from_email, received_at")
+    .select("id, subject, labels, from_email, from_name, received_at, category, is_read, summary")
     .eq("id", payload.emailId)
     .maybeSingle();
 
@@ -72,67 +73,33 @@ export async function POST(request: Request) {
     return formatError(projectError.message, 500);
   }
 
-  const suggestions = (projectRows ?? [])
-    .map((row) => {
-      const project = mapProjectRow(row);
-      const projectLabels = project.labels ? Object.values(project.labels) : [];
-      let score = 0;
-      const rationales: string[] = [];
+  const { data: linkedRows, error: linkedError } = await supabase
+    .from("project_email_links")
+    .select("project_id")
+    .eq("email_id", payload.emailId);
 
-      if (emailLabels.length > 0 && projectLabels.length > 0) {
-        const overlap = emailLabels.filter((label) =>
-          projectLabels.some((value) =>
-            typeof value === "string" && value.toLowerCase() === label.toLowerCase()
-          )
-        );
-        if (overlap.length > 0) {
-          score += overlap.length * 0.25;
-          rationales.push(`Shared labels: ${overlap.join(", ")}`);
-        }
-      }
+  if (linkedError) {
+    return formatError(linkedError.message, 500);
+  }
 
-      if (project.startDate) {
-        const projectStart = new Date(project.startDate);
-        const emailDate = emailRow.received_at ? new Date(emailRow.received_at) : null;
-        if (emailDate) {
-          const diffDays = Math.abs(
-            Math.floor((emailDate.getTime() - projectStart.getTime()) / (1000 * 60 * 60 * 24))
-          );
-          const proximityScore = Math.max(0, 1 - diffDays / 90);
-          if (proximityScore > 0) {
-            score += proximityScore * 0.2;
-            rationales.push("Timeline proximity to project start");
-          }
-        }
-      }
+  const excludeIds = new Set<string>((linkedRows ?? []).map((row) => row.project_id as string));
+  const projects = (projectRows ?? []).map(mapProjectRow);
+  const emailRecord = {
+    id: emailRow.id as string,
+    fromName: (emailRow.from_name as string) ?? null,
+    fromEmail: emailRow.from_email as string,
+    subject: emailRow.subject as string,
+    receivedAt: String(emailRow.received_at),
+    category: emailRow.category as string,
+    isRead: Boolean(emailRow.is_read),
+    summary: emailRow.summary ?? null,
+    labels: emailLabels,
+  };
 
-      if (emailRow.from_email && project.labels) {
-        const emailDomain = emailRow.from_email.split("@")[1]?.toLowerCase();
-        const labelDomains = Object.entries(project.labels)
-          .filter(([key]) => key.toLowerCase().includes("domain"))
-          .map(([, value]) => (typeof value === "string" ? value.toLowerCase() : null))
-          .filter(Boolean) as string[];
-
-        if (emailDomain && labelDomains.includes(emailDomain)) {
-          score += 0.3;
-          rationales.push(`Matches domain label ${emailDomain}`);
-        }
-      }
-
-      return {
-        project,
-        score,
-        rationales,
-      };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, payload.limit ?? 5)
-    .map((item) => ({
-      project: item.project,
-      score: Number(item.score.toFixed(2)),
-      rationales: item.rationales,
-    }));
+  const suggestions = suggestProjectsForEmail(emailRecord, projects, {
+    excludeProjectIds: excludeIds,
+    limit: payload.limit ?? 5,
+  });
 
   return NextResponse.json({ suggestions });
 }

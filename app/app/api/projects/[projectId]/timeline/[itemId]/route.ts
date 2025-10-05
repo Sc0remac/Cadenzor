@@ -46,6 +46,7 @@ export async function PATCH(request: Request, { params }: Params) {
     refTable: string | null;
     refId: string | null;
     metadata: Record<string, unknown>;
+    dependencies: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
   }>;
 
   try {
@@ -85,6 +86,33 @@ export async function PATCH(request: Request, { params }: Params) {
 
   if (!data) {
     return formatError("Timeline item not found", 404);
+  }
+
+  if (payload.dependencies) {
+    const { error: deleteError } = await supabase
+      .from("timeline_dependencies")
+      .delete()
+      .eq("project_id", projectId)
+      .eq("to_item_id", itemId);
+
+    if (!deleteError && payload.dependencies.length > 0) {
+      const dependencyRows = payload.dependencies
+        .filter((dependency) => typeof dependency.itemId === "string" && dependency.itemId.length > 0)
+        .map((dependency) => ({
+          project_id: projectId,
+          from_item_id: dependency.itemId,
+          to_item_id: itemId,
+          kind: dependency.kind === "SS" ? "SS" : "FS",
+          note: dependency.note ?? null,
+        }));
+
+      if (dependencyRows.length > 0) {
+        const { error: insertError } = await supabase.from("timeline_dependencies").insert(dependencyRows);
+        if (insertError) {
+          console.error("Failed to persist timeline dependencies", insertError);
+        }
+      }
+    }
   }
 
   return NextResponse.json({ item: mapTimelineItemRow(data) });

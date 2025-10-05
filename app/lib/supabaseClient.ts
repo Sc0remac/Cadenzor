@@ -9,6 +9,9 @@ import type {
   ProjectTaskRecord,
   ProjectTemplateRecord,
   ProjectTemplateItemRecord,
+  TimelineDependencyRecord,
+  ApprovalRecord,
+  ProjectTopAction,
 } from "@cadenzor/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -224,15 +227,25 @@ export async function createProject(
   return payload.project as ProjectRecord;
 }
 
+export interface ProjectHubStats {
+  openTaskCount: number;
+  upcomingTimelineCount: number;
+  linkedEmailCount: number;
+  conflictCount: number;
+}
+
 export interface ProjectHubResponse {
   project: ProjectRecord;
   members: Array<{ member: ProjectMemberRecord; profile: { fullName: string | null; email: string | null } | null }>;
   sources: ProjectSourceRecord[];
   timelineItems: TimelineItemRecord[];
+  timelineDependencies: TimelineDependencyRecord[];
   tasks: ProjectTaskRecord[];
   itemLinks: ProjectItemLinkRecord[];
   emailLinks: Array<{ link: ProjectEmailLinkRecord; email: EmailRecord | null }>;
-  stats: Record<string, number>;
+  approvals: ApprovalRecord[];
+  stats: ProjectHubStats;
+  topActions: ProjectTopAction[];
 }
 
 export async function fetchProjectHub(
@@ -325,6 +338,7 @@ export interface CreateTimelineItemInput {
   refTable?: string | null;
   refId?: string | null;
   metadata?: Record<string, unknown>;
+  dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
 }
 
 export async function createTimelineItem(
@@ -363,6 +377,52 @@ export async function deleteTimelineItem(
     const body = await response.json();
     throw new Error(body?.error || "Failed to delete timeline item");
   }
+}
+
+export async function fetchApprovals(
+  projectId: string,
+  accessToken?: string,
+  options: { status?: string } = {}
+): Promise<ApprovalRecord[]> {
+  const params = new URLSearchParams({ projectId });
+  if (options.status) {
+    params.set("status", options.status);
+  }
+
+  const response = await fetch(`/api/approvals?${params.toString()}`, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to fetch approvals");
+  }
+
+  return Array.isArray(payload?.approvals) ? (payload.approvals as ApprovalRecord[]) : [];
+}
+
+export async function respondToApproval(
+  approvalId: string,
+  action: "approve" | "decline",
+  options: { note?: string; accessToken?: string } = {}
+): Promise<ApprovalRecord> {
+  const response = await fetch("/api/approvals", {
+    method: "POST",
+    headers: {
+      ...buildHeaders(options.accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ approvalId, action, note: options.note }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to process approval");
+  }
+
+  return payload.approval as ApprovalRecord;
 }
 
 export interface CreateProjectTaskInput {

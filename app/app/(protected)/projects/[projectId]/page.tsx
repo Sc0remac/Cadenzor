@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useParams, useRouter } from "next/navigation";
-import type { EmailRecord, ProjectRecord, ProjectTaskRecord, TimelineItemRecord } from "@cadenzor/shared";
+import type {
+  EmailRecord,
+  ProjectRecord,
+  ProjectTaskRecord,
+  TimelineItemRecord,
+  TimelineDependencyRecord,
+  ApprovalRecord,
+  ProjectTopAction,
+} from "@cadenzor/shared";
 import {
   createProjectTask,
   createTimelineItem,
@@ -13,6 +21,7 @@ import {
   unlinkEmailFromProject,
   updateProject,
   updateProjectTask,
+  respondToApproval,
   type ProjectHubResponse,
 } from "../../../../lib/supabaseClient";
 import { useAuth } from "../../../../components/AuthProvider";
@@ -97,6 +106,7 @@ export default function ProjectHubPage() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+  const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!projectId || !accessToken) {
@@ -124,6 +134,10 @@ export default function ProjectHubPage() {
 
   const project = hub?.project;
 
+  const topActions: ProjectTopAction[] = hub?.topActions ?? [];
+  const timelineDependencies: TimelineDependencyRecord[] = hub?.timelineDependencies ?? [];
+  const approvals: ApprovalRecord[] = hub?.approvals ?? [];
+
   const upcomingTimeline = useMemo(() => {
     if (!hub?.timelineItems) return [];
     const now = Date.now();
@@ -133,13 +147,53 @@ export default function ProjectHubPage() {
       .slice(0, 5);
   }, [hub]);
 
-  const topTasks = useMemo(() => {
-    if (!hub?.tasks) return [];
-    return hub.tasks
-      .filter((task) => !["done", "completed"].includes(task.status))
-      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
-      .slice(0, 5);
-  }, [hub]);
+  const emailSuggestionApprovals = useMemo(
+    () => approvals.filter((approval) => approval.type === "project_email_link"),
+    [approvals]
+  );
+
+  const formatApprovalSummary = (approval: ApprovalRecord) => {
+    const payload = (approval.payload as Record<string, unknown>) ?? {};
+    const metadata: string[] = [];
+    let title = "Review request";
+    let subtitle = approval.type;
+
+    if (approval.type === "project_email_link") {
+      title = typeof payload.emailSubject === "string" ? (payload.emailSubject as string) : "Link classified email";
+      subtitle = "Attach classified email";
+      if (typeof payload.primaryLabel === "string") {
+        metadata.push(`Label ${payload.primaryLabel}`);
+      }
+      if (typeof payload.score === "number") {
+        metadata.push(`Score ${Math.round(payload.score as number)}`);
+      }
+      if (Array.isArray(payload.rationales)) {
+        const reasons = payload.rationales as string[];
+        metadata.push(...reasons.slice(0, 3));
+        if (reasons.length > 3) {
+          metadata.push(`+${reasons.length - 3} additional signals`);
+        }
+      }
+    } else if (approval.type === "timeline_item_from_email") {
+      title = typeof payload.title === "string" ? (payload.title as string) : "Add timeline entry";
+      subtitle = "Proposed timeline item";
+      if (typeof payload.startsAt === "string") {
+        metadata.push(`Starts ${new Date(payload.startsAt as string).toLocaleString()}`);
+      }
+      if (typeof payload.lane === "string") {
+        metadata.push(`Lane ${payload.lane}`);
+      }
+      if (Array.isArray(payload.dependencies) && (payload.dependencies as unknown[]).length > 0) {
+        metadata.push(`${(payload.dependencies as unknown[]).length} dependencies`);
+      }
+    } else {
+      if (typeof payload.summary === "string") {
+        metadata.push(payload.summary as string);
+      }
+    }
+
+    return { title, subtitle, metadata };
+  };
 
   const handleTimelineField = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = event.target;
@@ -164,13 +218,11 @@ export default function ProjectHubPage() {
     }
 
     try {
-      const metadata = timelineForm.dependencies.length
-        ? {
-            dependencies: timelineForm.dependencies.map((dependencyId) => ({
-              itemId: dependencyId,
-              kind: timelineForm.dependencyKind,
-            })),
-          }
+      const dependenciesPayload = timelineForm.dependencies.length
+        ? timelineForm.dependencies.map((dependencyId) => ({
+            itemId: dependencyId,
+            kind: timelineForm.dependencyKind,
+          }))
         : undefined;
 
       await createTimelineItem(
@@ -183,7 +235,7 @@ export default function ProjectHubPage() {
           lane: timelineForm.lane || null,
           territory: timelineForm.territory || null,
           priority: timelineForm.priority,
-          metadata,
+          dependencies: dependenciesPayload,
         },
         accessToken
       );
@@ -273,6 +325,23 @@ export default function ProjectHubPage() {
       await loadHub();
     } catch (err: any) {
       setError(err?.message || "Failed to unlink email");
+    }
+  };
+
+  const handleApprovalAction = async (
+    approvalId: string,
+    action: "approve" | "decline",
+    note?: string
+  ) => {
+    if (!accessToken) return;
+    setProcessingApprovalId(approvalId);
+    try {
+      await respondToApproval(approvalId, action, { note, accessToken });
+      await loadHub();
+    } catch (err: any) {
+      setError(err?.message || "Failed to process approval");
+    } finally {
+      setProcessingApprovalId(null);
     }
   };
 
@@ -375,10 +444,11 @@ export default function ProjectHubPage() {
 
   const renderOverview = () => (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <StatsCard title="Open tasks" value={hub.stats.openTaskCount ?? 0} />
-        <StatsCard title="Upcoming timeline" value={upcomingTimeline.length} />
+        <StatsCard title="Upcoming timeline" value={hub.stats.upcomingTimelineCount ?? 0} />
         <StatsCard title="Linked emails" value={hub.stats.linkedEmailCount ?? 0} />
+        <StatsCard title="Conflicts flagged" value={hub.stats.conflictCount ?? 0} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -402,15 +472,37 @@ export default function ProjectHubPage() {
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
           <h3 className="text-lg font-semibold text-gray-900">Top actions</h3>
-          {topTasks.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-500">No outstanding tasks.</p>
+          {topActions.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-500">No outstanding actions.</p>
           ) : (
             <ul className="mt-3 space-y-3 text-sm text-gray-700">
-              {topTasks.map((task) => (
-                <li key={task.id} className="rounded border border-gray-200 p-3">
-                  <p className="font-semibold text-gray-900">{task.title}</p>
-                  {task.dueAt ? (
-                    <p className="text-xs text-gray-500">Due {new Date(task.dueAt).toLocaleDateString()}</p>
+              {topActions.map((action) => (
+                <li key={action.id} className="rounded border border-gray-200 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">{action.title}</p>
+                      <p className="text-xs text-gray-500">
+                        {action.entityType === "task" ? "Task" : action.entityType === "timeline" ? "Timeline" : "Email"}
+                        {action.startsAt
+                          ? ` • ${new Date(action.startsAt).toLocaleDateString()}`
+                          : action.dueAt
+                          ? ` • ${new Date(action.dueAt).toLocaleDateString()}`
+                          : ""}
+                      </p>
+                    </div>
+                    <span className="rounded bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">
+                      {Math.round(action.score)}
+                    </span>
+                  </div>
+                  {action.rationale && action.rationale.length > 0 ? (
+                    <ul className="mt-2 space-y-1 text-xs text-gray-500">
+                      {action.rationale.slice(0, 3).map((reason) => (
+                        <li key={`${action.id}-${reason}`}>{reason}</li>
+                      ))}
+                      {action.rationale.length > 3 ? (
+                        <li className="italic text-gray-400">+{action.rationale.length - 3} more factors</li>
+                      ) : null}
+                    </ul>
                   ) : null}
                 </li>
               ))}
@@ -446,12 +538,75 @@ export default function ProjectHubPage() {
         onSubmit={submitTimelineItem}
         existingItems={hub?.timelineItems ?? []}
       />
-      <TimelineStudio items={hub?.timelineItems ?? []} />
+      <TimelineStudio items={hub?.timelineItems ?? []} dependencies={timelineDependencies} />
     </div>
   );
 
   const renderInbox = () => (
     <div className="space-y-6">
+      {emailSuggestionApprovals.length > 0 ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900">Suggested project links</h3>
+          <p className="mt-1 text-sm text-emerald-700">
+            Automation spotted emails that likely belong to this project. Approving will attach the email and update your stats.
+          </p>
+          <ul className="mt-4 space-y-4">
+            {emailSuggestionApprovals.map((approval) => {
+              const payload = approval.payload as Record<string, unknown>;
+              const rationales = Array.isArray(payload?.rationales)
+                ? (payload.rationales as string[])
+                : [];
+              const score = typeof payload?.score === "number" ? Math.round(payload.score) : null;
+              const subject = typeof payload?.emailSubject === "string" ? payload.emailSubject : "Linked email";
+              const receivedAt = typeof payload?.emailReceivedAt === "string" ? payload.emailReceivedAt : null;
+              return (
+                <li key={approval.id} className="rounded border border-emerald-200 bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">{subject}</p>
+                      {receivedAt ? (
+                        <p className="text-xs text-gray-500">Received {new Date(receivedAt).toLocaleString()}</p>
+                      ) : null}
+                      {rationales.length > 0 ? (
+                        <ul className="mt-2 space-y-1 text-xs text-gray-600">
+                          {rationales.map((reason) => (
+                            <li key={`${approval.id}-${reason}`}>{reason}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      {score != null ? (
+                        <span className="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
+                          Score {score}
+                        </span>
+                      ) : null}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleApprovalAction(approval.id, "approve")}
+                          disabled={processingApprovalId === approval.id}
+                          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-400"
+                        >
+                          {processingApprovalId === approval.id ? "Applying…" : "Attach"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleApprovalAction(approval.id, "decline")}
+                          disabled={processingApprovalId === approval.id}
+                          className="rounded-md border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
       <form onSubmit={submitEmailLink} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900">Attach email by ID</h3>
         <div className="mt-3 flex gap-3">
@@ -572,8 +727,60 @@ export default function ProjectHubPage() {
   );
 
   const renderApprovals = () => (
-    <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500">
-      Approval queues and playbook toggles will live here. Wire up automations to populate this surface.
+    <div className="space-y-4">
+      {approvals.length === 0 ? (
+        <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-gray-500">
+          No pending approvals. Automation drafts will appear here as they arrive.
+        </div>
+      ) : (
+        approvals.map((approval) => {
+          const summary = formatApprovalSummary(approval);
+          const isProcessing = processingApprovalId === approval.id;
+          return (
+            <div key={approval.id} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">{summary.subtitle}</p>
+                  <h3 className="text-lg font-semibold text-gray-900">{summary.title}</h3>
+                  {summary.metadata.length > 0 ? (
+                    <ul className="mt-2 space-y-1 text-sm text-gray-600">
+                      {summary.metadata.map((item, index) => (
+                        <li key={`${approval.id}-meta-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <p className="mt-2 text-xs text-gray-400">
+                    Draft requested {new Date(approval.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <span className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+                    {approval.type.replaceAll("_", " ")}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleApprovalAction(approval.id, "approve")}
+                      disabled={isProcessing}
+                      className="rounded-md bg-gray-900 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-500"
+                    >
+                      {isProcessing ? "Saving…" : "Approve"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleApprovalAction(approval.id, "decline")}
+                      disabled={isProcessing}
+                      className="rounded-md border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 

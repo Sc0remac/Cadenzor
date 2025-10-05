@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TimelineItemRecord } from "@cadenzor/shared";
+import type { TimelineItemRecord, TimelineDependencyRecord } from "@cadenzor/shared";
+import { detectTimelineConflicts, buildConflictIndex, type TimelineConflict } from "@cadenzor/shared";
 
 const DEFAULT_LANES = ["Live", "Promo", "Writing", "Brand", "Release", "General"];
 const MIN_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -48,13 +49,6 @@ interface DependencyEdge {
   toId: string;
   kind: DependencyKind;
   note?: string;
-}
-
-interface ConflictRecord {
-  id: string;
-  items: [TimelineItemRecord, TimelineItemRecord];
-  message: string;
-  severity: "warning" | "error";
 }
 
 function normaliseLane(rawLane: string | null): string {
@@ -153,7 +147,13 @@ function getTypeStyles(type: TimelineItemRecord["type"]): string {
   }
 }
 
-export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
+export function TimelineStudio({
+  items,
+  dependencies = [],
+}: {
+  items: TimelineItemRecord[];
+  dependencies?: TimelineDependencyRecord[];
+}) {
   const [bufferHours, setBufferHours] = useState(4);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [timelineWidth, setTimelineWidth] = useState(0);
@@ -287,10 +287,29 @@ export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
     if (!items.length) return [] as DependencyEdge[];
     const byId = new Map(items.map((item) => [item.id, item]));
     const result: DependencyEdge[] = [];
+    const seen = new Set<string>();
+
+    for (const dependency of dependencies) {
+      if (!dependency.fromItemId || !dependency.toItemId) continue;
+      if (!byId.has(dependency.fromItemId) || !byId.has(dependency.toItemId)) continue;
+      const key = `${dependency.fromItemId}:${dependency.toItemId}:${dependency.kind}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        fromId: dependency.fromItemId,
+        toId: dependency.toItemId,
+        kind: dependency.kind === "SS" ? "SS" : "FS",
+        note: dependency.note ?? undefined,
+      });
+    }
+
     for (const item of items) {
       const deps = extractDependencies(item);
       for (const dep of deps) {
         if (!dep.itemId || !byId.has(dep.itemId)) continue;
+        const key = `${dep.itemId}:${item.id}:${dep.kind ?? "FS"}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         result.push({
           fromId: dep.itemId,
           toId: item.id,
@@ -299,8 +318,9 @@ export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
         });
       }
     }
+
     return result;
-  }, [items]);
+  }, [dependencies, items]);
 
   const positionLookup = useMemo(() => {
     const map = new Map<string, PositionedItem & { left: number; width: number }>();
@@ -314,79 +334,16 @@ export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
     return map;
   }, [layouts, timelineWidth]);
 
-  const conflicts = useMemo(() => {
-    const bufferMs = bufferHours * 60 * 60 * 1000;
-    const found: ConflictRecord[] = [];
-    const seen = new Set<string>();
-    for (let i = 0; i < scheduledItems.length; i += 1) {
-      for (let j = i + 1; j < scheduledItems.length; j += 1) {
-        const a = scheduledItems[i];
-        const b = scheduledItems[j];
-        if (a.item.id === b.item.id) continue;
+  const conflicts = useMemo<TimelineConflict[]>(
+    () => detectTimelineConflicts(items, { bufferHours }),
+    [items, bufferHours]
+  );
 
-        const overlap = a.end > b.start && b.end > a.start;
-        const sameLane = a.lane === b.lane;
-        const sameTerritory = a.item.territory && a.item.territory === b.item.territory;
-
-        if (overlap && sameLane) {
-          const key = `${a.item.id}:${b.item.id}:lane`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            found.push({
-              id: key,
-              items: [a.item, b.item],
-              severity: "warning",
-              message: `${a.item.title} overlaps with ${b.item.title} in the ${a.lane} lane`,
-            });
-          }
-        }
-
-        if (sameTerritory) {
-          const gap = Math.abs(a.start - b.start);
-          if (gap < bufferMs) {
-            const key = `${a.item.id}:${b.item.id}:territory`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              found.push({
-                id: key,
-                items: [a.item, b.item],
-                severity: "error",
-                message: `${a.item.title} and ${b.item.title} are both in ${a.item.territory} without the ${bufferHours}h buffer`,
-              });
-            }
-          }
-        }
-
-        const chronological = a.end <= b.start ? { first: a, second: b } : { first: b, second: a };
-        const travelTerritoryChange = chronological.first.item.territory && chronological.second.item.territory && chronological.first.item.territory !== chronological.second.item.territory;
-        if (travelTerritoryChange) {
-          const delta = chronological.second.start - chronological.first.end;
-          if (delta < bufferMs) {
-            const key = `${chronological.first.item.id}:${chronological.second.item.id}:travel`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              found.push({
-                id: key,
-                items: [chronological.first.item, chronological.second.item],
-                severity: "warning",
-                message: `${chronological.second.item.title} starts ${Math.round(delta / (60 * 60 * 1000))}h after ${chronological.first.item.title} in a different territory`,
-              });
-            }
-          }
-        }
-      }
-    }
-    return found;
-  }, [scheduledItems, bufferHours]);
+  const conflictIndex = useMemo(() => buildConflictIndex(conflicts), [conflicts]);
 
   const conflictItemIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const conflict of conflicts) {
-      ids.add(conflict.items[0].id);
-      ids.add(conflict.items[1].id);
-    }
-    return ids;
-  }, [conflicts]);
+    return new Set(Array.from(conflictIndex.keys()));
+  }, [conflictIndex]);
 
   const timeScale = useMemo(() => buildTimeScale(range.start, range.end), [range.start, range.end]);
 
@@ -557,4 +514,3 @@ export function TimelineStudio({ items }: { items: TimelineItemRecord[] }) {
     </div>
   );
 }
-
