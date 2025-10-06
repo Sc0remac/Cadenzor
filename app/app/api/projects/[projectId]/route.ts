@@ -5,6 +5,8 @@ import {
   mapProjectRow,
   mapProjectMemberRow,
   mapProjectSourceRow,
+  mapAssetRow,
+  mapAssetLinkRow,
   mapTimelineItemRow,
   mapProjectTaskRow,
   mapProjectItemLinkRow,
@@ -70,6 +72,8 @@ export async function GET(request: Request, { params }: Params) {
   const [
     membersRes,
     sourcesRes,
+    assetsRes,
+    assetLinksRes,
     timelineRes,
     tasksRes,
     linksRes,
@@ -83,6 +87,16 @@ export async function GET(request: Request, { params }: Params) {
       .eq("project_id", projectId),
     supabase
       .from("project_sources")
+      .select("*")
+      .eq("project_id", projectId),
+    supabase
+      .from("assets")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("is_canonical", { ascending: false })
+      .order("modified_at", { ascending: false, nullsFirst: false }),
+    supabase
+      .from("asset_links")
       .select("*")
       .eq("project_id", projectId),
     supabase
@@ -121,6 +135,12 @@ export async function GET(request: Request, { params }: Params) {
   }
   if (sourcesRes.error) {
     return formatError(sourcesRes.error.message, 500);
+  }
+  if (assetsRes.error) {
+    return formatError(assetsRes.error.message, 500);
+  }
+  if (assetLinksRes.error) {
+    return formatError(assetLinksRes.error.message, 500);
   }
   if (timelineRes.error) {
     return formatError(timelineRes.error.message, 500);
@@ -171,6 +191,8 @@ export async function GET(request: Request, { params }: Params) {
   }));
 
   const sources = (sourcesRes.data ?? []).map(mapProjectSourceRow);
+  const assets = (assetsRes.data ?? []).map(mapAssetRow);
+  const assetLinks = (assetLinksRes.data ?? []).map(mapAssetLinkRow);
   const timelineItems = (timelineRes.data ?? []).map(mapTimelineItemRow);
   const tasks = (tasksRes.data ?? []).map(mapProjectTaskRow);
   const itemLinks = (linksRes.data ?? []).map(mapProjectItemLinkRow);
@@ -216,6 +238,7 @@ export async function GET(request: Request, { params }: Params) {
     openTaskCount: tasks.filter((task) => task.status !== "done" && task.status !== "completed").length,
     upcomingTimelineCount: timelineItems.filter((item) => item.startsAt && new Date(item.startsAt) >= new Date()).length,
     linkedEmailCount: emailLinks.length,
+    assetCount: assets.length,
     conflictCount: conflicts.length,
   };
 
@@ -223,6 +246,8 @@ export async function GET(request: Request, { params }: Params) {
     project,
     members,
     sources,
+    assets,
+    assetLinks,
     timelineItems,
     timelineDependencies,
     tasks,
