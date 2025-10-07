@@ -71,7 +71,7 @@ export default function ProjectCreateDialog({
     }
 
     setLoadingTemplates(true);
-    fetchProjectTemplates(accessToken)
+    fetchProjectTemplates(accessToken ?? undefined)
       .then((result) => {
         setTemplates(result);
       })

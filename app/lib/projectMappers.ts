@@ -10,6 +10,10 @@ import type {
   ProjectTemplateItemRecord,
   TimelineDependencyRecord,
   ApprovalRecord,
+  AssetRecord,
+  AssetLinkRecord,
+  OAuthAccountRecord,
+  EmailAttachmentRecord,
 } from "@cadenzor/shared";
 
 function parseDateTime(value: any): string | null {
@@ -76,6 +80,73 @@ export function mapProjectSourceRow(row: any): ProjectSourceRecord {
     lastIndexedAt: parseDateTime(row.last_indexed_at),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+  };
+}
+
+export function mapAssetRow(row: any): AssetRecord {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    projectSourceId: row.project_source_id as string,
+    source: row.source as AssetRecord["source"],
+    externalId: row.external_id as string,
+    title: row.title as string,
+    mimeType: (row.mime_type as string) ?? null,
+    size: row.size != null ? Number(row.size) : null,
+    path: (row.path as string) ?? null,
+    owner: (row.owner as string) ?? null,
+    modifiedAt: parseDateTime(row.modified_at),
+    confidential: Boolean(row.confidential),
+    metadata: parseJson(row.metadata),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    isCanonical: Boolean(row.is_canonical),
+    canonicalCategory: (row.canonical_category as AssetRecord["canonicalCategory"]) ?? null,
+    driveUrl: (row.drive_url as string) ?? null,
+    driveWebViewLink: (row.drive_web_view_link as string) ?? null,
+  };
+}
+
+export function mapAssetLinkRow(row: any): AssetLinkRecord {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    assetId: row.asset_id as string,
+    refTable: row.ref_table as string,
+    refId: row.ref_id as string,
+    source: row.source as AssetLinkRecord["source"],
+    createdAt: String(row.created_at),
+  };
+}
+
+export function mapOAuthAccountRow(row: any): OAuthAccountRecord {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    provider: row.provider as OAuthAccountRecord["provider"],
+    accountEmail: row.account_email as string,
+    scopes: Array.isArray(row.scopes) ? (row.scopes as string[]) : [],
+    accessToken: row.access_token as string,
+    refreshToken: row.refresh_token as string,
+    expiresAt: String(row.expires_at),
+    tokenMetadata: parseJson(row.token_metadata),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export function mapEmailAttachmentRow(row: any): EmailAttachmentRecord {
+  return {
+    id: row.id as string,
+    emailId: row.email_id as string,
+    filename: row.filename as string,
+    mimeType: (row.mime_type as string) ?? null,
+    size: row.size != null ? Number(row.size) : null,
+    storageBucket: (row.storage_bucket as string) ?? null,
+    storagePath: (row.storage_path as string) ?? null,
+    sha256: (row.sha256 as string) ?? null,
+    metadata: parseJson(row.metadata),
+    createdAt: String(row.created_at),
   };
 }
 

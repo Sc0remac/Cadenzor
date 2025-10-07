@@ -12,6 +12,10 @@ import type {
   TimelineDependencyRecord,
   ApprovalRecord,
   ProjectTopAction,
+  AssetRecord,
+  AssetLinkRecord,
+  EmailAttachmentRecord,
+  AssetCanonicalCategory,
 } from "@cadenzor/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -231,6 +235,7 @@ export interface ProjectHubStats {
   openTaskCount: number;
   upcomingTimelineCount: number;
   linkedEmailCount: number;
+  assetCount: number;
   conflictCount: number;
 }
 
@@ -238,6 +243,8 @@ export interface ProjectHubResponse {
   project: ProjectRecord;
   members: Array<{ member: ProjectMemberRecord; profile: { fullName: string | null; email: string | null } | null }>;
   sources: ProjectSourceRecord[];
+  assets: AssetRecord[];
+  assetLinks: AssetLinkRecord[];
   timelineItems: TimelineItemRecord[];
   timelineDependencies: TimelineDependencyRecord[];
   tasks: ProjectTaskRecord[];
@@ -264,6 +271,374 @@ export async function fetchProjectHub(
   }
 
   return payload as ProjectHubResponse;
+}
+
+export interface DriveAccountStatus {
+  connected: boolean;
+  account?: {
+    id: string;
+    email: string;
+    scopes: string[];
+    expiresAt: string;
+  };
+}
+
+export async function fetchDriveAccountStatus(accessToken?: string): Promise<DriveAccountStatus> {
+  const response = await fetch("/api/integrations/google-drive/account", {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  if (response.status === 404) {
+    return { connected: false };
+  }
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load Drive account");
+  }
+
+  return payload as DriveAccountStatus;
+}
+
+export async function disconnectDriveAccount(accessToken?: string): Promise<void> {
+  const response = await fetch("/api/integrations/google-drive/account", {
+    method: "DELETE",
+    headers: buildHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json();
+    throw new Error(payload?.error || "Failed to disconnect Drive");
+  }
+}
+
+export async function startDriveOAuth(
+  options: { redirectTo?: string } = {},
+  accessToken?: string
+): Promise<{ authUrl: string; state: string }> {
+  const response = await fetch("/api/integrations/google-drive/oauth/start", {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ redirectTo: options.redirectTo ?? null }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to initiate Drive OAuth");
+  }
+
+  return payload as { authUrl: string; state: string };
+}
+
+export interface DriveFolderSummaryDto {
+  id: string;
+  name: string;
+  path: string;
+  parentId?: string;
+  webViewLink?: string;
+}
+
+export interface DriveFileSummaryDto {
+  id: string;
+  name: string;
+  mimeType: string;
+  path?: string;
+  modifiedTime?: string;
+  size?: number;
+  webViewLink?: string;
+  webContentLink?: string;
+  iconLink?: string;
+}
+
+export interface DriveBrowseResponse {
+  mode: "browse" | "search";
+  query: string | null;
+  current: DriveFolderSummaryDto | null;
+  folders: DriveFolderSummaryDto[];
+  files: DriveFileSummaryDto[];
+}
+
+export async function browseDriveItems(
+  options: { parent?: string; search?: string } = {},
+  accessToken?: string
+): Promise<DriveBrowseResponse> {
+  const params = new URLSearchParams();
+  if (options.parent) {
+    params.set("parent", options.parent);
+  }
+  if (options.search) {
+    params.set("search", options.search);
+  }
+
+  const queryString = params.toString();
+  const endpoint = queryString
+    ? `/api/integrations/google-drive/folders?${queryString}`
+    : "/api/integrations/google-drive/folders";
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to list Drive folders");
+  }
+
+  const folders = Array.isArray(payload?.folders)
+    ? (payload.folders as DriveFolderSummaryDto[])
+    : [];
+
+  const files = Array.isArray(payload?.files)
+    ? (payload.files as DriveFileSummaryDto[])
+    : [];
+
+  const mode = payload?.mode === "search" ? "search" : "browse";
+  const payloadQuery = typeof payload?.query === "string" ? payload.query : null;
+  const current = payload?.current ? (payload.current as DriveFolderSummaryDto) : null;
+
+  return {
+    mode,
+    query: payloadQuery,
+    current,
+    folders,
+    files,
+  };
+}
+
+export interface ConnectDriveSelectionPayload {
+  driveId: string;
+  kind: "folder" | "file";
+  title?: string;
+  autoIndex?: boolean;
+  maxDepth?: number;
+}
+
+export interface ConnectDriveSourcePayload {
+  selections: ConnectDriveSelectionPayload[];
+  accountId?: string;
+}
+
+export interface ConnectDriveSourceResult {
+  source: ProjectSourceRecord;
+  indexSummary?: { assetCount: number; indexedAt: string } | null;
+}
+
+export interface ConnectDriveSourceResponse {
+  results: ConnectDriveSourceResult[];
+  source?: ProjectSourceRecord | null;
+  indexSummary?: { assetCount: number; indexedAt: string } | null;
+}
+
+export async function connectDriveSource(
+  projectId: string,
+  payload: ConnectDriveSourcePayload,
+  accessToken?: string
+): Promise<ConnectDriveSourceResponse> {
+  const response = await fetch(`/api/projects/${projectId}/drive/connect`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to connect Drive folder");
+  }
+
+  return body as ConnectDriveSourceResponse;
+}
+
+export async function reindexDriveSource(
+  projectId: string,
+  sourceId: string,
+  accessToken?: string
+): Promise<{ assetCount: number; indexedAt: string }> {
+  const response = await fetch(`/api/projects/${projectId}/drive/${sourceId}/reindex`, {
+    method: "POST",
+    headers: buildHeaders(accessToken),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to reindex Drive source");
+  }
+
+  return payload as { assetCount: number; indexedAt: string };
+}
+
+export interface AssetListOptions {
+  sourceId?: string | null;
+  type?: string | null;
+  pathContains?: string | null;
+  updated?: "last7" | "last30" | null;
+  canonical?: boolean;
+  confidential?: boolean;
+  page?: number;
+  perPage?: number;
+}
+
+export interface AssetListResponse {
+  items: AssetRecord[];
+  pagination: {
+    page: number;
+    perPage: number;
+    total: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+}
+
+export async function fetchProjectAssets(
+  projectId: string,
+  options: AssetListOptions = {},
+  accessToken?: string
+): Promise<AssetListResponse> {
+  const params = new URLSearchParams();
+  if (options.sourceId) params.set("sourceId", options.sourceId);
+  if (options.type) params.set("type", options.type);
+  if (options.pathContains) params.set("path", options.pathContains);
+  if (options.updated) params.set("updated", options.updated);
+  if (options.canonical != null) params.set("canonical", String(options.canonical));
+  if (options.confidential != null) params.set("confidential", String(options.confidential));
+  if (options.page) params.set("page", String(options.page));
+  if (options.perPage) params.set("perPage", String(options.perPage));
+
+  const query = params.toString();
+
+  const response = await fetch(
+    query ? `/api/projects/${projectId}/assets?${query}` : `/api/projects/${projectId}/assets`,
+    {
+      method: "GET",
+      headers: buildHeaders(accessToken),
+      cache: "no-store",
+    }
+  );
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to fetch project assets");
+  }
+
+  return payload as AssetListResponse;
+}
+
+export async function fetchEmailAttachments(
+  emailId: string,
+  accessToken?: string
+): Promise<EmailAttachmentRecord[]> {
+  const response = await fetch(`/api/emails/${emailId}/attachments`, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to fetch attachments");
+  }
+
+  return Array.isArray(payload?.attachments) ? (payload.attachments as EmailAttachmentRecord[]) : [];
+}
+
+export async function fileEmailAttachmentsToDrive(
+  projectId: string,
+  emailId: string,
+  payload: {
+    projectSourceId: string;
+    attachmentIds: string[];
+    targetFolderId?: string;
+    subfolderPath?: string;
+  },
+  accessToken?: string
+): Promise<AssetRecord[]> {
+  const response = await fetch(`/api/projects/${projectId}/emails/by-id/${emailId}/file-attachments`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to file attachments to Drive");
+  }
+
+  return Array.isArray(body?.assets) ? (body.assets as AssetRecord[]) : [];
+}
+
+export async function linkAssetToReference(
+  projectId: string,
+  assetId: string,
+  payload: { refTable: string; refId: string; source?: string },
+  accessToken?: string
+): Promise<AssetLinkRecord> {
+  const response = await fetch(`/api/projects/${projectId}/assets/${assetId}/links`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to link asset");
+  }
+
+  return body.link as AssetLinkRecord;
+}
+
+export async function unlinkAssetLink(
+  projectId: string,
+  assetId: string,
+  linkId: string,
+  accessToken?: string
+): Promise<void> {
+  const response = await fetch(`/api/projects/${projectId}/assets/${assetId}/links/${linkId}`, {
+    method: "DELETE",
+    headers: buildHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    const body = await response.json();
+    throw new Error(body?.error || "Failed to unlink asset");
+  }
+}
+
+export async function markAssetCanonical(
+  projectId: string,
+  assetId: string,
+  payload: { isCanonical: boolean; category?: AssetCanonicalCategory | null },
+  accessToken?: string
+): Promise<AssetRecord> {
+  const response = await fetch(`/api/projects/${projectId}/assets/${assetId}/canonical`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to update canonical status");
+  }
+
+  return body.asset as AssetRecord;
 }
 
 export async function updateProject(

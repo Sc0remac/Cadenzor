@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 import { mapProjectRow } from "../../../lib/projectMappers";
 import type { ProjectRecord } from "@cadenzor/shared";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface CreateProjectPayload {
   name: string;
@@ -16,14 +17,8 @@ interface CreateProjectPayload {
   priorityProfile?: Record<string, unknown> | null;
 }
 
-type SupabaseClientType = Awaited<ReturnType<typeof requireAuthenticatedUser>> extends {
-  supabase: infer C;
-}
-  ? C
-  : never;
-
 async function seedProjectFromTemplate(
-  supabase: SupabaseClientType,
+  supabase: SupabaseClient,
   project: ProjectRecord,
   templateSlug: string
 ) {

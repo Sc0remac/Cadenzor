@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from "re
 import { useParams, useRouter } from "next/navigation";
 import type {
   EmailRecord,
+  EmailAttachmentRecord,
   ProjectRecord,
   ProjectTaskRecord,
   TimelineItemRecord,
@@ -23,9 +24,12 @@ import {
   updateProjectTask,
   respondToApproval,
   type ProjectHubResponse,
+  fetchEmailAttachments,
+  fileEmailAttachmentsToDrive,
 } from "../../../../lib/supabaseClient";
 import { useAuth } from "../../../../components/AuthProvider";
 import { TimelineStudio, type DependencyKind } from "../../../../components/projects/TimelineStudio";
+import ProjectFilesTab from "../../../../components/projects/FilesTab";
 
 const TABS = [
   { value: "overview", label: "Overview" },
@@ -107,6 +111,14 @@ export default function ProjectHubPage() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
   const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
+  const [filingContext, setFilingContext] = useState<{ emailId: string; subject: string } | null>(null);
+  const [filingAttachments, setFilingAttachments] = useState<EmailAttachmentRecord[]>([]);
+  const [filingSelected, setFilingSelected] = useState<Set<string>>(new Set());
+  const [filingSourceId, setFilingSourceId] = useState<string>("");
+  const [filingSubfolder, setFilingSubfolder] = useState<string>("");
+  const [filingLoading, setFilingLoading] = useState(false);
+  const [filingError, setFilingError] = useState<string | null>(null);
+  const [filingSuccess, setFilingSuccess] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!projectId || !accessToken) {
@@ -151,6 +163,55 @@ export default function ProjectHubPage() {
     () => approvals.filter((approval) => approval.type === "project_email_link"),
     [approvals]
   );
+
+  const driveSources = useMemo(
+    () => (hub?.sources ?? []).filter((source) => source.kind === "drive_folder"),
+    [hub?.sources]
+  );
+
+  useEffect(() => {
+    if (!filingContext) return;
+
+    if (driveSources.length === 0) {
+      setFilingAttachments([]);
+      setFilingSelected(new Set());
+      setFilingSourceId("");
+      setFilingError("Connect a Drive folder to file attachments.");
+      return;
+    }
+
+    if (!filingSourceId) {
+      setFilingSourceId(driveSources[0].id);
+    }
+
+    if (!accessToken) {
+      setFilingError("Your session expired. Please sign in again.");
+      return;
+    }
+
+    let cancelled = false;
+    setFilingLoading(true);
+    setFilingError(null);
+    setFilingSuccess(null);
+    void fetchEmailAttachments(filingContext.emailId, accessToken)
+      .then((attachments) => {
+        if (cancelled) return;
+        setFilingAttachments(attachments);
+        setFilingSelected(new Set(attachments.map((attachment) => attachment.id)));
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setFilingError(err?.message || "Failed to load attachments");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setFilingLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filingContext, accessToken, driveSources, filingSourceId]);
 
   const formatApprovalSummary = (approval: ApprovalRecord) => {
     const payload = (approval.payload as Record<string, unknown>) ?? {};
@@ -328,6 +389,75 @@ export default function ProjectHubPage() {
     }
   };
 
+  const startFilingAttachments = (email: EmailRecord | null) => {
+    if (!email) {
+      setFilingError("Email metadata unavailable");
+      return;
+    }
+    if (driveSources.length === 0) {
+      setFilingError("Connect a Drive folder first");
+      return;
+    }
+    setFilingContext({ emailId: email.id, subject: email.subject ?? "Email" });
+    setFilingSubfolder("");
+  };
+
+  const closeFilingModal = () => {
+    setFilingContext(null);
+    setFilingAttachments([]);
+    setFilingSelected(new Set());
+    setFilingSubfolder("");
+    setFilingError(null);
+    setFilingSuccess(null);
+  };
+
+  const toggleAttachmentSelection = (attachmentId: string) => {
+    setFilingSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(attachmentId)) {
+        next.delete(attachmentId);
+      } else {
+        next.add(attachmentId);
+      }
+      return next;
+    });
+  };
+
+  const submitAttachmentFiling = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!filingContext || !projectId || !accessToken) return;
+    if (!filingSourceId) {
+      setFilingError("Select a destination folder");
+      return;
+    }
+    if (filingSelected.size === 0) {
+      setFilingError("Select at least one attachment");
+      return;
+    }
+
+    setFilingLoading(true);
+    setFilingError(null);
+    setFilingSuccess(null);
+    try {
+      await fileEmailAttachmentsToDrive(
+        projectId,
+        filingContext.emailId,
+        {
+          projectSourceId: filingSourceId,
+          attachmentIds: Array.from(filingSelected),
+          subfolderPath: filingSubfolder || undefined,
+        },
+        accessToken
+      );
+      setFilingSuccess("Filed attachments to Drive.");
+      await loadHub();
+    } catch (err: any) {
+      setFilingError(err?.message || "Failed to file attachments");
+    } finally {
+      setFilingLoading(false);
+    }
+  };
+
   const handleApprovalAction = async (
     approvalId: string,
     action: "approve" | "decline",
@@ -444,9 +574,10 @@ export default function ProjectHubPage() {
 
   const renderOverview = () => (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatsCard title="Open tasks" value={hub.stats.openTaskCount ?? 0} />
         <StatsCard title="Upcoming timeline" value={hub.stats.upcomingTimelineCount ?? 0} />
+        <StatsCard title="Assets indexed" value={hub.stats.assetCount ?? 0} />
         <StatsCard title="Linked emails" value={hub.stats.linkedEmailCount ?? 0} />
         <StatsCard title="Conflicts flagged" value={hub.stats.conflictCount ?? 0} />
       </div>
@@ -638,6 +769,8 @@ export default function ProjectHubPage() {
                 linkId={link.id}
                 email={email}
                 onUnlink={() => void removeEmailLink(link.id)}
+                onFileAttachments={() => startFilingAttachments(email)}
+                canFileAttachments={driveSources.length > 0}
               />
             ))}
           </ul>
@@ -670,34 +803,14 @@ export default function ProjectHubPage() {
   );
 
   const renderFiles = () => (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-        <h3 className="text-lg font-semibold text-gray-900">Connected sources</h3>
-        {hub.sources.length === 0 ? (
-          <p className="mt-2 text-sm text-gray-500">No sources attached yet. Add Drive or calendar connections from Settings.</p>
-        ) : (
-          <ul className="mt-3 space-y-2 text-sm text-gray-700">
-            {hub.sources.map((source) => (
-              <li key={source.id} className="flex items-start justify-between gap-3 rounded border border-gray-200 p-3">
-                <div>
-                  <p className="font-semibold text-gray-900">{source.title || source.externalId}</p>
-                  <p className="text-xs text-gray-500">{source.kind}</p>
-                  {source.lastIndexedAt ? (
-                    <p className="text-xs text-gray-400">Last indexed {new Date(source.lastIndexedAt).toLocaleString()}</p>
-                  ) : null}
-                </div>
-                <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
-                  {source.watch ? "Watching" : "Manual"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-gray-500">
-        Drive metadata indexing and asset detection will surface here once background jobs run.
-      </div>
-    </div>
+    <ProjectFilesTab
+      project={project}
+      sources={hub.sources}
+      assets={hub.assets ?? []}
+      assetLinks={hub.assetLinks ?? []}
+      accessToken={accessToken}
+      onRefreshHub={loadHub}
+    />
   );
 
   const renderPeople = () => (
@@ -877,8 +990,9 @@ export default function ProjectHubPage() {
   };
 
   return (
-    <section className="space-y-6">
-      <header className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+    <>
+      <section className="space-y-6">
+        <header className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-semibold text-gray-900">{project.name}</h1>
@@ -921,7 +1035,116 @@ export default function ProjectHubPage() {
       </nav>
 
       <div>{tabContent[activeTab]}</div>
-    </section>
+      </section>
+
+      {filingContext ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">File email attachments</h3>
+                <p className="text-sm text-gray-600">{filingContext.subject}</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeFilingModal}
+                className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
+              >
+                Close
+              </button>
+            </div>
+
+            {filingError ? <p className="mb-3 text-sm text-red-600">{filingError}</p> : null}
+            {filingSuccess ? <p className="mb-3 text-sm text-emerald-600">{filingSuccess}</p> : null}
+
+            <form onSubmit={submitAttachmentFiling} className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Destination folder
+                  <select
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                    value={filingSourceId}
+                    onChange={(event) => setFilingSourceId(event.target.value)}
+                  >
+                    <option value="">Select folder…</option>
+                    {driveSources.map((source) => {
+                      const metadata = (source.metadata ?? {}) as Record<string, unknown>;
+                      const folderPath = typeof metadata.folderPath === "string" ? (metadata.folderPath as string) : undefined;
+                      const optionLabel = source.title ?? folderPath ?? source.externalId;
+                      return (
+                        <option key={source.id} value={source.id}>
+                          {optionLabel}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-gray-700">
+                  Subfolder (optional)
+                  <input
+                    type="text"
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                    placeholder="e.g. Inbox/2025-10"
+                    value={filingSubfolder}
+                    onChange={(event) => setFilingSubfolder(event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="max-h-56 overflow-y-auto rounded border border-gray-200">
+                {filingLoading ? (
+                  <p className="p-4 text-sm text-gray-500">Loading attachments…</p>
+                ) : filingAttachments.length === 0 ? (
+                  <p className="p-4 text-sm text-gray-500">No attachments detected for this email.</p>
+                ) : (
+                  <ul className="divide-y divide-gray-100 text-sm">
+                    {filingAttachments.map((attachment) => (
+                      <li key={attachment.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <label className="flex flex-1 items-center gap-3">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300"
+                            checked={filingSelected.has(attachment.id)}
+                            onChange={() => toggleAttachmentSelection(attachment.id)}
+                          />
+                          <span className="truncate text-gray-800">{attachment.filename}</span>
+                        </label>
+                        <span className="text-xs text-gray-500">
+                          {attachment.mimeType ?? ""}
+                          {attachment.size ? ` • ${(attachment.size / 1024).toFixed(1)} KB` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">
+                  Selected {filingSelected.size} of {filingAttachments.length} attachments
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={closeFilingModal}
+                    className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={filingLoading || filingSelected.size === 0 || !filingSourceId}
+                    className="rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                  >
+                    {filingLoading ? "Filing…" : "File to Drive"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -1219,10 +1442,14 @@ function EmailRow({
   linkId,
   email,
   onUnlink,
+  onFileAttachments,
+  canFileAttachments,
 }: {
   linkId: string;
   email: EmailRecord | null;
   onUnlink: () => void;
+  onFileAttachments?: () => void;
+  canFileAttachments?: boolean;
 }) {
   return (
     <li className="flex flex-col gap-2 rounded border border-gray-200 p-3 text-sm text-gray-700 md:flex-row md:items-center md:justify-between">
@@ -1243,13 +1470,24 @@ function EmailRow({
           </div>
         ) : null}
       </div>
-      <button
-        type="button"
-        onClick={onUnlink}
-        className="self-start rounded-md border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-100"
-      >
-        Unlink
-      </button>
+      <div className="flex items-center gap-2">
+        {canFileAttachments ? (
+          <button
+            type="button"
+            onClick={onFileAttachments}
+            className="self-start rounded-md border border-blue-500 px-3 py-1 text-xs text-blue-600 hover:bg-blue-50"
+          >
+            File attachments
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onUnlink}
+          className="self-start rounded-md border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-100"
+        >
+          Unlink
+        </button>
+      </div>
     </li>
   );
 }
