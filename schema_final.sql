@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict GFXWrTlozMxLOIujKdL410LdbeTp8ohGTfqkD5h58AkoUHCx0nkx9tDJp7opjA3
+\restrict NpO2T8vbtU96PXyJLKAZvpVwenzwPPHpapM6pZikwO56fGcU1J7WcrIb1KVBriE
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -212,6 +212,35 @@ CREATE TYPE auth.one_time_token_type AS ENUM (
 
 
 --
+-- Name: approval_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.approval_status AS ENUM (
+    'pending',
+    'approved',
+    'declined'
+);
+
+
+--
+-- Name: asset_source; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.asset_source AS ENUM (
+    'drive'
+);
+
+
+--
+-- Name: oauth_provider; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.oauth_provider AS ENUM (
+    'google'
+);
+
+
+--
 -- Name: project_link_source; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -239,7 +268,6 @@ CREATE TYPE public.project_member_role AS ENUM (
 
 CREATE TYPE public.project_source_kind AS ENUM (
     'drive_folder',
-    'drive_file',
     'sheet',
     'calendar',
     'external_url'
@@ -258,13 +286,12 @@ CREATE TYPE public.project_status AS ENUM (
 
 
 --
--- Name: approval_status; Type: TYPE; Schema: public; Owner: -
+-- Name: timeline_dependency_kind; Type: TYPE; Schema: public; Owner: -
 --
 
-CREATE TYPE public.approval_status AS ENUM (
-    'pending',
-    'approved',
-    'declined'
+CREATE TYPE public.timeline_dependency_kind AS ENUM (
+    'FS',
+    'SS'
 );
 
 
@@ -279,16 +306,6 @@ CREATE TYPE public.timeline_item_type AS ENUM (
     'hold',
     'lead',
     'gate'
-);
-
-
---
--- Name: timeline_dependency_kind; Type: TYPE; Schema: public; Owner: -
---
-
-CREATE TYPE public.timeline_dependency_kind AS ENUM (
-    'FS',
-    'SS'
 );
 
 
@@ -1997,6 +2014,27 @@ COMMENT ON COLUMN auth.users.is_sso_user IS 'Auth: Set this column to true when 
 
 
 --
+-- Name: approvals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.approvals (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    project_id uuid,
+    type text NOT NULL,
+    status public.approval_status DEFAULT 'pending'::public.approval_status NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    requested_by uuid,
+    created_by uuid,
+    approver_id uuid,
+    approved_at timestamp with time zone,
+    declined_at timestamp with time zone,
+    resolution_note text,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
 -- Name: artists; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2007,6 +2045,64 @@ CREATE TABLE public.artists (
     default_rubric_id uuid,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
+-- Name: asset_links; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.asset_links (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    project_id uuid NOT NULL,
+    asset_id uuid NOT NULL,
+    ref_table text NOT NULL,
+    ref_id text NOT NULL,
+    source public.project_link_source DEFAULT 'manual'::public.project_link_source NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
+-- Name: assets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.assets (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    project_id uuid NOT NULL,
+    project_source_id uuid NOT NULL,
+    source public.asset_source DEFAULT 'drive'::public.asset_source NOT NULL,
+    external_id text NOT NULL,
+    title text NOT NULL,
+    mime_type text,
+    size bigint,
+    path text,
+    owner text,
+    modified_at timestamp with time zone,
+    confidential boolean DEFAULT false NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    is_canonical boolean DEFAULT false NOT NULL,
+    canonical_category text,
+    drive_url text,
+    drive_web_view_link text
+);
+
+
+--
+-- Name: audit_logs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    project_id uuid,
+    user_id uuid,
+    action text NOT NULL,
+    entity text NOT NULL,
+    ref_id text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 
@@ -2022,6 +2118,24 @@ CREATE TABLE public.contacts (
 );
 
 ALTER TABLE ONLY public.contacts FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: email_attachments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.email_attachments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    email_id text NOT NULL,
+    filename text NOT NULL,
+    mime_type text,
+    size bigint,
+    storage_bucket text,
+    storage_path text,
+    sha256 text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
 
 
 --
@@ -2041,6 +2155,40 @@ CREATE TABLE public.emails (
 );
 
 ALTER TABLE ONLY public.emails FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: oauth_accounts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.oauth_accounts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    provider public.oauth_provider DEFAULT 'google'::public.oauth_provider NOT NULL,
+    account_email text NOT NULL,
+    scopes text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    access_token text NOT NULL,
+    refresh_token text NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    token_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
+-- Name: oauth_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.oauth_sessions (
+    state text NOT NULL,
+    user_id uuid NOT NULL,
+    provider public.oauth_provider DEFAULT 'google'::public.oauth_provider NOT NULL,
+    code_verifier text,
+    redirect_to text,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    expires_at timestamp with time zone DEFAULT (timezone('utc'::text, now()) + '00:15:00'::interval) NOT NULL
+);
 
 
 --
@@ -2081,27 +2229,6 @@ CREATE TABLE public.project_email_links (
     source public.project_link_source DEFAULT 'manual'::public.project_link_source NOT NULL,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT project_email_links_confidence_check CHECK (((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))
-);
-
-
---
--- Name: approvals; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.approvals (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    project_id uuid,
-    type text NOT NULL,
-    status public.approval_status DEFAULT 'pending'::public.approval_status NOT NULL,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    requested_by uuid,
-    created_by uuid,
-    approver_id uuid,
-    approved_at timestamp with time zone,
-    declined_at timestamp with time zone,
-    resolution_note text,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 
@@ -2228,6 +2355,22 @@ CREATE TABLE public.projects (
 
 
 --
+-- Name: timeline_dependencies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.timeline_dependencies (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    project_id uuid NOT NULL,
+    from_item_id uuid NOT NULL,
+    to_item_id uuid NOT NULL,
+    kind public.timeline_dependency_kind DEFAULT 'FS'::public.timeline_dependency_kind NOT NULL,
+    note text,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT timeline_dependencies_no_self CHECK ((from_item_id <> to_item_id))
+);
+
+
+--
 -- Name: timeline_items; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2248,21 +2391,6 @@ CREATE TABLE public.timeline_items (
     created_by uuid,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-
---
--- Name: timeline_dependencies; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.timeline_dependencies (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    project_id uuid NOT NULL,
-    from_item_id uuid NOT NULL,
-    to_item_id uuid NOT NULL,
-    kind public.timeline_dependency_kind DEFAULT 'FS'::public.timeline_dependency_kind NOT NULL,
-    note text,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 
@@ -2642,11 +2770,59 @@ ALTER TABLE ONLY auth.users
 
 
 --
+-- Name: approvals approvals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.approvals
+    ADD CONSTRAINT approvals_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: artists artists_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.artists
     ADD CONSTRAINT artists_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: asset_links asset_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.asset_links
+    ADD CONSTRAINT asset_links_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: asset_links asset_links_unique_ref; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.asset_links
+    ADD CONSTRAINT asset_links_unique_ref UNIQUE (project_id, asset_id, ref_table, ref_id);
+
+
+--
+-- Name: assets assets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.assets
+    ADD CONSTRAINT assets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: assets assets_unique_external; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.assets
+    ADD CONSTRAINT assets_unique_external UNIQUE (project_source_id, external_id);
+
+
+--
+-- Name: audit_logs audit_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs
+    ADD CONSTRAINT audit_logs_pkey PRIMARY KEY (id);
 
 
 --
@@ -2666,11 +2842,35 @@ ALTER TABLE ONLY public.contacts
 
 
 --
+-- Name: email_attachments email_attachments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.email_attachments
+    ADD CONSTRAINT email_attachments_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: emails emails_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.emails
     ADD CONSTRAINT emails_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: oauth_accounts oauth_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.oauth_accounts
+    ADD CONSTRAINT oauth_accounts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: oauth_sessions oauth_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.oauth_sessions
+    ADD CONSTRAINT oauth_sessions_pkey PRIMARY KEY (state);
 
 
 --
@@ -2695,14 +2895,6 @@ ALTER TABLE ONLY public.profiles
 
 ALTER TABLE ONLY public.project_email_links
     ADD CONSTRAINT project_email_links_pkey PRIMARY KEY (id);
-
-
---
--- Name: approvals approvals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.approvals
-    ADD CONSTRAINT approvals_pkey PRIMARY KEY (id);
 
 
 --
@@ -2778,14 +2970,6 @@ ALTER TABLE ONLY public.projects
 
 
 --
--- Name: timeline_items timeline_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.timeline_items
-    ADD CONSTRAINT timeline_items_pkey PRIMARY KEY (id);
-
-
---
 -- Name: timeline_dependencies timeline_dependencies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2794,19 +2978,19 @@ ALTER TABLE ONLY public.timeline_dependencies
 
 
 --
--- Name: timeline_dependencies timeline_dependencies_no_self; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.timeline_dependencies
-    ADD CONSTRAINT timeline_dependencies_no_self CHECK ((from_item_id <> to_item_id));
-
-
---
 -- Name: timeline_dependencies timeline_dependencies_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.timeline_dependencies
     ADD CONSTRAINT timeline_dependencies_unique UNIQUE (project_id, from_item_id, to_item_id, kind);
+
+
+--
+-- Name: timeline_items timeline_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.timeline_items
+    ADD CONSTRAINT timeline_items_pkey PRIMARY KEY (id);
 
 
 --
@@ -3199,6 +3383,76 @@ CREATE INDEX users_is_anonymous_idx ON auth.users USING btree (is_anonymous);
 
 
 --
+-- Name: approvals_project_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX approvals_project_status_idx ON public.approvals USING btree (project_id, status);
+
+
+--
+-- Name: asset_links_asset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX asset_links_asset_idx ON public.asset_links USING btree (asset_id);
+
+
+--
+-- Name: asset_links_project_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX asset_links_project_idx ON public.asset_links USING btree (project_id, created_at DESC);
+
+
+--
+-- Name: assets_canonical_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX assets_canonical_idx ON public.assets USING btree (project_id) WHERE (is_canonical = true);
+
+
+--
+-- Name: assets_confidential_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX assets_confidential_idx ON public.assets USING btree (confidential) WHERE (confidential = true);
+
+
+--
+-- Name: assets_modified_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX assets_modified_idx ON public.assets USING btree (project_id, modified_at DESC);
+
+
+--
+-- Name: assets_project_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX assets_project_idx ON public.assets USING btree (project_id);
+
+
+--
+-- Name: assets_project_path_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX assets_project_path_idx ON public.assets USING btree (project_id, path);
+
+
+--
+-- Name: audit_logs_project_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_project_created_idx ON public.audit_logs USING btree (project_id, created_at DESC);
+
+
+--
+-- Name: email_attachments_email_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX email_attachments_email_idx ON public.email_attachments USING btree (email_id);
+
+
+--
 -- Name: emails_category_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3213,10 +3467,24 @@ CREATE INDEX emails_is_read_idx ON public.emails USING btree (is_read);
 
 
 --
--- Name: approvals_project_status_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: oauth_accounts_expires_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX approvals_project_status_idx ON public.approvals USING btree (project_id, status);
+CREATE INDEX oauth_accounts_expires_at_idx ON public.oauth_accounts USING btree (expires_at);
+
+
+--
+-- Name: oauth_accounts_user_provider_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX oauth_accounts_user_provider_key ON public.oauth_accounts USING btree (user_id, provider);
+
+
+--
+-- Name: oauth_sessions_expires_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX oauth_sessions_expires_at_idx ON public.oauth_sessions USING btree (expires_at);
 
 
 --
@@ -3262,27 +3530,6 @@ CREATE UNIQUE INDEX projects_artist_id_slug_idx ON public.projects USING btree (
 
 
 --
--- Name: timeline_items_project_ends_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX timeline_items_project_ends_idx ON public.timeline_items USING btree (project_id, ends_at);
-
-
---
--- Name: timeline_items_project_priority_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX timeline_items_project_priority_idx ON public.timeline_items USING btree (project_id, priority DESC);
-
-
---
--- Name: timeline_items_project_starts_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX timeline_items_project_starts_idx ON public.timeline_items USING btree (project_id, starts_at);
-
-
---
 -- Name: timeline_dependencies_from_item_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3301,6 +3548,27 @@ CREATE INDEX timeline_dependencies_project_idx ON public.timeline_dependencies U
 --
 
 CREATE INDEX timeline_dependencies_to_item_idx ON public.timeline_dependencies USING btree (project_id, to_item_id);
+
+
+--
+-- Name: timeline_items_project_ends_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX timeline_items_project_ends_idx ON public.timeline_items USING btree (project_id, ends_at);
+
+
+--
+-- Name: timeline_items_project_priority_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX timeline_items_project_priority_idx ON public.timeline_items USING btree (project_id, priority DESC);
+
+
+--
+-- Name: timeline_items_project_starts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX timeline_items_project_starts_idx ON public.timeline_items USING btree (project_id, starts_at);
 
 
 --
@@ -3367,6 +3635,27 @@ CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXEC
 
 
 --
+-- Name: approvals approvals_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER approvals_set_updated_at BEFORE UPDATE ON public.approvals FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: assets assets_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER assets_set_updated_at BEFORE UPDATE ON public.assets FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: oauth_accounts oauth_accounts_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER oauth_accounts_set_updated_at BEFORE UPDATE ON public.oauth_accounts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: profiles profiles_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3385,13 +3674,6 @@ CREATE TRIGGER project_sources_set_updated_at BEFORE UPDATE ON public.project_so
 --
 
 CREATE TRIGGER project_tasks_set_updated_at BEFORE UPDATE ON public.project_tasks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-
---
--- Name: approvals approvals_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER approvals_set_updated_at BEFORE UPDATE ON public.approvals FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -3525,22 +3807,6 @@ ALTER TABLE ONLY auth.sso_domains
 
 
 --
--- Name: profiles profiles_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.profiles
-    ADD CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
-
-
---
--- Name: project_email_links project_email_links_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.project_email_links
-    ADD CONSTRAINT project_email_links_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
-
-
---
 -- Name: approvals approvals_approver_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3570,6 +3836,94 @@ ALTER TABLE ONLY public.approvals
 
 ALTER TABLE ONLY public.approvals
     ADD CONSTRAINT approvals_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: asset_links asset_links_asset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.asset_links
+    ADD CONSTRAINT asset_links_asset_id_fkey FOREIGN KEY (asset_id) REFERENCES public.assets(id) ON DELETE CASCADE;
+
+
+--
+-- Name: asset_links asset_links_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.asset_links
+    ADD CONSTRAINT asset_links_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
+
+
+--
+-- Name: assets assets_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.assets
+    ADD CONSTRAINT assets_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
+
+
+--
+-- Name: assets assets_project_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.assets
+    ADD CONSTRAINT assets_project_source_id_fkey FOREIGN KEY (project_source_id) REFERENCES public.project_sources(id) ON DELETE CASCADE;
+
+
+--
+-- Name: audit_logs audit_logs_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs
+    ADD CONSTRAINT audit_logs_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
+
+
+--
+-- Name: audit_logs audit_logs_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs
+    ADD CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: email_attachments email_attachments_email_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.email_attachments
+    ADD CONSTRAINT email_attachments_email_id_fkey FOREIGN KEY (email_id) REFERENCES public.emails(id) ON DELETE CASCADE;
+
+
+--
+-- Name: oauth_accounts oauth_accounts_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.oauth_accounts
+    ADD CONSTRAINT oauth_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: oauth_sessions oauth_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.oauth_sessions
+    ADD CONSTRAINT oauth_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: profiles profiles_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.profiles
+    ADD CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: project_email_links project_email_links_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.project_email_links
+    ADD CONSTRAINT project_email_links_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
 
 
 --
@@ -3653,22 +4007,6 @@ ALTER TABLE ONLY public.projects
 
 
 --
--- Name: timeline_items timeline_items_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.timeline_items
-    ADD CONSTRAINT timeline_items_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
-
-
---
--- Name: timeline_items timeline_items_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.timeline_items
-    ADD CONSTRAINT timeline_items_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
-
-
---
 -- Name: timeline_dependencies timeline_dependencies_from_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3690,6 +4028,22 @@ ALTER TABLE ONLY public.timeline_dependencies
 
 ALTER TABLE ONLY public.timeline_dependencies
     ADD CONSTRAINT timeline_dependencies_to_item_id_fkey FOREIGN KEY (to_item_id) REFERENCES public.timeline_items(id) ON DELETE CASCADE;
+
+
+--
+-- Name: timeline_items timeline_items_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.timeline_items
+    ADD CONSTRAINT timeline_items_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: timeline_items timeline_items_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.timeline_items
+    ADD CONSTRAINT timeline_items_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
 
 
 --
@@ -3842,6 +4196,137 @@ CREATE POLICY "Users can view their profile" ON public.profiles FOR SELECT USING
 
 
 --
+-- Name: approvals; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.approvals ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: approvals approvals_editor_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY approvals_editor_delete ON public.approvals FOR DELETE USING (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
+
+
+--
+-- Name: approvals approvals_editor_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY approvals_editor_insert ON public.approvals FOR INSERT WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
+
+
+--
+-- Name: approvals approvals_editor_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY approvals_editor_update ON public.approvals FOR UPDATE USING (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role])) WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
+
+
+--
+-- Name: approvals approvals_member_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY approvals_member_select ON public.approvals FOR SELECT USING (public.is_project_member(project_id));
+
+
+--
+-- Name: approvals approvals_service_role_all; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY approvals_service_role_all ON public.approvals USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: asset_links; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.asset_links ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: asset_links asset_links_member_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY asset_links_member_select ON public.asset_links FOR SELECT USING (((auth.role() = 'service_role'::text) OR (EXISTS ( SELECT 1
+   FROM public.assets a
+  WHERE ((a.id = asset_links.asset_id) AND (((a.confidential = false) AND public.is_project_member(a.project_id)) OR ((a.confidential = true) AND public.is_project_member(a.project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]))))))));
+
+
+--
+-- Name: asset_links asset_links_service_role_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY asset_links_service_role_delete ON public.asset_links FOR DELETE USING ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: asset_links asset_links_service_role_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY asset_links_service_role_insert ON public.asset_links FOR INSERT WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: asset_links asset_links_service_role_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY asset_links_service_role_update ON public.asset_links FOR UPDATE USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: assets; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.assets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: assets assets_member_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY assets_member_select ON public.assets FOR SELECT USING (((auth.role() = 'service_role'::text) OR ((confidential = false) AND public.is_project_member(project_id)) OR ((confidential = true) AND public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]))));
+
+
+--
+-- Name: assets assets_service_role_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY assets_service_role_delete ON public.assets FOR DELETE USING ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: assets assets_service_role_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY assets_service_role_insert ON public.assets FOR INSERT WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: assets assets_service_role_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY assets_service_role_update ON public.assets FOR UPDATE USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: audit_logs; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs audit_logs_member_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY audit_logs_member_select ON public.audit_logs FOR SELECT USING (((auth.role() = 'service_role'::text) OR ((project_id IS NOT NULL) AND public.is_project_member(project_id))));
+
+
+--
+-- Name: audit_logs audit_logs_service_role_all; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY audit_logs_service_role_all ON public.audit_logs USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
 -- Name: contacts; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3862,6 +4347,19 @@ CREATE POLICY contacts_service_role_all ON public.contacts USING ((auth.role() =
 
 
 --
+-- Name: email_attachments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.email_attachments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: email_attachments email_attachments_service_role_only; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY email_attachments_service_role_only ON public.email_attachments USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
 -- Name: emails; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3879,6 +4377,53 @@ CREATE POLICY emails_anon_read ON public.emails FOR SELECT USING (true);
 --
 
 CREATE POLICY emails_service_role_all ON public.emails USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: oauth_accounts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.oauth_accounts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: oauth_accounts oauth_accounts_owner_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY oauth_accounts_owner_delete ON public.oauth_accounts FOR DELETE USING (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
+
+
+--
+-- Name: oauth_accounts oauth_accounts_owner_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY oauth_accounts_owner_insert ON public.oauth_accounts FOR INSERT WITH CHECK (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
+
+
+--
+-- Name: oauth_accounts oauth_accounts_owner_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY oauth_accounts_owner_select ON public.oauth_accounts FOR SELECT USING (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
+
+
+--
+-- Name: oauth_accounts oauth_accounts_owner_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY oauth_accounts_owner_update ON public.oauth_accounts FOR UPDATE USING (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id))) WITH CHECK (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
+
+
+--
+-- Name: oauth_sessions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.oauth_sessions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: oauth_sessions oauth_sessions_service_role_only; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY oauth_sessions_service_role_only ON public.oauth_sessions USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
 
 
 --
@@ -3926,48 +4471,6 @@ CREATE POLICY project_email_links_member_select ON public.project_email_links FO
 --
 
 CREATE POLICY project_email_links_service_role_all ON public.project_email_links USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
-
-
---
--- Name: approvals; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.approvals ENABLE ROW LEVEL SECURITY;
-
-
---
--- Name: approvals approvals_editor_delete; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY approvals_editor_delete ON public.approvals FOR DELETE USING (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
-
-
---
--- Name: approvals approvals_editor_insert; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY approvals_editor_insert ON public.approvals FOR INSERT WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
-
-
---
--- Name: approvals approvals_editor_update; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY approvals_editor_update ON public.approvals FOR UPDATE USING (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role])) WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
-
-
---
--- Name: approvals approvals_member_select; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY approvals_member_select ON public.approvals FOR SELECT USING (public.is_project_member(project_id));
-
-
---
--- Name: approvals approvals_service_role_all; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY approvals_service_role_all ON public.approvals USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
 
 
 --
@@ -4216,6 +4719,47 @@ CREATE POLICY projects_service_role_all ON public.projects USING ((auth.role() =
 
 
 --
+-- Name: timeline_dependencies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.timeline_dependencies ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: timeline_dependencies timeline_dependencies_editor_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY timeline_dependencies_editor_delete ON public.timeline_dependencies FOR DELETE USING (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
+
+
+--
+-- Name: timeline_dependencies timeline_dependencies_editor_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY timeline_dependencies_editor_insert ON public.timeline_dependencies FOR INSERT WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
+
+
+--
+-- Name: timeline_dependencies timeline_dependencies_editor_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY timeline_dependencies_editor_update ON public.timeline_dependencies FOR UPDATE USING (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role])) WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
+
+
+--
+-- Name: timeline_dependencies timeline_dependencies_member_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY timeline_dependencies_member_select ON public.timeline_dependencies FOR SELECT USING (public.is_project_member(project_id));
+
+
+--
+-- Name: timeline_dependencies timeline_dependencies_service_role_all; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY timeline_dependencies_service_role_all ON public.timeline_dependencies USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
 -- Name: timeline_items; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -4254,48 +4798,6 @@ CREATE POLICY timeline_items_member_select ON public.timeline_items FOR SELECT U
 --
 
 CREATE POLICY timeline_items_service_role_all ON public.timeline_items USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
-
-
---
--- Name: timeline_dependencies; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.timeline_dependencies ENABLE ROW LEVEL SECURITY;
-
-
---
--- Name: timeline_dependencies timeline_dependencies_editor_delete; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY timeline_dependencies_editor_delete ON public.timeline_dependencies FOR DELETE USING (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
-
-
---
--- Name: timeline_dependencies timeline_dependencies_editor_insert; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY timeline_dependencies_editor_insert ON public.timeline_dependencies FOR INSERT WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
-
-
---
--- Name: timeline_dependencies timeline_dependencies_editor_update; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY timeline_dependencies_editor_update ON public.timeline_dependencies FOR UPDATE USING (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role])) WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role, 'editor'::public.project_member_role]));
-
-
---
--- Name: timeline_dependencies timeline_dependencies_member_select; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY timeline_dependencies_member_select ON public.timeline_dependencies FOR SELECT USING (public.is_project_member(project_id));
-
-
---
--- Name: timeline_dependencies timeline_dependencies_service_role_all; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY timeline_dependencies_service_role_all ON public.timeline_dependencies USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
 
 
 --
@@ -4397,4 +4899,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict GFXWrTlozMxLOIujKdL410LdbeTp8ohGTfqkD5h58AkoUHCx0nkx9tDJp7opjA3
+\unrestrict NpO2T8vbtU96PXyJLKAZvpVwenzwPPHpapM6pZikwO56fGcU1J7WcrIb1KVBriE
+
