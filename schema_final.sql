@@ -268,6 +268,7 @@ CREATE TYPE public.project_member_role AS ENUM (
 
 CREATE TYPE public.project_source_kind AS ENUM (
     'drive_folder',
+    'drive_file',
     'sheet',
     'calendar',
     'external_url'

@@ -412,13 +412,17 @@ export async function browseDriveItems(
   };
 }
 
-export interface ConnectDriveSourcePayload {
+export interface ConnectDriveSelectionPayload {
   driveId: string;
   kind: "folder" | "file";
-  accountId?: string;
   title?: string;
   autoIndex?: boolean;
   maxDepth?: number;
+}
+
+export interface ConnectDriveSourcePayload {
+  selections: ConnectDriveSelectionPayload[];
+  accountId?: string;
 }
 
 export interface ConnectDriveSourceResult {
@@ -426,11 +430,17 @@ export interface ConnectDriveSourceResult {
   indexSummary?: { assetCount: number; indexedAt: string } | null;
 }
 
+export interface ConnectDriveSourceResponse {
+  results: ConnectDriveSourceResult[];
+  source?: ProjectSourceRecord | null;
+  indexSummary?: { assetCount: number; indexedAt: string } | null;
+}
+
 export async function connectDriveSource(
   projectId: string,
   payload: ConnectDriveSourcePayload,
   accessToken?: string
-): Promise<ConnectDriveSourceResult> {
+): Promise<ConnectDriveSourceResponse> {
   const response = await fetch(`/api/projects/${projectId}/drive/connect`, {
     method: "POST",
     headers: {
@@ -445,7 +455,7 @@ export async function connectDriveSource(
     throw new Error(body?.error || "Failed to connect Drive folder");
   }
 
-  return body as ConnectDriveSourceResult;
+  return body as ConnectDriveSourceResponse;
 }
 
 export async function reindexDriveSource(

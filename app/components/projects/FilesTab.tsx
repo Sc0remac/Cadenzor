@@ -51,6 +51,10 @@ const DEFAULT_FILTERS: AssetFilters = {
   pathContains: "",
 };
 
+type DriveSelectionEntry =
+  | { type: "folder"; item: DriveFolderSummaryDto; displayPath: string }
+  | { type: "file"; item: DriveFileSummaryDto; displayPath: string };
+
 const TYPE_OPTIONS = [
   { value: null, label: "All types" },
   { value: "audio", label: "Audio" },
@@ -119,8 +123,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
   const [folderLoading, setFolderLoading] = useState(false);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
-  const [selectedFolder, setSelectedFolder] = useState<DriveFolderSummaryDto | null>(null);
-  const [selectedFile, setSelectedFile] = useState<DriveFileSummaryDto | null>(null);
+  const [selectedEntries, setSelectedEntries] = useState<DriveSelectionEntry[]>([]);
   const [driveBrowserMode, setDriveBrowserMode] = useState<"browse" | "search">("browse");
   const [driveActiveQuery, setDriveActiveQuery] = useState<string | null>(null);
   const [driveSearchInput, setDriveSearchInput] = useState("");
@@ -177,57 +180,53 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
   useEffect(() => {
     if (!driveAccount) {
       setFolderModalOpen(false);
-      setSelectedFolder(null);
       setFolderChildren([]);
       setFolderHistory([]);
       setFileChildren([]);
-      setSelectedFile(null);
+      setSelectedEntries([]);
       setDriveBrowserMode("browse");
       setDriveActiveQuery(null);
       setDriveSearchInput("");
     }
   }, [driveAccount]);
 
-  const selectedFolderPath = useMemo(() => {
-    if (!selectedFolder) {
-      return "";
-    }
+  const isFolderSelected = (folderId: string) =>
+    selectedEntries.some((entry) => entry.type === "folder" && entry.item.id === folderId);
 
-    if (folderHistory.length === 0) {
-      return selectedFolder.name;
-    }
+  const isFileSelected = (fileId: string) =>
+    selectedEntries.some((entry) => entry.type === "file" && entry.item.id === fileId);
 
-    const historyNames = folderHistory.map((entry) => entry.name);
-    const lastHistory = folderHistory[folderHistory.length - 1];
+  function toggleFolderSelection(folder: DriveFolderSummaryDto, displayPath: string) {
+    setSelectedEntries((prev) => {
+      const existingIndex = prev.findIndex((entry) => entry.type === "folder" && entry.item.id === folder.id);
+      if (existingIndex >= 0) {
+        const next = [...prev];
+        next.splice(existingIndex, 1);
+        return next;
+      }
+      return [...prev, { type: "folder", item: folder, displayPath }];
+    });
+  }
 
-    if (lastHistory && selectedFolder.id === lastHistory.id) {
-      return historyNames.join(" / ");
-    }
+  function toggleFileSelection(file: DriveFileSummaryDto, displayPath: string) {
+    setSelectedEntries((prev) => {
+      const existingIndex = prev.findIndex((entry) => entry.type === "file" && entry.item.id === file.id);
+      if (existingIndex >= 0) {
+        const next = [...prev];
+        next.splice(existingIndex, 1);
+        return next;
+      }
+      return [...prev, { type: "file", item: file, displayPath }];
+    });
+  }
 
-    return [...historyNames, selectedFolder.name].join(" / ");
-  }, [selectedFolder, folderHistory]);
+  function removeSelection(type: "folder" | "file", id: string) {
+    setSelectedEntries((prev) => prev.filter((entry) => !(entry.type === type && entry.item.id === id)));
+  }
 
-  const selectedFilePath = useMemo(() => {
-    if (!selectedFile) {
-      return "";
-    }
-
-    if (selectedFile.path && selectedFile.path.trim()) {
-      return selectedFile.path;
-    }
-
-    if (folderHistory.length === 0) {
-      return selectedFile.name;
-    }
-
-    const names = folderHistory.map((entry) => entry.name);
-    return [...names, selectedFile.name].join(" / ");
-  }, [selectedFile, folderHistory]);
-
-  const selectedEntryType = selectedFolder ? "folder" : selectedFile ? "file" : null;
-  const selectedEntryId = selectedFolder ? selectedFolder.id : selectedFile ? selectedFile.id : null;
-  const connectPendingKey = selectedEntryType && selectedEntryId ? `connect:${selectedEntryType}:${selectedEntryId}` : null;
-  const isConnectingSelection = connectPendingKey != null && pendingAction === connectPendingKey;
+  const selectedCount = selectedEntries.length;
+  const primarySelection = selectedCount > 0 ? selectedEntries[selectedCount - 1] : null;
+  const isConnectingSelection = pendingAction === "connect";
   const driveSources = useMemo(
     () => sources.filter((source) => source.kind === "drive_folder" || source.kind === "drive_file"),
     [sources]
@@ -248,8 +247,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
         setFolderHistory([]);
         setFolderChildren([]);
         setFileChildren([]);
-        setSelectedFolder(null);
-        setSelectedFile(null);
+        setSelectedEntries([]);
         setDriveBrowserMode("browse");
         setDriveActiveQuery(null);
         setDriveSearchInput("");
@@ -284,8 +282,6 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
       setDriveActiveQuery(data.mode === "search" ? data.query ?? searchQuery : null);
       setFolderChildren(data.folders);
       setFileChildren(data.files);
-      setSelectedFolder(null);
-      setSelectedFile(null);
 
       if (data.mode === "browse") {
         if (!requestOptions.parent || !data.current) {
@@ -320,40 +316,31 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
   }
 
   async function handleConnectSelected() {
-    const selection = selectedFolder
-      ? { type: "folder" as const, id: selectedFolder.id, title: selectedFolder.path ?? selectedFolder.name }
-      : selectedFile
-      ? { type: "file" as const, id: selectedFile.id, title: selectedFile.name }
-      : null;
-
-    if (!selection) {
+    if (selectedEntries.length === 0) {
       return;
     }
 
-    const pendingKey = `connect:${selection.type}:${selection.id}`;
-    setPendingAction(pendingKey);
+    setPendingAction("connect");
     try {
       const payload: ConnectDriveSourcePayload = {
-        driveId: selection.id,
-        kind: selection.type,
+        selections: selectedEntries.map((entry) => ({
+          driveId: entry.item.id,
+          kind: entry.type,
+          title:
+            entry.type === "folder"
+              ? entry.displayPath || entry.item.path || entry.item.name
+              : entry.item.name,
+          autoIndex: entry.type === "folder" ? true : undefined,
+          maxDepth: entry.type === "folder" ? 8 : undefined,
+        })),
       };
-
-      if (typeof selection.title === "string") {
-        payload.title = selection.title;
-      }
-
-      if (selection.type === "folder") {
-        payload.autoIndex = true;
-        payload.maxDepth = 8;
-      }
 
       await connectDriveSource(project.id, payload, accessToken ?? undefined);
       await onRefreshHub();
       setFolderChildren([]);
       setFileChildren([]);
       setFolderHistory([]);
-      setSelectedFolder(null);
-      setSelectedFile(null);
+      setSelectedEntries([]);
       setFolderModalOpen(false);
       setDriveBrowserMode("browse");
       setDriveActiveQuery(null);
@@ -368,8 +355,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
   function handleOpenFolderModal() {
     if (!driveAccount) return;
     setFolderModalOpen(true);
-    setSelectedFolder(null);
-    setSelectedFile(null);
+    setSelectedEntries([]);
     setDriveActiveQuery(null);
     setDriveSearchInput("");
     void loadDriveEntries();
@@ -377,12 +363,11 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
 
   function handleCloseFolderModal() {
     setFolderModalOpen(false);
-    setSelectedFolder(null);
     setFolderChildren([]);
     setFolderHistory([]);
     setFolderError(null);
     setFileChildren([]);
-    setSelectedFile(null);
+    setSelectedEntries([]);
     setDriveBrowserMode("browse");
     setDriveActiveQuery(null);
     setDriveSearchInput("");
@@ -628,7 +613,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
                         <div className="px-3 py-2 text-sm text-gray-600">No folders here.</div>
                       ) : (
                         folderChildren.map((folder) => {
-                          const isSelected = selectedFolder?.id === folder.id;
+                          const isSelected = isFolderSelected(folder.id);
                           const breadcrumb =
                             driveBrowserMode === "search"
                               ? folder.path
@@ -641,8 +626,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
                               key={folder.id}
                               type="button"
                               onClick={() => {
-                                setSelectedFolder(folder);
-                                setSelectedFile(null);
+                                toggleFolderSelection(folder, breadcrumb ?? folder.name);
                               }}
                               onDoubleClick={() => void loadDriveEntries({ parent: folder.id })}
                               className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left ${
@@ -654,7 +638,9 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
                                 <div className="truncate text-sm font-medium text-gray-900">{folder.name}</div>
                                 <div className="truncate text-xs text-gray-500">{breadcrumb}</div>
                               </div>
-                              <span className="text-xs text-gray-400">›</span>
+                              <span className={`text-xs ${isSelected ? "text-blue-600" : "text-gray-400"}`}>
+                                {isSelected ? "✓" : "›"}
+                              </span>
                             </button>
                           );
                         })
@@ -667,7 +653,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
                         <div className="px-3 py-2 text-sm text-gray-600">No files here.</div>
                       ) : (
                         fileChildren.map((file) => {
-                          const isSelected = selectedFile?.id === file.id;
+                          const isSelected = isFileSelected(file.id);
                           const displayPath =
                             driveBrowserMode === "search" && file.path
                               ? file.path
@@ -680,8 +666,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
                               key={file.id}
                               type="button"
                               onClick={() => {
-                                setSelectedFile(file);
-                                setSelectedFolder(null);
+                                toggleFileSelection(file, displayPath);
                               }}
                               onDoubleClick={() => {
                                 if (file.webViewLink) {
@@ -701,11 +686,14 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
                                   {file.size ? ` · ${formatSize(file.size)}` : null}
                                 </div>
                               </div>
-                              {file.iconLink ? (
-                                <img src={file.iconLink} alt="" className="h-5 w-5 flex-shrink-0" />
-                              ) : (
-                                <span className="text-xs text-gray-400">📄</span>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {file.iconLink ? (
+                                  <img src={file.iconLink} alt="" className="h-5 w-5 flex-shrink-0" />
+                                ) : (
+                                  <span className="text-xs text-gray-400">📄</span>
+                                )}
+                                {isSelected ? <span className="text-xs text-blue-600">✓</span> : null}
+                              </div>
                             </button>
                           );
                         })
@@ -719,76 +707,124 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
 
               <aside className="w-full md:w-72 md:flex-shrink-0">
                 <div className="rounded border border-gray-200 bg-gray-50 p-4">
-                  {selectedEntryType === "folder" && selectedFolder ? (
+                  {selectedCount === 0 ? (
+                    <p className="text-sm text-gray-600">
+                      Select one or more folders and files to view their details and connect them to the project.
+                    </p>
+                  ) : selectedCount === 1 && primarySelection ? (
+                    primarySelection.type === "folder" ? (
+                      <div className="space-y-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-900">{primarySelection.item.name}</h3>
+                          <p className="mt-1 break-words text-xs text-gray-600">
+                            {primarySelection.displayPath || primarySelection.item.path || primarySelection.item.name}
+                          </p>
+                        </div>
+                        {primarySelection.item.webViewLink ? (
+                          <a
+                            href={primarySelection.item.webViewLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center text-xs font-medium text-blue-600 hover:underline"
+                          >
+                            Open in Drive
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={handleConnectSelected}
+                          disabled={isConnectingSelection}
+                          className="w-full rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                        >
+                          {isConnectingSelection ? "Connecting…" : "Connect this folder"}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-900">{primarySelection.item.name}</h3>
+                          <p className="mt-1 break-words text-xs text-gray-600">
+                            {primarySelection.displayPath}
+                          </p>
+                        </div>
+                        <dl className="space-y-1 text-xs text-gray-500">
+                          <div>
+                            <dt className="font-medium text-gray-700">Type</dt>
+                            <dd>{primarySelection.item.mimeType || "Unknown"}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-medium text-gray-700">Updated</dt>
+                            <dd>{formatRelativeDate(primarySelection.item.modifiedTime ?? null)}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-medium text-gray-700">Size</dt>
+                            <dd>
+                              {primarySelection.item.size ? formatSize(primarySelection.item.size) : "—"}
+                            </dd>
+                          </div>
+                        </dl>
+                        {primarySelection.item.webViewLink ? (
+                          <a
+                            href={primarySelection.item.webViewLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center text-xs font-medium text-blue-600 hover:underline"
+                          >
+                            Open in Drive
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={handleConnectSelected}
+                          disabled={isConnectingSelection}
+                          className="w-full rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                        >
+                          {isConnectingSelection ? "Connecting…" : "Connect this file"}
+                        </button>
+                      </div>
+                    )
+                  ) : (
                     <div className="space-y-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-gray-900">{selectedFolder.name}</h3>
-                        <p className="mt-1 break-words text-xs text-gray-600">
-                          {selectedFolderPath || selectedFolder.path}
+                        <h3 className="text-sm font-semibold text-gray-900">{selectedCount} items selected</h3>
+                        <p className="mt-1 text-xs text-gray-600">
+                          Review your selection, remove anything that doesn’t belong, then connect everything at once.
                         </p>
                       </div>
-                      {selectedFolder.webViewLink ? (
-                        <a
-                          href={selectedFolder.webViewLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center text-xs font-medium text-blue-600 hover:underline"
-                        >
-                          Open in Drive
-                        </a>
-                      ) : null}
+                      <ul className="max-h-48 space-y-2 overflow-y-auto pr-1 text-xs text-gray-700">
+                        {selectedEntries.map((entry) => (
+                          <li
+                            key={`${entry.type}:${entry.item.id}`}
+                            className="flex items-start justify-between gap-2 rounded border border-gray-200 bg-white px-2 py-1"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-gray-900">
+                                {entry.item.name}
+                                <span className="ml-2 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-600">
+                                  {entry.type === "folder" ? "Folder" : "File"}
+                                </span>
+                              </div>
+                              <div className="truncate text-[11px] text-gray-500">{entry.displayPath}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeSelection(entry.type, entry.item.id)}
+                              className="flex-shrink-0 rounded px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                            >
+                              Remove
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
                       <button
                         type="button"
                         onClick={handleConnectSelected}
-                        disabled={!selectedEntryType || isConnectingSelection}
+                        disabled={isConnectingSelection}
                         className="w-full rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
                       >
-                        {isConnectingSelection ? "Connecting…" : "Connect this folder"}
+                        {isConnectingSelection ? "Connecting…" : `Connect ${selectedCount} items`}
                       </button>
                     </div>
-                  ) : selectedEntryType === "file" && selectedFile ? (
-                    <div className="space-y-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-900">{selectedFile.name}</h3>
-                        <p className="mt-1 break-words text-xs text-gray-600">{selectedFilePath}</p>
-                      </div>
-                      <dl className="space-y-1 text-xs text-gray-500">
-                        <div>
-                          <dt className="font-medium text-gray-700">Type</dt>
-                          <dd>{selectedFile.mimeType || "Unknown"}</dd>
-                        </div>
-                        <div>
-                          <dt className="font-medium text-gray-700">Updated</dt>
-                          <dd>{formatRelativeDate(selectedFile.modifiedTime ?? null)}</dd>
-                        </div>
-                        <div>
-                          <dt className="font-medium text-gray-700">Size</dt>
-                          <dd>{selectedFile.size ? formatSize(selectedFile.size) : "—"}</dd>
-                        </div>
-                      </dl>
-                      {selectedFile.webViewLink ? (
-                        <a
-                          href={selectedFile.webViewLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center text-xs font-medium text-blue-600 hover:underline"
-                        >
-                          Open in Drive
-                        </a>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={handleConnectSelected}
-                        disabled={!selectedEntryType || isConnectingSelection}
-                        className="w-full rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-                      >
-                        {isConnectingSelection ? "Connecting…" : "Connect this file"}
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-600">
-                      Select a folder or file to view its details and connect it to the project.
-                    </p>
                   )}
                 </div>
               </aside>
