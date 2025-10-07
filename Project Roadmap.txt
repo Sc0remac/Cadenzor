@@ -1,0 +1,143 @@
+Here’s a concise deep dive and a prioritized roadmap tied to Oran’s needs and the current codebase.
+
+What’s Implemented
+
+Email triage pipeline
+Gmail fetch + classification with OpenAI, fallback heuristics, and Gmail label application: app/app/api/classify-emails/route.ts:1, shared/src/analyzeEmail.ts:1, shared/src/heuristicLabels.ts:1, worker/src/index.ts:1, worker/src/classifyEmail.ts:1
+Email stats and list APIs + dashboard with filtering/pagination and manual “Classify emails” trigger: app/app/api/email-stats/route.ts:1, app/app/api/emails/route.ts:1, app/components/EmailDashboard.tsx:1
+Auth + web app shell
+Supabase auth, client/server helpers, protected routes, profile edit: app/components/AuthProvider.tsx:1, app/components/AuthGuard.tsx:1, app/lib/serverAuth.ts:1, app/components/ProfileForm.tsx:1
+Projects domain
+Project CRUD + list + templates/seed: app/app/api/projects/route.ts:1, app/app/api/project-templates/route.ts:1, app/components/projects/ProjectCreateDialog.tsx:1
+Project Hub with tabs for Overview, Timeline Studio, Inbox (email links), Tasks, Files & Assets (placeholder), People, Approvals, Settings: app/app/(protected)/projects/[projectId]/page.tsx:1, app/components/projects/TimelineStudio.tsx:1
+Email-to-project suggestions + approvals workflow for linking and timeline seeding: shared/src/projectSuggestions.ts:1, app/app/api/projects/suggestions/email/route.ts:1, app/app/api/approvals/route.ts:1, app/lib/approvalActions.ts:1, worker/src/projectJobs.ts:1
+Priority/Top Actions + conflict detection feeding project overview: shared/src/projectPriority.ts:1, shared/src/timelineConflicts.ts:1, app/app/api/projects/[projectId]/route.ts:1
+Worker jobs
+Project metrics into projects.priority_profile and approval queuing: worker/src/projectJobs.ts:1
+Supabase schema
+Emails, contacts, projects, members, tasks, timeline, dependencies, sources, approvals, links, templates: schema.sql:2016, schema.sql:2030, schema.sql:2211, schema.sql:2075, schema.sql:2160, schema.sql:2233, schema.sql:2257, schema.sql:2141, schema.sql:2090, schema.sql:2075, schema.sql:2322
+Gaps vs. Oran’s Vision
+
+Morning digest + “top 3 today” with approvals; project progress bars and metrics surfaced
+Playbooks for LEGAL, FINANCE/settlements, LOGISTICS/Promo that draft actions and require approval
+Google Drive ingestion (folders, assets, attachments) and asset library + filing
+Promo/scheduling intelligence (routing-aware slot proposals, buffers, conflicts) integrated with timeline/holds
+Meeting recordings → transcribe, summarise, action items and filing
+People/org enrichment from signatures; reliability/context on contacts and orgs
+Calendar sync (Google/Outlook) for holds and confirmed items
+Inbox actions (reply drafts, snooze, thread view, attachments) with never-act-alone guardrails
+Priority Engine + Digest
+
+Goal: Turn existing computeTopActions into a daily/weekly digest and in-app “Today” pane with Oran-style nudges and approvals.
+Build next
+Extend top actions to include email signals (age, label severity) and cross-project rollups: shared/src/projectPriority.ts:1
+Add digest generator job + email sender (approved summaries only); UI “Top 3 for today”
+Show per-project progress bars using metrics in projects.priority_profile (already populated by worker)
+Add user-level preferences for frequency/channels (web, email)
+Supabase updates
+Table user_preferences(id uuid, digest_frequency text, timezone text, channels jsonb)
+Table digests(id uuid, user_id uuid, sent_at timestamptz, payload jsonb)
+Optional table action_logs(id uuid, entity refs, action text) for auditability
+Gmail & Inbox Workflows
+
+Goal: Threaded view, attachments, reply drafts, snooze, and smarter label/priority signals with approvals.
+Build next
+Store Gmail thread/message IDs; fetch threads; add “Open in Gmail” links
+Store attachments, link to Drive or Supabase Storage; attach to timeline/tasks
+Reply draft generation (never send automatically; approvals feed)
+Snooze state and per-email action states
+Supabase updates
+Alter emails: add columns thread_id text, message_id text, labels jsonb (exists), summary (exists), source text default 'gmail'
+Table email_attachments(id uuid, email_id text, filename text, mime_type text, size bigint, drive_file_id text, storage_path text, sha256 text)
+Table email_drafts(id uuid, email_id text, subject text, body text, status text default 'pending', created_by uuid)
+Google Drive Integration
+
+Goal: Index Drive folders/files per project; pull assets/contracts; link to emails/tasks/timeline; simple asset library.
+Build next
+OAuth per user; connect project folder(s) as project_sources kind=drive_folder
+Index files/metadata; detect contract/asset types; link to projects and emails
+Attachment filing: move/copy from email into Drive project folders
+UI for “Files & Assets” tab to browse, filter, and link
+Supabase updates
+Table oauth_accounts(id uuid, user_id uuid, provider text, access_token text, refresh_token text, expires_at timestamptz, scopes text[])
+Table assets(id uuid, project_id uuid, source text, external_id text, kind text, title text, mime_type text, size bigint, path text, metadata jsonb, created_at timestamptz)
+Table asset_links(id uuid, project_id uuid, ref_table text, ref_id text, asset_id uuid, source text, created_at timestamptz)
+Use existing project_sources(kind='drive_folder') and add Drive watcher/cron in worker
+Playbooks + Approvals Expansion
+
+Goal: Draft next steps for key labels (legal, settlements, logistics/promo) with strict approvals.
+Build next
+Add approval types: legal_summary, settlement_parse, promo_slot_proposal, asset_filing
+Generate draft tasks/timeline items + reply drafts (never send); surface in Approvals tab
+Central “Playbooks” registry (rules → actions; rule metadata on label/classification)
+Supabase updates
+approvals table already exists; extend types in payload (no schema change required)
+Table playbooks(id uuid, key text unique, description text, config jsonb)
+Table playbook_runs(id uuid, playbook_key text, input jsonb, output jsonb, status text, created_at timestamptz)
+Promo & Scheduling Intelligence
+
+Goal: Suggest interview/mix slots around routing and buffers; propose holds; detect conflicts.
+Build next
+Enrich timeline items with duration/location/timezone; propose slot candidates with buffers (uses shared/src/timelineConflicts.ts:1)
+Auto-draft replies with 2–3 slot options; approval gating
+Create “hold” items on acceptance; sync to calendar (below)
+Supabase updates
+Alter timeline_items: ensure metadata captures duration_minutes, location, tz, contact_refs
+Optional table scheduling_suggestions(id uuid, project_id uuid, item_id uuid, slots jsonb, score numeric)
+Legal & Finance Workflows
+
+Goal: Extract key terms from contracts; parse settlements; file securely; spawn tasks.
+Build next
+Contract detection → extract party/term/fees/dates; store terms; approval to create tasks/labels
+Settlement parsing → ledger lines; create tasks for missing docs; notify accountant
+High-sensitivity approval route; visibility flags
+Supabase updates
+Table contracts(id uuid, project_id uuid, asset_id uuid, counterparty text, effective_date date, fee numeric, terms jsonb, status text, sensitivity text)
+Table settlements(id uuid, project_id uuid, asset_id uuid, gross numeric, fees jsonb, taxes jsonb, net numeric, currency text, period text)
+Table finance_tasks or reuse project_tasks with finance labels; add indexes on type/status
+Calendar Sync
+
+Goal: Sync timeline to Google/Outlook calendars for holds and confirmed events.
+Build next
+Connect calendar accounts; map timeline items to events; push/pull updates
+Approval on external changes before applying
+Supabase updates
+Table calendar_accounts(id uuid, user_id uuid, provider text, refresh_token text, calendars jsonb)
+Table calendar_events(id uuid, project_id uuid, timeline_item_id uuid, provider_event_id text, sync_state text)
+People & Org Enrichment
+
+Goal: Rich profiles with orgs, roles, reliability, past interactions; signature parsing.
+Build next
+Signature extraction pipeline from email bodies; normalize title/company/phones
+Org mapping + domain linking; contact activity rollups
+Supabase updates
+Table orgs(id uuid, name text, domain text, metadata jsonb)
+Table contact_orgs(contact_id uuid, org_id uuid, role text)
+Table contact_enrichment(contact_id uuid, extracted jsonb, confidence numeric, updated_at timestamptz)
+Meeting Recordings
+
+Goal: File recordings, transcribe, summarise, and create action items; file into project folders.
+Build next
+Ingest from Zoom/Drive folder; transcribe; summarise; push tasks; file assets
+Approvals for distribution/sensitivity
+Supabase updates
+Table meetings(id uuid, project_id uuid, asset_id uuid, recorded_at timestamptz, participants jsonb, transcript text, summary text, actions jsonb)
+Consider Supabase Storage bucket for audio/video; index via assets
+Project Templates & Progress
+
+Goal: Templates that seed timelines and tasks; visual progress bars per Oran’s request.
+Build next
+Expand templates and apply to new projects; add progress computation (ratio of done tasks vs planned)
+Show progress color state (red→green) on Project list/card
+Supabase updates
+Reuse project_templates/project_template_items; store progress to projects.priority_profile.metrics (already used)
+Add lightweight progress_history(project_id, snapshot jsonb, captured_at) for trendlines
+Infra & Jobs
+
+Goal: Reliable background processing with approvals-first guardrails.
+Build next
+Worker cron: email classification sweep, Drive indexer, suggestions queue, digest sender
+Rate limiting + audit logs; error monitoring
+Supabase updates
+Table job_runs(id uuid, job_key text, status text, counts jsonb, started_at, ended_at)
+Table audit_logs(id uuid, user_id uuid, action text, entity text, ref_id text, payload jsonb, created_at)

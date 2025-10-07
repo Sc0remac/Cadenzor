@@ -343,16 +343,44 @@ export interface DriveFolderSummaryDto {
   webViewLink?: string;
 }
 
-export async function listDriveFolders(
-  options: { parent?: string } = {},
+export interface DriveFileSummaryDto {
+  id: string;
+  name: string;
+  mimeType: string;
+  path?: string;
+  modifiedTime?: string;
+  size?: number;
+  webViewLink?: string;
+  webContentLink?: string;
+  iconLink?: string;
+}
+
+export interface DriveBrowseResponse {
+  mode: "browse" | "search";
+  query: string | null;
+  current: DriveFolderSummaryDto | null;
+  folders: DriveFolderSummaryDto[];
+  files: DriveFileSummaryDto[];
+}
+
+export async function browseDriveItems(
+  options: { parent?: string; search?: string } = {},
   accessToken?: string
-): Promise<{ current: DriveFolderSummaryDto; folders: DriveFolderSummaryDto[] }> {
+): Promise<DriveBrowseResponse> {
   const params = new URLSearchParams();
   if (options.parent) {
     params.set("parent", options.parent);
   }
+  if (options.search) {
+    params.set("search", options.search);
+  }
 
-  const response = await fetch(`/api/integrations/google-drive/folders?${params.toString()}`, {
+  const queryString = params.toString();
+  const endpoint = queryString
+    ? `/api/integrations/google-drive/folders?${queryString}`
+    : "/api/integrations/google-drive/folders";
+
+  const response = await fetch(endpoint, {
     method: "GET",
     headers: buildHeaders(accessToken),
     cache: "no-store",
@@ -363,27 +391,46 @@ export async function listDriveFolders(
     throw new Error(payload?.error || "Failed to list Drive folders");
   }
 
-  return payload as { current: DriveFolderSummaryDto; folders: DriveFolderSummaryDto[] };
+  const folders = Array.isArray(payload?.folders)
+    ? (payload.folders as DriveFolderSummaryDto[])
+    : [];
+
+  const files = Array.isArray(payload?.files)
+    ? (payload.files as DriveFileSummaryDto[])
+    : [];
+
+  const mode = payload?.mode === "search" ? "search" : "browse";
+  const payloadQuery = typeof payload?.query === "string" ? payload.query : null;
+  const current = payload?.current ? (payload.current as DriveFolderSummaryDto) : null;
+
+  return {
+    mode,
+    query: payloadQuery,
+    current,
+    folders,
+    files,
+  };
 }
 
-export interface ConnectDriveFolderPayload {
-  folderId: string;
+export interface ConnectDriveSourcePayload {
+  driveId: string;
+  kind: "folder" | "file";
   accountId?: string;
   title?: string;
   autoIndex?: boolean;
   maxDepth?: number;
 }
 
-export interface ConnectDriveFolderResult {
+export interface ConnectDriveSourceResult {
   source: ProjectSourceRecord;
   indexSummary?: { assetCount: number; indexedAt: string } | null;
 }
 
-export async function connectDriveFolder(
+export async function connectDriveSource(
   projectId: string,
-  payload: ConnectDriveFolderPayload,
+  payload: ConnectDriveSourcePayload,
   accessToken?: string
-): Promise<ConnectDriveFolderResult> {
+): Promise<ConnectDriveSourceResult> {
   const response = await fetch(`/api/projects/${projectId}/drive/connect`, {
     method: "POST",
     headers: {
@@ -398,7 +445,7 @@ export async function connectDriveFolder(
     throw new Error(body?.error || "Failed to connect Drive folder");
   }
 
-  return body as ConnectDriveFolderResult;
+  return body as ConnectDriveSourceResult;
 }
 
 export async function reindexDriveSource(

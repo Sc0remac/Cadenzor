@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   AssetRecord,
   AssetLinkRecord,
@@ -9,17 +10,17 @@ import type {
 } from "@cadenzor/shared";
 import {
   fetchDriveAccountStatus,
-  startDriveOAuth,
-  listDriveFolders,
+  browseDriveItems,
   type DriveFolderSummaryDto,
-  connectDriveFolder,
+  type DriveFileSummaryDto,
+  connectDriveSource,
+  type ConnectDriveSourcePayload,
   reindexDriveSource,
   fetchProjectAssets,
   type AssetListResponse,
   linkAssetToReference,
   unlinkAssetLink,
   markAssetCanonical,
-  disconnectDriveAccount,
 } from "../../lib/supabaseClient";
 import type { AssetCanonicalCategory } from "@cadenzor/shared";
 
@@ -105,6 +106,7 @@ function canonicalLabel(category: AssetCanonicalCategory | null): string {
 
 export default function ProjectFilesTab(props: ProjectFilesTabProps) {
   const { project, accessToken, sources, assets: initialAssets, assetLinks, onRefreshHub } = props;
+  const router = useRouter();
   const [driveAccount, setDriveAccount] = useState<{ email: string; scopes: string[]; expiresAt: string } | null>(
     null
   );
@@ -113,10 +115,15 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
 
   const [folderHistory, setFolderHistory] = useState<DriveFolderSummaryDto[]>([]);
   const [folderChildren, setFolderChildren] = useState<DriveFolderSummaryDto[]>([]);
+  const [fileChildren, setFileChildren] = useState<DriveFileSummaryDto[]>([]);
   const [folderLoading, setFolderLoading] = useState(false);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState<DriveFolderSummaryDto | null>(null);
+  const [selectedFile, setSelectedFile] = useState<DriveFileSummaryDto | null>(null);
+  const [driveBrowserMode, setDriveBrowserMode] = useState<"browse" | "search">("browse");
+  const [driveActiveQuery, setDriveActiveQuery] = useState<string | null>(null);
+  const [driveSearchInput, setDriveSearchInput] = useState("");
 
   const [assetFilters, setAssetFilters] = useState<AssetFilters>(DEFAULT_FILTERS);
   const [assetList, setAssetList] = useState<AssetRecord[]>(initialAssets);
@@ -146,25 +153,25 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
     setAssetPagination((prev) => ({ ...prev, total: initialAssets.length, totalPages: 1, page: 1 }));
   }, [initialAssets]);
 
-  useEffect(() => {
-    async function loadAccount() {
-      setDriveLoading(true);
-      setDriveError(null);
-      try {
-        const status = await fetchDriveAccountStatus(accessToken ?? undefined);
-        if (status.connected && status.account) {
-          setDriveAccount(status.account);
-        } else {
-          setDriveAccount(null);
-        }
-      } catch (err: any) {
-        setDriveError(err?.message || "Failed to load Drive status");
-      } finally {
-        setDriveLoading(false);
+  async function refreshDriveAccountStatus() {
+    setDriveLoading(true);
+    setDriveError(null);
+    try {
+      const status = await fetchDriveAccountStatus(accessToken ?? undefined);
+      if (status.connected && status.account) {
+        setDriveAccount(status.account);
+      } else {
+        setDriveAccount(null);
       }
+    } catch (err: any) {
+      setDriveError(err?.message || "Failed to load Drive status");
+    } finally {
+      setDriveLoading(false);
     }
+  }
 
-    void loadAccount();
+  useEffect(() => {
+    void refreshDriveAccountStatus();
   }, [accessToken]);
 
   useEffect(() => {
@@ -173,6 +180,11 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
       setSelectedFolder(null);
       setFolderChildren([]);
       setFolderHistory([]);
+      setFileChildren([]);
+      setSelectedFile(null);
+      setDriveBrowserMode("browse");
+      setDriveActiveQuery(null);
+      setDriveSearchInput("");
     }
   }, [driveAccount]);
 
@@ -195,6 +207,32 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
     return [...historyNames, selectedFolder.name].join(" / ");
   }, [selectedFolder, folderHistory]);
 
+  const selectedFilePath = useMemo(() => {
+    if (!selectedFile) {
+      return "";
+    }
+
+    if (selectedFile.path && selectedFile.path.trim()) {
+      return selectedFile.path;
+    }
+
+    if (folderHistory.length === 0) {
+      return selectedFile.name;
+    }
+
+    const names = folderHistory.map((entry) => entry.name);
+    return [...names, selectedFile.name].join(" / ");
+  }, [selectedFile, folderHistory]);
+
+  const selectedEntryType = selectedFolder ? "folder" : selectedFile ? "file" : null;
+  const selectedEntryId = selectedFolder ? selectedFolder.id : selectedFile ? selectedFile.id : null;
+  const connectPendingKey = selectedEntryType && selectedEntryId ? `connect:${selectedEntryType}:${selectedEntryId}` : null;
+  const isConnectingSelection = connectPendingKey != null && pendingAction === connectPendingKey;
+  const driveSources = useMemo(
+    () => sources.filter((source) => source.kind === "drive_folder" || source.kind === "drive_file"),
+    [sources]
+  );
+
   useEffect(() => {
     function handleOAuthMessage(event: MessageEvent) {
       if (!event?.data || typeof event.data !== "object") return;
@@ -209,6 +247,12 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
         void onRefreshHub();
         setFolderHistory([]);
         setFolderChildren([]);
+        setFileChildren([]);
+        setSelectedFolder(null);
+        setSelectedFile(null);
+        setDriveBrowserMode("browse");
+        setDriveActiveQuery(null);
+        setDriveSearchInput("");
       } else if (event.data.status === "error") {
         setDriveError(event.data.message ?? "Drive connection failed");
       }
@@ -218,50 +262,56 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
     return () => window.removeEventListener("message", handleOAuthMessage);
   }, [onRefreshHub]);
 
-  async function handleStartOAuth() {
-    try {
-      const { authUrl } = await startDriveOAuth({ redirectTo: window.location.pathname }, accessToken ?? undefined);
-      window.open(authUrl, "cadenzor-drive-oauth", "width=480,height=640");
-    } catch (err: any) {
-      setDriveError(err?.message || "Failed to start Drive connection");
-    }
-  }
-
-  async function handleDisconnect() {
-    setDriveLoading(true);
-    try {
-      await disconnectDriveAccount(accessToken ?? undefined);
-      setDriveAccount(null);
-      await onRefreshHub();
-    } catch (err: any) {
-      setDriveError(err?.message || "Failed to disconnect Drive");
-    } finally {
-      setDriveLoading(false);
-    }
-  }
-
-  async function openFolder(parent?: string) {
+  async function loadDriveEntries(options: { parent?: string; search?: string } = {}) {
     if (!driveAccount) return;
     setFolderLoading(true);
     setFolderError(null);
 
+    const hasSearch = Object.prototype.hasOwnProperty.call(options, "search");
+    const rawSearch = options.search ?? "";
+    const searchQuery = rawSearch.trim();
+
+    const requestOptions: { parent?: string; search?: string } = {};
+    if (hasSearch && searchQuery) {
+      requestOptions.search = searchQuery;
+    } else if (!hasSearch && options.parent) {
+      requestOptions.parent = options.parent;
+    }
+
     try {
-      const data = await listDriveFolders({ parent }, accessToken ?? undefined);
-      if (!parent) {
-        setFolderHistory([data.current]);
-      } else {
-        setFolderHistory((prev) => {
-          const next = [...prev];
-          const existingIndex = next.findIndex((entry) => entry.id === data.current.id);
-          if (existingIndex >= 0) {
-            return next.slice(0, existingIndex + 1);
-          }
-          next.push(data.current);
-          return next;
-        });
-      }
-      setSelectedFolder(data.current);
+      const data = await browseDriveItems(requestOptions, accessToken ?? undefined);
+      setDriveBrowserMode(data.mode);
+      setDriveActiveQuery(data.mode === "search" ? data.query ?? searchQuery : null);
       setFolderChildren(data.folders);
+      setFileChildren(data.files);
+      setSelectedFolder(null);
+      setSelectedFile(null);
+
+      if (data.mode === "browse") {
+        if (!requestOptions.parent || !data.current) {
+          setFolderHistory(data.current ? [data.current] : []);
+        } else if (data.current) {
+          setFolderHistory((prev) => {
+            const next = [...prev];
+            const existingIndex = next.findIndex((entry) => entry.id === data.current!.id);
+            if (existingIndex >= 0) {
+              return next.slice(0, existingIndex + 1);
+            }
+            next.push(data.current!);
+            return next;
+          });
+        }
+      } else {
+        setFolderHistory(data.current ? [data.current] : []);
+      }
+
+      if (data.mode === "search") {
+        setDriveSearchInput(data.query ?? searchQuery);
+      } else if (hasSearch) {
+        setDriveSearchInput(searchQuery);
+      } else if (!hasSearch) {
+        setDriveSearchInput("");
+      }
     } catch (err: any) {
       setFolderError(err?.message || "Failed to browse Drive");
     } finally {
@@ -269,21 +319,47 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
     }
   }
 
-  async function handleConnectFolder(folder: DriveFolderSummaryDto) {
-    setPendingAction("connect");
+  async function handleConnectSelected() {
+    const selection = selectedFolder
+      ? { type: "folder" as const, id: selectedFolder.id, title: selectedFolder.path ?? selectedFolder.name }
+      : selectedFile
+      ? { type: "file" as const, id: selectedFile.id, title: selectedFile.name }
+      : null;
+
+    if (!selection) {
+      return;
+    }
+
+    const pendingKey = `connect:${selection.type}:${selection.id}`;
+    setPendingAction(pendingKey);
     try {
-      await connectDriveFolder(
-        project.id,
-        { folderId: folder.id, title: folder.path },
-        accessToken ?? undefined
-      );
+      const payload: ConnectDriveSourcePayload = {
+        driveId: selection.id,
+        kind: selection.type,
+      };
+
+      if (typeof selection.title === "string") {
+        payload.title = selection.title;
+      }
+
+      if (selection.type === "folder") {
+        payload.autoIndex = true;
+        payload.maxDepth = 8;
+      }
+
+      await connectDriveSource(project.id, payload, accessToken ?? undefined);
       await onRefreshHub();
       setFolderChildren([]);
+      setFileChildren([]);
       setFolderHistory([]);
       setSelectedFolder(null);
+      setSelectedFile(null);
       setFolderModalOpen(false);
+      setDriveBrowserMode("browse");
+      setDriveActiveQuery(null);
+      setDriveSearchInput("");
     } catch (err: any) {
-      setDriveError(err?.message || "Failed to connect folder");
+      setDriveError(err?.message || "Failed to connect Drive selection");
     } finally {
       setPendingAction(null);
     }
@@ -293,7 +369,10 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
     if (!driveAccount) return;
     setFolderModalOpen(true);
     setSelectedFolder(null);
-    void openFolder();
+    setSelectedFile(null);
+    setDriveActiveQuery(null);
+    setDriveSearchInput("");
+    void loadDriveEntries();
   }
 
   function handleCloseFolderModal() {
@@ -302,6 +381,31 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
     setFolderChildren([]);
     setFolderHistory([]);
     setFolderError(null);
+    setFileChildren([]);
+    setSelectedFile(null);
+    setDriveBrowserMode("browse");
+    setDriveActiveQuery(null);
+    setDriveSearchInput("");
+  }
+
+  function handleDriveSearchInput(event: ChangeEvent<HTMLInputElement>) {
+    setDriveSearchInput(event.target.value);
+  }
+
+  function handleDriveSearchReset() {
+    setDriveActiveQuery(null);
+    setDriveBrowserMode("browse");
+    setDriveSearchInput("");
+    void loadDriveEntries();
+  }
+
+  function handleDriveSearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void loadDriveEntries({ search: driveSearchInput });
+  }
+
+  function handleGoToProfile() {
+    router.push("/profile");
   }
 
   function handleFilterChange<K extends keyof AssetFilters>(key: K, value: AssetFilters[K]) {
@@ -352,7 +456,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
       await onRefreshHub();
       await loadAssets(assetPagination.page);
     } catch (err: any) {
-      setDriveError(err?.message || "Failed to reindex Drive folder");
+      setDriveError(err?.message || "Failed to reindex Drive source");
     } finally {
       setPendingAction(null);
     }
@@ -433,8 +537,10 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
           <div className="flex w-full max-w-5xl flex-col rounded-lg bg-white shadow-xl">
             <header className="flex items-start justify-between gap-3 border-b border-gray-200 p-4">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Select a Drive folder</h2>
-                <p className="text-sm text-gray-600">Browse your Drive and attach the right folder to this project.</p>
+                <h2 className="text-lg font-semibold text-gray-900">Add Drive folders or files</h2>
+                <p className="text-sm text-gray-600">
+                  Search your Drive or browse folders to attach relevant references to this project.
+                </p>
               </div>
               <button
                 type="button"
@@ -447,9 +553,42 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
 
             <div className="flex flex-col gap-4 p-4 md:flex-row">
               <div className="flex-1 md:pr-4">
+                <form onSubmit={handleDriveSearchSubmit} className="mb-3 flex flex-wrap items-center gap-2">
+                  <input
+                    type="search"
+                    value={driveSearchInput}
+                    onChange={handleDriveSearchInput}
+                    placeholder="Search your Drive"
+                    className="w-full flex-1 rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="submit"
+                      className="rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                      disabled={folderLoading}
+                    >
+                      Search
+                    </button>
+                    {driveBrowserMode === "search" ? (
+                      <button
+                        type="button"
+                        onClick={handleDriveSearchReset}
+                        className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+
                 <div className="mb-3 flex flex-wrap items-center gap-1 text-xs text-gray-600">
-                  {folderHistory.length === 0 ? (
-                    <span>Loading path...</span>
+                  {driveBrowserMode === "search" ? (
+                    <span>
+                      Search results for
+                      <span className="font-medium text-gray-900"> “{driveActiveQuery ?? driveSearchInput}”</span>
+                    </span>
+                  ) : folderHistory.length === 0 ? (
+                    <span>Loading path…</span>
                   ) : (
                     folderHistory.map((entry, index) => {
                       const isLast = index === folderHistory.length - 1;
@@ -457,7 +596,9 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
                         <span key={entry.id} className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => void openFolder(index === 0 ? undefined : entry.id)}
+                            onClick={() =>
+                              void loadDriveEntries({ parent: index === 0 ? undefined : entry.id })
+                            }
                             className={`text-xs ${isLast ? "text-gray-900" : "text-blue-600 hover:underline"}`}
                           >
                             {index === 0 ? "Root" : entry.name}
@@ -471,39 +612,105 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
 
                 <div className="rounded border border-gray-200">
                   {folderLoading ? (
-                    <div className="p-4 text-sm text-gray-600">Loading folders...</div>
-                  ) : folderChildren.length === 0 ? (
-                    <div className="p-4 text-sm text-gray-600">No subfolders found here.</div>
+                    <div className="p-4 text-sm text-gray-600">Loading Drive content…</div>
+                  ) : folderChildren.length === 0 && fileChildren.length === 0 ? (
+                    <div className="p-4 text-sm text-gray-600">
+                      {driveBrowserMode === "search"
+                        ? "No files or folders matched your search."
+                        : "This folder does not contain any files or folders yet."}
+                    </div>
                   ) : (
-                    <ul className="max-h-96 divide-y divide-gray-100 overflow-y-auto">
-                      {folderChildren.map((folder) => {
-                        const isSelected = selectedFolder?.id === folder.id;
-                        const breadcrumb =
-                          folderHistory.length > 0
-                            ? [...folderHistory.map((entry) => entry.name), folder.name].join(" / ")
-                            : folder.name;
+                    <div className="max-h-96 overflow-y-auto">
+                      <div className="bg-gray-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Folders
+                      </div>
+                      {folderChildren.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-gray-600">No folders here.</div>
+                      ) : (
+                        folderChildren.map((folder) => {
+                          const isSelected = selectedFolder?.id === folder.id;
+                          const breadcrumb =
+                            driveBrowserMode === "search"
+                              ? folder.path
+                              : folderHistory.length > 0
+                              ? [...folderHistory.map((entry) => entry.name), folder.name].join(" / ")
+                              : folder.name;
 
-                        return (
-                          <li key={folder.id}>
+                          return (
                             <button
+                              key={folder.id}
                               type="button"
-                              onClick={() => setSelectedFolder(folder)}
-                              onDoubleClick={() => void openFolder(folder.id)}
+                              onClick={() => {
+                                setSelectedFolder(folder);
+                                setSelectedFile(null);
+                              }}
+                              onDoubleClick={() => void loadDriveEntries({ parent: folder.id })}
                               className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left ${
                                 isSelected ? "bg-blue-50" : "hover:bg-gray-50"
                               }`}
                               title="Double-click to open this folder"
                             >
-                              <div>
-                                <div className="text-sm font-medium text-gray-900">{folder.name}</div>
-                                <div className="text-xs text-gray-500">{breadcrumb}</div>
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium text-gray-900">{folder.name}</div>
+                                <div className="truncate text-xs text-gray-500">{breadcrumb}</div>
                               </div>
-                              <span className="text-xs text-gray-400">&gt;</span>
+                              <span className="text-xs text-gray-400">›</span>
                             </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                          );
+                        })
+                      )}
+
+                      <div className="bg-gray-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Files
+                      </div>
+                      {fileChildren.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-gray-600">No files here.</div>
+                      ) : (
+                        fileChildren.map((file) => {
+                          const isSelected = selectedFile?.id === file.id;
+                          const displayPath =
+                            driveBrowserMode === "search" && file.path
+                              ? file.path
+                              : folderHistory.length > 0
+                              ? [...folderHistory.map((entry) => entry.name), file.name].join(" / ")
+                              : file.name;
+
+                          return (
+                            <button
+                              key={file.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedFile(file);
+                                setSelectedFolder(null);
+                              }}
+                              onDoubleClick={() => {
+                                if (file.webViewLink) {
+                                  window.open(file.webViewLink, "_blank", "noopener");
+                                }
+                              }}
+                              className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left ${
+                                isSelected ? "bg-blue-50" : "hover:bg-gray-50"
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium text-gray-900">{file.name}</div>
+                                <div className="truncate text-xs text-gray-500">{displayPath}</div>
+                                <div className="mt-1 text-xs text-gray-400">
+                                  {file.mimeType || "Unknown"}
+                                  {file.modifiedTime ? ` · Updated ${formatRelativeDate(file.modifiedTime)}` : null}
+                                  {file.size ? ` · ${formatSize(file.size)}` : null}
+                                </div>
+                              </div>
+                              {file.iconLink ? (
+                                <img src={file.iconLink} alt="" className="h-5 w-5 flex-shrink-0" />
+                              ) : (
+                                <span className="text-xs text-gray-400">📄</span>
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -512,11 +719,13 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
 
               <aside className="w-full md:w-72 md:flex-shrink-0">
                 <div className="rounded border border-gray-200 bg-gray-50 p-4">
-                  {selectedFolder ? (
+                  {selectedEntryType === "folder" && selectedFolder ? (
                     <div className="space-y-3">
                       <div>
                         <h3 className="text-sm font-semibold text-gray-900">{selectedFolder.name}</h3>
-                        <p className="mt-1 break-words text-xs text-gray-600">{selectedFolderPath || selectedFolder.path}</p>
+                        <p className="mt-1 break-words text-xs text-gray-600">
+                          {selectedFolderPath || selectedFolder.path}
+                        </p>
                       </div>
                       {selectedFolder.webViewLink ? (
                         <a
@@ -530,15 +739,56 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
                       ) : null}
                       <button
                         type="button"
-                        onClick={() => handleConnectFolder(selectedFolder)}
-                        disabled={pendingAction === "connect"}
+                        onClick={handleConnectSelected}
+                        disabled={!selectedEntryType || isConnectingSelection}
                         className="w-full rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
                       >
-                        {pendingAction === "connect" ? "Connecting..." : "Select this folder"}
+                        {isConnectingSelection ? "Connecting…" : "Connect this folder"}
+                      </button>
+                    </div>
+                  ) : selectedEntryType === "file" && selectedFile ? (
+                    <div className="space-y-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">{selectedFile.name}</h3>
+                        <p className="mt-1 break-words text-xs text-gray-600">{selectedFilePath}</p>
+                      </div>
+                      <dl className="space-y-1 text-xs text-gray-500">
+                        <div>
+                          <dt className="font-medium text-gray-700">Type</dt>
+                          <dd>{selectedFile.mimeType || "Unknown"}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium text-gray-700">Updated</dt>
+                          <dd>{formatRelativeDate(selectedFile.modifiedTime ?? null)}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium text-gray-700">Size</dt>
+                          <dd>{selectedFile.size ? formatSize(selectedFile.size) : "—"}</dd>
+                        </div>
+                      </dl>
+                      {selectedFile.webViewLink ? (
+                        <a
+                          href={selectedFile.webViewLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center text-xs font-medium text-blue-600 hover:underline"
+                        >
+                          Open in Drive
+                        </a>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={handleConnectSelected}
+                        disabled={!selectedEntryType || isConnectingSelection}
+                        className="w-full rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                      >
+                        {isConnectingSelection ? "Connecting…" : "Connect this file"}
                       </button>
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-600">Select a folder from the list to see its details and connect it.</p>
+                    <p className="text-sm text-gray-600">
+                      Select a folder or file to view its details and connect it to the project.
+                    </p>
                   )}
                 </div>
               </aside>
@@ -553,36 +803,37 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
 
       <div className="flex flex-col gap-6">
       <section className="rounded-md border border-gray-200 p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h3 className="text-lg font-semibold">Google Drive connection</h3>
             {driveAccount ? (
               <p className="text-sm text-gray-600">
-                Connected as <span className="font-medium">{driveAccount.email}</span>
+                Connected as <span className="font-medium">{driveAccount.email}</span>. Manage this integration from your
+                profile.
               </p>
             ) : (
-              <p className="text-sm text-gray-600">Connect a Drive account to sync project folders.</p>
+              <p className="text-sm text-gray-600">
+                Connect Google Drive from your profile to browse folders and attach files to this project.
+              </p>
             )}
             {driveError ? <p className="mt-2 text-sm text-red-600">{driveError}</p> : null}
           </div>
-          <div className="flex items-center gap-2">
-            {driveAccount ? (
-              <button
-                className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100"
-                onClick={handleDisconnect}
-                disabled={driveLoading}
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                className="rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700"
-                onClick={handleStartOAuth}
-                disabled={driveLoading}
-              >
-                Connect Google Drive
-              </button>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void refreshDriveAccountStatus()}
+              disabled={driveLoading}
+              className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
+            >
+              {driveLoading ? "Refreshing…" : "Refresh status"}
+            </button>
+            <button
+              type="button"
+              onClick={handleGoToProfile}
+              className="rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Open profile
+            </button>
           </div>
         </div>
       </section>
@@ -599,30 +850,41 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
               onClick={handleOpenFolderModal}
               disabled={folderLoading || pendingAction === "connect"}
             >
-              Connect Drive folder
+              Add Drive content
             </button>
           </div>
 
           <div className="space-y-3">
-            {sources.length === 0 ? (
-              <p className="text-sm text-gray-600">No Drive folders connected yet.</p>
+            {driveSources.length === 0 ? (
+              <p className="text-sm text-gray-600">No Drive sources connected yet.</p>
             ) : (
-              sources
-                .filter((source) => source.kind === "drive_folder")
-                .map((source) => {
+              driveSources.map((source) => {
                   const metadata = (source.metadata ?? {}) as Record<string, unknown>;
-                  const folderPath = typeof metadata.folderPath === "string" ? (metadata.folderPath as string) : undefined;
-                  const folderName = typeof metadata.folderName === "string" ? (metadata.folderName as string) : undefined;
                   const accountEmail = typeof metadata.accountEmail === "string" ? (metadata.accountEmail as string) : undefined;
                   const assetCount = initialAssets.filter((asset) => asset.projectSourceId === source.id).length;
+                  const isFolder = source.kind === "drive_folder";
+                  const title = source.title
+                    ?? (isFolder
+                      ? (typeof metadata.folderName === "string" ? (metadata.folderName as string) : "Drive Folder")
+                      : (typeof metadata.fileName === "string" ? (metadata.fileName as string) : "Drive File"));
+                  const path = isFolder
+                    ? (typeof metadata.folderPath === "string" ? (metadata.folderPath as string) : source.externalId)
+                    : (typeof metadata.path === "string" ? (metadata.path as string) : source.externalId);
+                  const mimeType = !isFolder && typeof metadata.mimeType === "string" ? (metadata.mimeType as string) : null;
 
                   return (
                     <div key={source.id} className="rounded border border-gray-200 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold">{source.title ?? folderName ?? "Drive Folder"}</div>
-                          <div className="text-xs text-gray-600">
-                            {folderPath ?? source.externalId} · Connected as {accountEmail ?? "Unknown"}
+                          <div className="text-sm font-semibold">
+                            {title}
+                            <span className="ml-2 rounded-full border border-gray-300 px-2 py-0.5 text-xs font-normal text-gray-600">
+                              {isFolder ? "Folder" : "File"}
+                            </span>
+                          </div>
+                          <div className="break-words text-xs text-gray-600">
+                            {path} · Connected as {accountEmail ?? "Unknown"}
+                            {mimeType ? ` · ${mimeType}` : ""}
                           </div>
                           <div className="text-xs text-gray-500">
                             Last indexed {source.lastIndexedAt ? formatRelativeDate(source.lastIndexedAt) : "never"} · {assetCount} assets

@@ -6,6 +6,7 @@ import {
   toAssetInsertPayload,
   suggestLabelsFromPath,
   mergeDerivedLabelSuggestions,
+  type AssetInsertPayload,
 } from "./googleDriveClient";
 
 const BATCH_SIZE = 500;
@@ -43,11 +44,11 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 
 function buildFolderParentLookup(entries: Map<string, any>) {
   const lookup = new Map<string, { name: string; parents: string[] | undefined }>();
-  for (const entry of entries.values()) {
+  entries.forEach((entry) => {
     if (entry.mimeType === GOOGLE_DRIVE_FOLDER_MIME) {
       lookup.set(entry.id, { name: entry.name, parents: entry.parents });
     }
-  }
+  });
   return lookup;
 }
 
@@ -62,7 +63,7 @@ function computePathSegments(
   }
 
   const segments: string[] = [];
-  let currentParent = entryParents[0];
+  let currentParent: string | undefined = entryParents[0];
   const safetyLimit = 32;
   let counter = 0;
 
@@ -104,10 +105,10 @@ export async function indexDriveFolder(
   const entries = await listFolderTree(drive, rootFolderId, { maxDepth });
   const folderLookup = buildFolderParentLookup(entries);
 
-  const assetPayloads = [];
+  const assetPayloads: AssetInsertPayload[] = [];
   let derived: DerivedLabelSuggestion[] = [];
 
-  for (const entry of entries.values()) {
+  entries.forEach((entry) => {
     const pathSegments = computePathSegments(rootFolderId, rootFolderName, folderLookup, entry.parents);
     const payload = toAssetInsertPayload({
       projectId,
@@ -116,7 +117,9 @@ export async function indexDriveFolder(
       pathSegments,
     });
 
-    if (!payload) continue;
+    if (!payload) {
+      return;
+    }
 
     assetPayloads.push(payload);
 
@@ -124,7 +127,7 @@ export async function indexDriveFolder(
     if (suggestions.length > 0) {
       derived = mergeDerivedLabelSuggestions(derived, suggestions);
     }
-  }
+  });
 
   await supabase.from("assets").delete().eq("project_source_id", projectSourceId);
 

@@ -6,6 +6,9 @@ import {
   createDriveClient,
   fetchFolderMetadata,
   listChildFolders,
+  listChildFiles,
+  searchDriveItems,
+  resolveDrivePath,
 } from "@/lib/googleDriveClient";
 
 export const runtime = "nodejs";
@@ -24,6 +27,8 @@ export async function GET(request: Request) {
   const { supabase, user } = authResult;
   const { searchParams } = new URL(request.url);
   const parentParam = searchParams.get("parent") ?? "root";
+  const searchParam = (searchParams.get("search") ?? "").trim();
+  const mode = searchParam ? "search" : "browse";
 
   let account;
   try {
@@ -45,6 +50,51 @@ export async function GET(request: Request) {
 
   const drive = createDriveClient(authClient);
 
+  if (mode === "search") {
+    let searchResults;
+    try {
+      searchResults = await searchDriveItems(drive, searchParam, { limit: 50 });
+    } catch (err: any) {
+      return formatError(err?.message || "Failed to search Drive", 500);
+    }
+
+    const cache = new Map<string, { name: string; parents?: string[] }>();
+
+    const foldersWithPath = await Promise.all(
+      searchResults.folders.map(async (folder) => {
+        try {
+          const { path } = await resolveDrivePath(drive, folder.id, { cache });
+          return { ...folder, path };
+        } catch (err: any) {
+          return { ...folder, path: folder.path };
+        }
+      })
+    );
+
+    const filesWithPath = await Promise.all(
+      searchResults.files.map(async (file) => {
+        try {
+          const { path } = await resolveDrivePath(drive, file.id, { cache });
+          return { ...file, path };
+        } catch (err: any) {
+          return { ...file, path: file.path };
+        }
+      })
+    );
+
+    return NextResponse.json({
+      mode,
+      query: searchParam,
+      current: {
+        id: "search",
+        name: searchParam,
+        path: `Search results for "${searchParam}"`,
+      },
+      folders: foldersWithPath,
+      files: filesWithPath,
+    });
+  }
+
   const currentFolderId = parentParam === "root" ? "root" : parentParam;
 
   let current;
@@ -55,14 +105,21 @@ export async function GET(request: Request) {
   }
 
   let folders;
+  let files;
   try {
-    folders = await listChildFolders(drive, currentFolderId);
+    [folders, files] = await Promise.all([
+      listChildFolders(drive, currentFolderId),
+      listChildFiles(drive, currentFolderId),
+    ]);
   } catch (err: any) {
-    return formatError(err?.message || "Failed to list folders", 500);
+    return formatError(err?.message || "Failed to browse Drive", 500);
   }
 
   return NextResponse.json({
+    mode,
+    query: null,
     current,
     folders,
+    files,
   });
 }

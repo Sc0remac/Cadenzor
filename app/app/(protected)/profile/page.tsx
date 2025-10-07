@@ -1,14 +1,11 @@
 import ProfileForm from "../../../components/ProfileForm";
 import ProfileSnapshot from "../../../components/ProfileSnapshot";
+import ProfileDriveIntegration from "../../../components/ProfileDriveIntegration";
 
 const G_SUITE_INTEGRATIONS = [
   {
     name: "Gmail",
     description: "Bring your Gmail inbox into Cadenzor for faster triage.",
-  },
-  {
-    name: "Google Drive",
-    description: "Access contracts, assets, and artwork right alongside emails.",
   },
 ];
 
@@ -81,9 +78,10 @@ export default function ProfilePage() {
         </div>
 
         <aside className="space-y-6">
+          <ProfileDriveIntegration />
           <IntegrationGroup
             title="Connect G Suite"
-            description="Link Gmail and Drive to keep conversations and files in one place."
+            description="Link Gmail to keep conversations and files in one place."
             items={G_SUITE_INTEGRATIONS}
           />
           <IntegrationGroup

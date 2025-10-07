@@ -10,6 +10,8 @@ import { createOAuthClient } from "./googleOAuth";
 
 const TOKEN_EXPIRY_BUFFER_MS = 60_000;
 
+export const GOOGLE_DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+
 interface OAuthAccountRow {
   id: string;
   user_id: string;
@@ -153,6 +155,7 @@ export interface DriveFileEntry {
   parents?: string[];
   webViewLink?: string;
   webContentLink?: string;
+  iconLink?: string;
   owners?: Array<{ displayName?: string | null; emailAddress?: string | null }>;
   shortcutDetails?: drive_v3.Schema$File["shortcutDetails"];
   kind?: string;
@@ -170,6 +173,20 @@ export interface DriveFolderSummary {
   path: string;
   webViewLink?: string;
   parentId?: string;
+}
+
+export interface DriveFileSummary {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime?: string;
+  size?: number;
+  webViewLink?: string;
+  webContentLink?: string;
+  iconLink?: string;
+  parents?: string[];
+  shortcutDetails?: drive_v3.Schema$File["shortcutDetails"];
+  path?: string;
 }
 
 export function detectConfidential(pathOrName: string): boolean {
@@ -227,7 +244,7 @@ export async function listChildFolders(
 
   do {
     const { data } = await drive.files.list({
-      q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      q: `'${parentId}' in parents and mimeType = '${GOOGLE_DRIVE_FOLDER_MIME}' and trashed = false`,
       fields: "nextPageToken, files(id, name, webViewLink)",
       includeItemsFromAllDrives: true,
       supportsAllDrives: true,
@@ -249,6 +266,156 @@ export async function listChildFolders(
   } while (nextPageToken);
 
   return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listChildFiles(
+  drive: drive_v3.Drive,
+  parentId: string
+): Promise<DriveFileSummary[]> {
+  let nextPageToken: string | undefined;
+  const results: DriveFileSummary[] = [];
+
+  do {
+    const { data } = await drive.files.list({
+      q: `'${parentId}' in parents and trashed = false`,
+      fields:
+        "nextPageToken, files(id, name, mimeType, modifiedTime, size, webViewLink, webContentLink, iconLink, parents, shortcutDetails)",
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      pageSize: 1000,
+      pageToken: nextPageToken,
+    });
+
+    for (const file of data.files ?? []) {
+      if (!file.id || !file.name) continue;
+      if (file.mimeType === GOOGLE_DRIVE_FOLDER_MIME) continue;
+      results.push({
+        id: file.id,
+        name: file.name,
+        mimeType: file.mimeType ?? "application/octet-stream",
+        modifiedTime: file.modifiedTime ?? undefined,
+        size: file.size ? Number(file.size) : undefined,
+        webViewLink: file.webViewLink ?? undefined,
+        webContentLink: file.webContentLink ?? undefined,
+        iconLink: file.iconLink ?? undefined,
+        parents: file.parents ?? undefined,
+        shortcutDetails: file.shortcutDetails,
+      });
+    }
+
+    nextPageToken = data.nextPageToken ?? undefined;
+  } while (nextPageToken);
+
+  return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function escapeQueryValue(value: string): string {
+  return value.replace(/['\\]/g, (match) => `\\${match}`);
+}
+
+export async function searchDriveItems(
+  drive: drive_v3.Drive,
+  query: string,
+  options: { limit?: number } = {}
+): Promise<{ folders: DriveFolderSummary[]; files: DriveFileSummary[] }> {
+  const sanitized = escapeQueryValue(query.trim());
+  if (!sanitized) {
+    return { folders: [], files: [] };
+  }
+
+  const { data } = await drive.files.list({
+    q: `(name contains '${sanitized}' or fullText contains '${sanitized}') and trashed = false`,
+    fields:
+      "nextPageToken, files(id, name, mimeType, modifiedTime, size, webViewLink, webContentLink, iconLink, parents, shortcutDetails)",
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    orderBy: "folder,name",
+    pageSize: options.limit ?? 50,
+  });
+
+  const folders: DriveFolderSummary[] = [];
+  const files: DriveFileSummary[] = [];
+
+  for (const file of data.files ?? []) {
+    if (!file.id || !file.name || file.trashed) {
+      continue;
+    }
+
+    if (file.mimeType === GOOGLE_DRIVE_FOLDER_MIME) {
+      folders.push({
+        id: file.id,
+        name: file.name,
+        path: file.name,
+        webViewLink: file.webViewLink ?? undefined,
+        parentId: file.parents?.[0],
+      });
+      continue;
+    }
+
+    files.push({
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType ?? "application/octet-stream",
+      modifiedTime: file.modifiedTime ?? undefined,
+      size: file.size ? Number(file.size) : undefined,
+      webViewLink: file.webViewLink ?? undefined,
+      webContentLink: file.webContentLink ?? undefined,
+      iconLink: file.iconLink ?? undefined,
+      parents: file.parents ?? undefined,
+      shortcutDetails: file.shortcutDetails,
+    });
+  }
+
+  return {
+    folders: folders.sort((a, b) => a.name.localeCompare(b.name)),
+    files: files.sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+export async function resolveDrivePath(
+  drive: drive_v3.Drive,
+  itemId: string,
+  options: { includeTarget?: boolean; cache?: Map<string, { name: string; parents?: string[] }> } = {}
+): Promise<{ segments: string[]; path: string }> {
+  const { includeTarget = true } = options;
+  const cache = options.cache ?? new Map<string, { name: string; parents?: string[] }>();
+  const segments: string[] = [];
+  let currentId: string | null | undefined = itemId;
+  let includeCurrent = includeTarget;
+  let safety = 32;
+
+  while (currentId && safety > 0) {
+    safety -= 1;
+    if (currentId === "root") {
+      segments.unshift("My Drive");
+      break;
+    }
+
+    let info = cache.get(currentId);
+    if (!info) {
+      const fileData = (await drive.files.get({
+        fileId: currentId,
+        fields: "id, name, parents",
+        supportsAllDrives: true,
+      })).data as drive_v3.Schema$File;
+      const name: string = fileData.name ?? currentId ?? "";
+      info = { name, parents: fileData.parents ?? [] };
+      cache.set(currentId, info);
+    }
+
+    if (includeCurrent) {
+      segments.unshift(info.name ?? currentId);
+    }
+
+    includeCurrent = true;
+    const parentId = info.parents?.[0];
+    if (!parentId) {
+      break;
+    }
+    currentId = parentId;
+  }
+
+  return { segments, path: segments.join("/") };
 }
 
 export async function listFolderTree(

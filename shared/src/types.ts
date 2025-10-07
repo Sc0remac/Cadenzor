@@ -335,7 +335,7 @@ export interface ProjectMemberRecord {
   createdAt: string;
 }
 
-export type ProjectSourceKind = "drive_folder" | "sheet" | "calendar" | "external_url";
+export type ProjectSourceKind = "drive_folder" | "drive_file" | "sheet" | "calendar" | "external_url";
 
 export interface ProjectSourceRecord {
   id: string;
@@ -352,6 +352,42 @@ export interface ProjectSourceRecord {
 }
 
 export type ProjectLinkSource = "manual" | "ai" | "rule";
+
+export type AssetSource = "drive";
+
+export type AssetCanonicalCategory = "logo" | "epk" | "cover" | "press" | "audio" | "video" | "other";
+
+export interface AssetRecord {
+  id: string;
+  projectId: string;
+  projectSourceId: string;
+  source: AssetSource;
+  externalId: string;
+  title: string;
+  mimeType: string | null;
+  size: number | null;
+  path: string | null;
+  owner: string | null;
+  modifiedAt: string | null;
+  confidential: boolean;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  isCanonical: boolean;
+  canonicalCategory: AssetCanonicalCategory | null;
+  driveUrl: string | null;
+  driveWebViewLink: string | null;
+}
+
+export interface AssetLinkRecord {
+  id: string;
+  projectId: string;
+  assetId: string;
+  refTable: string;
+  refId: string;
+  source: ProjectLinkSource;
+  createdAt: string;
+}
 
 export interface ProjectItemLinkRecord {
   id: string;
@@ -371,6 +407,35 @@ export interface ProjectEmailLinkRecord {
   confidence: number | null;
   source: ProjectLinkSource;
   createdAt: string;
+}
+
+export interface EmailAttachmentRecord {
+  id: string;
+  emailId: string;
+  filename: string;
+  mimeType: string | null;
+  size: number | null;
+  storageBucket: string | null;
+  storagePath: string | null;
+  sha256: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export type OAuthProvider = "google";
+
+export interface OAuthAccountRecord {
+  id: string;
+  userId: string;
+  provider: OAuthProvider;
+  accountEmail: string;
+  scopes: string[];
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string;
+  tokenMetadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type TimelineDependencyKind = "FS" | "SS";
@@ -427,6 +492,7 @@ export type ApprovalType =
   | "project_email_link"
   | "timeline_item_from_email"
   | "timeline_dependency"
+  | "project_label_suggestion"
   | "generic";
 
 export interface ApprovalRecord {
@@ -443,6 +509,16 @@ export interface ApprovalRecord {
   resolutionNote: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DerivedLabelSuggestion {
+  labelKey: string;
+  labelValue: string | number | boolean;
+  evidence: Array<{
+    assetId?: string;
+    path?: string;
+    reason: string;
+  }>;
 }
 
 export type ProjectTopActionEntity = "task" | "timeline" | "email";
