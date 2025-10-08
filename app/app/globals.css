@@ -172,3 +172,178 @@ body::after {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 }
+
+/* Global experience styling */
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background-color: #04050a;
+}
+
+body {
+  @apply font-sans bg-depth-900 text-[color:var(--text-secondary)];
+  background-color: #04050a;
+  background-image: radial-gradient(circle at 20% 20%, rgba(59, 201, 245, 0.18), transparent 55%),
+    radial-gradient(circle at 80% 0%, rgba(122, 90, 255, 0.16), transparent 50%),
+    radial-gradient(circle at 20% 100%, rgba(217, 70, 239, 0.12), transparent 60%),
+    linear-gradient(180deg, #04050a 0%, #060813 20%, #0e1120 52%, #131728 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: -10% -30% auto -30%;
+  height: 55vh;
+  background: radial-gradient(circle at center, rgba(59, 201, 245, 0.22), transparent 60%);
+  filter: blur(60px);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: -1;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 30% -20% -40% -20%;
+  background: radial-gradient(circle at center, rgba(4, 6, 18, 0), rgba(4, 6, 18, 0.85));
+  pointer-events: none;
+  z-index: -1;
+}
+
+::-webkit-scrollbar {
+  width: 0.55rem;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.9), rgba(236, 72, 153, 0.75));
+  border-radius: 9999px;
+}
+
+@layer base {
+  :root {
+    --text-primary: #ffffff;
+    --text-secondary: #a9b3d1;
+    --text-tertiary: #777daf;
+  }
+}
+
+.glass-surface {
+  position: relative;
+  border-radius: 22px;
+  background: linear-gradient(165deg, rgba(23, 28, 46, 0.9), rgba(12, 16, 32, 0.82));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 52px 140px -60px rgba(4, 6, 18, 0.95);
+  backdrop-filter: blur(26px);
+}
+
+.glass-surface::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.6;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.surface-hero {
+  position: relative;
+  border-radius: 26px;
+  background: linear-gradient(160deg, rgba(30, 36, 51, 0.92), rgba(14, 17, 32, 0.88));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 70px 160px -65px rgba(3, 5, 18, 0.95);
+  backdrop-filter: blur(30px);
+}
+
+.surface-hero::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  opacity: 0.55;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.surface-panel {
+  position: relative;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(23, 29, 46, 0.9), rgba(18, 22, 38, 0.86));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 40px 120px -70px rgba(5, 8, 24, 0.85);
+  backdrop-filter: blur(24px);
+}
+
+.surface-panel::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  opacity: 0.5;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.surface-card {
+  position: relative;
+  border-radius: 16px;
+  background: linear-gradient(170deg, rgba(29, 36, 54, 0.92), rgba(18, 22, 36, 0.88));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 28px 90px -60px rgba(6, 10, 28, 0.8);
+  backdrop-filter: blur(22px);
+}
+
+.surface-card::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  opacity: 0.45;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.glow-vignette {
+  position: absolute;
+  inset: -30% -20% auto -20%;
+  height: 420px;
+  background: radial-gradient(circle at top, rgba(59, 201, 245, 0.18), transparent 70%);
+  filter: blur(80px);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.text-primary {
+  color: var(--text-primary);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+
+@layer utilities {
+  .border-soft {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .inner-glow {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+}
