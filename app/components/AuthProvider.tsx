@@ -17,15 +17,27 @@ import type {
 } from "@supabase/supabase-js";
 import { getBrowserSupabaseClient } from "../lib/supabaseBrowserClient";
 
+export interface AuthProfile {
+  id: string;
+  email: string | null;
+  fullName: string | null;
+  role: string | null;
+  company: string | null;
+  isAdmin: boolean;
+  updatedAt: string | null;
+}
+
 interface AuthContextValue {
   supabase: SupabaseClient;
   session: Session | null;
   user: User | null;
+  profile: AuthProfile | null;
   loading: boolean;
   signInWithPassword: (
     credentials: { email: string; password: string }
   ) => Promise<AuthError | null>;
   signOut: () => Promise<AuthError | null>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -33,7 +45,11 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [authActionLoading, setAuthActionLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profile, setProfile] = useState<AuthProfile | null>(null);
+  const [profileRefreshToken, setProfileRefreshToken] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -48,14 +64,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setSession(data?.session ?? null);
-      setLoading(false);
+      setSessionLoading(false);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession ?? null);
-      setLoading(false);
+      setSessionLoading(false);
+      setProfileRefreshToken((token) => token + 1);
     });
 
     return () => {
@@ -68,31 +85,109 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     AuthContextValue["signInWithPassword"]
   >(
     async ({ email, password }) => {
-      setLoading(true);
+      setAuthActionLoading(true);
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      setLoading(false);
+      setAuthActionLoading(false);
       return error ?? null;
     },
     [supabase]
   );
 
   const signOut = useCallback<AuthContextValue["signOut"]>(async () => {
-    setLoading(true);
+    setAuthActionLoading(true);
     const { error } = await supabase.auth.signOut();
-    setLoading(false);
+    setAuthActionLoading(false);
     return error ?? null;
   }, [supabase]);
+
+  const userId = session?.user?.id ?? null;
+  const userEmail = session?.user?.email ?? null;
+
+  const refreshProfile = useCallback(async () => {
+    if (!userId) {
+      setProfile(null);
+      return;
+    }
+
+    setProfileLoading(true);
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, role, company, is_admin, updated_at")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Failed to load profile", error);
+      setProfile({
+        id: userId,
+        email: userEmail,
+        fullName: null,
+        role: null,
+        company: null,
+        isAdmin: false,
+        updatedAt: null,
+      });
+      setProfileLoading(false);
+      return;
+    }
+
+    setProfile({
+      id: userId,
+      email: data?.email ?? userEmail,
+      fullName: data?.full_name ?? null,
+      role: data?.role ?? null,
+      company: data?.company ?? null,
+      isAdmin: Boolean(data?.is_admin),
+      updatedAt: data?.updated_at ?? null,
+    });
+
+    setProfileLoading(false);
+  }, [supabase, userId, userEmail]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleProfileUpdated = () => {
+      setProfileRefreshToken((token) => token + 1);
+    };
+
+    window.addEventListener("profile:updated", handleProfileUpdated);
+    return () => window.removeEventListener("profile:updated", handleProfileUpdated);
+  }, []);
+
+  useEffect(() => {
+    if (sessionLoading) {
+      return;
+    }
+
+    void refreshProfile();
+  }, [refreshProfile, profileRefreshToken, sessionLoading]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       supabase,
       session,
       user: session?.user ?? null,
-      loading,
+      profile,
+      loading: sessionLoading || authActionLoading || profileLoading,
       signInWithPassword,
       signOut,
+      refreshProfile,
     }),
-    [supabase, session, loading, signInWithPassword, signOut]
+    [
+      supabase,
+      session,
+      profile,
+      sessionLoading,
+      authActionLoading,
+      profileLoading,
+      signInWithPassword,
+      signOut,
+      refreshProfile,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

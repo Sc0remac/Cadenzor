@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "./AuthProvider";
 
-const NAV_LINKS = [
+const BASE_NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/inbox", label: "Inbox" },
   { href: "/today", label: "Today" },
@@ -21,10 +21,27 @@ function isActive(pathname: string, href: string): boolean {
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { user, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const router = useRouter();
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+
+  const navLinks = useMemo(() => {
+    const links = [...BASE_NAV_LINKS];
+
+    if (profile?.isAdmin) {
+      const profileIndex = links.findIndex((link) => link.href === "/profile");
+      const adminLink = { href: "/admin", label: "Admin" };
+
+      if (profileIndex >= 0) {
+        links.splice(profileIndex, 0, adminLink);
+      } else {
+        links.push(adminLink);
+      }
+    }
+
+    return links;
+  }, [profile?.isAdmin]);
 
   const handleSignOut = async () => {
     setSignOutError(null);
@@ -50,7 +67,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-8">
             <span className="text-xl font-semibold text-gray-900">Cadenzor</span>
             <nav className="flex items-center gap-4">
-              {NAV_LINKS.map((link) => {
+              {navLinks.map((link) => {
                 const active = isActive(pathname, link.href);
                 return (
                   <Link

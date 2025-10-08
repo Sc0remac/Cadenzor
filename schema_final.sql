@@ -2208,6 +2208,7 @@ CREATE TABLE public.profiles (
     location text,
     bio text,
     avatar_url text,
+    is_admin boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     email text
