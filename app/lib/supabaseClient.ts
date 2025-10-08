@@ -16,6 +16,9 @@ import type {
   AssetLinkRecord,
   EmailAttachmentRecord,
   AssetCanonicalCategory,
+  DigestPayload,
+  UserPreferenceRecord,
+  DigestRecord,
 } from "@cadenzor/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -33,6 +36,12 @@ export interface EmailPagination {
 export interface EmailListResponse {
   items: EmailRecord[];
   pagination: EmailPagination;
+}
+
+export interface ProfileSummary {
+  id: string;
+  email: string | null;
+  fullName: string | null;
 }
 
 type FetchEmailsOptions = {
@@ -271,6 +280,98 @@ export async function fetchProjectHub(
   }
 
   return payload as ProjectHubResponse;
+}
+
+export async function searchProfiles(options: {
+  query: string;
+  limit?: number;
+  accessToken?: string;
+}): Promise<ProfileSummary[]> {
+  const { query, limit, accessToken } = options;
+  const params = new URLSearchParams();
+  params.set("q", query);
+  if (typeof limit === "number" && Number.isFinite(limit)) {
+    params.set("limit", String(limit));
+  }
+
+  const endpoint = `/api/profiles/search?${params.toString()}`;
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to search profiles");
+  }
+
+  return Array.isArray(payload?.profiles) ? (payload.profiles as ProfileSummary[]) : [];
+}
+
+export async function addProjectMember(
+  projectId: string,
+  input: { userId: string; role: ProjectMemberRecord["role"] },
+  accessToken?: string
+): Promise<ProjectMemberRecord> {
+  const response = await fetch(`/api/projects/${projectId}/members`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ userId: input.userId, role: input.role }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to add project member");
+  }
+
+  return payload.member as ProjectMemberRecord;
+}
+
+export async function updateProjectMemberRole(
+  projectId: string,
+  memberId: string,
+  role: ProjectMemberRecord["role"],
+  accessToken?: string
+): Promise<void> {
+  const response = await fetch(`/api/projects/${projectId}/members/${memberId}`, {
+    method: "PATCH",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ role }),
+  });
+
+  if (response.ok) {
+    return;
+  }
+
+  const payload = await response.json();
+  throw new Error(payload?.error || "Failed to update member role");
+}
+
+export async function removeProjectMember(
+  projectId: string,
+  memberId: string,
+  accessToken?: string
+): Promise<void> {
+  const response = await fetch(`/api/projects/${projectId}/members/${memberId}`, {
+    method: "DELETE",
+    headers: buildHeaders(accessToken),
+  });
+
+  if (response.ok) {
+    return;
+  }
+
+  const payload = await response.json();
+  throw new Error(payload?.error || "Failed to remove project member");
 }
 
 export interface DriveAccountStatus {
@@ -904,4 +1005,48 @@ export async function unlinkEmailFromProject(
     const body = await response.json();
     throw new Error(body?.error || "Failed to unlink email");
   }
+}
+export interface TodayDigestResponse {
+  digest: DigestPayload;
+  preferences: UserPreferenceRecord | null;
+  generatedFor: string;
+}
+
+export async function fetchTodayDigest(options: { accessToken?: string } = {}): Promise<TodayDigestResponse> {
+  const { accessToken } = options;
+  const response = await fetch("/api/digest/today", {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load today digest");
+  }
+
+  const digest = payload?.digest as DigestPayload;
+  return {
+    digest,
+    preferences: (payload?.preferences as UserPreferenceRecord) ?? null,
+    generatedFor: typeof payload?.generatedFor === "string" ? payload.generatedFor : new Date().toISOString().slice(0, 10),
+  } satisfies TodayDigestResponse;
+}
+
+export async function fetchDigestHistory(options: { accessToken?: string } = {}): Promise<DigestRecord[]> {
+  const { accessToken } = options;
+  const response = await fetch("/api/digests", {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load digest history");
+  }
+
+  return Array.isArray(payload?.digests) ? (payload.digests as DigestRecord[]) : [];
 }

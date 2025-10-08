@@ -2152,7 +2152,10 @@ CREATE TABLE public.emails (
     category text DEFAULT 'MISC/Uncategorized'::text NOT NULL,
     is_read boolean DEFAULT false,
     summary text,
-    labels jsonb
+    labels jsonb,
+    triage_state text DEFAULT 'unassigned'::text NOT NULL,
+    triaged_at timestamp with time zone,
+    priority_score integer DEFAULT 0 NOT NULL
 );
 
 ALTER TABLE ONLY public.emails FORCE ROW LEVEL SECURITY;
@@ -2279,6 +2282,55 @@ CREATE TABLE public.project_sources (
     last_indexed_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
+-- Name: user_preferences; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_preferences (
+    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    user_id uuid NOT NULL,
+    digest_frequency text DEFAULT 'daily'::text NOT NULL,
+    digest_hour integer DEFAULT 8 NOT NULL,
+    timezone text DEFAULT 'UTC'::text NOT NULL,
+    channels jsonb DEFAULT '["web"]'::jsonb NOT NULL,
+    quiet_hours jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: digests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.digests (
+    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    user_id uuid NOT NULL,
+    generated_for date NOT NULL,
+    channel text NOT NULL,
+    status text DEFAULT 'generated'::text NOT NULL,
+    payload jsonb NOT NULL,
+    delivered_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: action_logs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.action_logs (
+    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    user_id uuid,
+    project_id uuid,
+    entity text,
+    ref_id text,
+    action text NOT NULL,
+    metadata jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -2859,6 +2911,14 @@ ALTER TABLE ONLY public.emails
 
 
 --
+-- Name: emails emails_triage_state_check; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.emails
+    ADD CONSTRAINT emails_triage_state_check CHECK ((triage_state = ANY (ARRAY['unassigned'::text, 'acknowledged'::text, 'snoozed'::text, 'resolved'::text])));
+
+
+--
 -- Name: oauth_accounts oauth_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2872,6 +2932,78 @@ ALTER TABLE ONLY public.oauth_accounts
 
 ALTER TABLE ONLY public.oauth_sessions
     ADD CONSTRAINT oauth_sessions_pkey PRIMARY KEY (state);
+
+
+--
+-- Name: user_preferences user_preferences_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_preferences
+    ADD CONSTRAINT user_preferences_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_preferences user_preferences_frequency_check; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_preferences
+    ADD CONSTRAINT user_preferences_frequency_check CHECK ((digest_frequency = ANY (ARRAY['daily'::text, 'weekly'::text, 'off'::text])));
+
+
+--
+-- Name: digests digests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.digests
+    ADD CONSTRAINT digests_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: digests digests_status_check; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.digests
+    ADD CONSTRAINT digests_status_check CHECK ((status = ANY (ARRAY['generated'::text, 'queued'::text, 'sent'::text, 'failed'::text])));
+
+
+--
+-- Name: action_logs action_logs_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.action_logs
+    ADD CONSTRAINT action_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: action_logs action_logs_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.action_logs
+    ADD CONSTRAINT action_logs_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE SET NULL;
+
+
+--
+-- Name: digests digests_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.digests
+    ADD CONSTRAINT digests_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_preferences user_preferences_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_preferences
+    ADD CONSTRAINT user_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: projects projects_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.projects
+    ADD CONSTRAINT action_logs_pkey PRIMARY KEY (id);
 
 
 --
@@ -3465,6 +3597,18 @@ CREATE INDEX emails_category_idx ON public.emails USING btree (category);
 --
 
 CREATE INDEX emails_is_read_idx ON public.emails USING btree (is_read);
+
+CREATE UNIQUE INDEX user_preferences_user_unique ON public.user_preferences USING btree (user_id);
+
+CREATE UNIQUE INDEX digests_user_channel_day_unique ON public.digests USING btree (user_id, generated_for, channel);
+
+CREATE INDEX digests_user_created_idx ON public.digests USING btree (user_id, created_at DESC);
+
+CREATE INDEX action_logs_recent_idx ON public.action_logs USING btree (created_at DESC);
+
+CREATE INDEX action_logs_user_idx ON public.action_logs USING btree (user_id, created_at DESC);
+
+CREATE INDEX emails_triage_priority_idx ON public.emails USING btree (triage_state, priority_score DESC, received_at DESC);
 
 
 --
@@ -4901,4 +5045,3 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 --
 
 \unrestrict NpO2T8vbtU96PXyJLKAZvpVwenzwPPHpapM6pZikwO56fGcU1J7WcrIb1KVBriE
-

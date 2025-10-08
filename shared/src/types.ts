@@ -284,6 +284,8 @@ export const EMAIL_FALLBACK_LABEL: EmailLabel = "MISC/Uncategorized";
  * minimal information used by the frontend and worker. Additional fields
  * can be added as needed (e.g. messageId, threadId, snippet, etc.).
  */
+export type EmailTriageState = "unassigned" | "acknowledged" | "snoozed" | "resolved";
+
 export interface EmailRecord {
   id: string;
   fromName: string | null;
@@ -294,6 +296,9 @@ export interface EmailRecord {
   isRead: boolean;
   summary?: string | null;
   labels?: EmailLabel[];
+  priorityScore?: number | null;
+  triageState?: EmailTriageState;
+  triagedAt?: string | null;
 }
 
 /**
@@ -463,7 +468,7 @@ export interface TimelineItemRecord {
   lane: string | null;
   territory: string | null;
   status: string | null;
-  priority: number;
+  priority: number | null;
   refTable: string | null;
   refId: string | null;
   metadata: Record<string, unknown>;
@@ -479,7 +484,7 @@ export interface ProjectTaskRecord {
   description: string | null;
   status: string;
   dueAt: string | null;
-  priority: number;
+  priority: number | null;
   assigneeId: string | null;
   createdBy: string | null;
   createdAt: string;
@@ -537,6 +542,68 @@ export interface ProjectTopAction {
   refTable: string;
   refId: string;
   priority: number | null;
+}
+
+export type DigestFrequency = "daily" | "weekly" | "off";
+
+export interface UserPreferenceRecord {
+  id: string;
+  userId: string;
+  digestFrequency: DigestFrequency;
+  digestHour: number;
+  timezone: string;
+  channels: string[];
+  quietHours: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectDigestMetrics {
+  openTasks: number;
+  upcomingTimeline: number;
+  linkedEmails: number;
+  conflicts: number;
+  healthScore: number;
+  trend: string | null;
+}
+
+export interface DigestProjectSnapshot {
+  project: ProjectRecord;
+  metrics: ProjectDigestMetrics;
+  topActions: ProjectTopAction[];
+  approvals: ApprovalRecord[];
+}
+
+export interface DigestTopAction extends ProjectTopAction {
+  projectName: string;
+  projectColor: string | null;
+  projectStatus: ProjectRecord["status"];
+}
+
+export interface DigestPayload {
+  generatedAt: string;
+  topActions: DigestTopAction[];
+  projects: DigestProjectSnapshot[];
+  meta: {
+    totalProjects: number;
+    totalPendingApprovals: number;
+    highlightedProjects: number;
+  };
+}
+
+export type DigestChannel = "web" | "email" | "slack";
+
+export type DigestStatus = "generated" | "queued" | "sent" | "failed";
+
+export interface DigestRecord {
+  id: string;
+  userId: string;
+  generatedFor: string;
+  channel: DigestChannel;
+  status: DigestStatus;
+  payload: DigestPayload;
+  deliveredAt: string | null;
+  createdAt: string;
 }
 
 export interface ProjectTemplateRecord {

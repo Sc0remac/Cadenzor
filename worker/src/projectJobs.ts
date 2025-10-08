@@ -69,6 +69,9 @@ function mapEmailRow(row: any): EmailRecord {
     isRead: Boolean(row.is_read),
     summary: row.summary ?? null,
     labels,
+    priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
+    triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
+    triagedAt: row.triaged_at ? String(row.triaged_at) : null,
   };
 }
 
@@ -237,7 +240,9 @@ export async function suggestProjectLinksForEmail(emailId: string, limit = 3) {
 
   const { data: emailRow, error: emailError } = await client
     .from("emails")
-    .select("id, subject, summary, from_name, from_email, received_at, category, is_read, labels")
+    .select(
+      "id, subject, summary, from_name, from_email, received_at, category, is_read, labels, triage_state, triaged_at, priority_score"
+    )
     .eq("id", emailId)
     .maybeSingle();
 
@@ -359,7 +364,7 @@ async function applyProjectEmailLink(
   if (payload.shouldCreateTimeline) {
     const { data: emailRow, error: emailError } = await client
       .from("emails")
-      .select("id, subject, received_at, labels")
+      .select("id, subject, received_at, labels, from_name, from_email, category, is_read, summary, triage_state, triaged_at, priority_score")
       .eq("id", emailId)
       .maybeSingle();
 

@@ -24,6 +24,9 @@ function mapRow(row: any): EmailRecord {
     isRead: row.is_read,
     summary: row.summary ?? null,
     labels,
+    priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
+    triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
+    triagedAt: row.triaged_at ?? null,
   };
 }
 
@@ -61,7 +64,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("emails")
     .select(
-      "id, from_name, from_email, subject, received_at, category, is_read, summary, labels",
+      "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, triage_state, triaged_at, priority_score",
       { count: "exact" }
     )
     .order("received_at", { ascending: false });

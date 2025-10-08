@@ -178,4 +178,18 @@ This project only scratches the surface of the larger Cadenzor vision.  Next ste
 * Adding automation to mark messages as read (label application is already implemented).
 * Building out the Timeline Studio and Playbooks described in the specification.
 
+## Priority Engine digest
+
+This update adds a workspace-wide "Today" view that rolls up the highest priority tasks, timeline items, and unresolved email threads across every project you collaborate on. The scoring combines category severity, manual priority values, dependency conflicts, and unread/triage state so the most urgent work floats to the top.
+
+You can open the digest at `/today` inside the Next.js app or trigger the scheduled worker job:
+
+```bash
+npm --prefix shared run build
+npm --prefix worker run build
+npm --prefix worker run digest
+```
+
+The job stores results in the new `user_preferences`, `digests`, and `action_logs` tables. Preferences default to a daily cadence and record delivery channels (`web`, `email`, or `slack`). The Supabase migration at `supabase/migrations/20251101120000_priority_digest.sql` must be applied before running the worker.
+
 Pull requests are welcome—enjoy hacking on Cadenzor!

@@ -6,6 +6,7 @@ import { useState, type ReactNode } from "react";
 import { useAuth } from "./AuthProvider";
 
 const NAV_LINKS = [
+  { href: "/today", label: "Today" },
   { href: "/", label: "Dashboard" },
   { href: "/projects", label: "Projects" },
   { href: "/profile", label: "Profile" },
@@ -14,7 +15,7 @@ const NAV_LINKS = [
 const PLACEHOLDER_BUTTONS = ["Clients", "Reports"];
 
 function isActive(pathname: string, href: string): boolean {
-  return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export default function AppShell({ children }: { children: ReactNode }) {

@@ -417,7 +417,7 @@ export function TimelineStudio({
                             >
                               <div className="flex items-center justify-between gap-2 text-[0.7rem] uppercase tracking-wide text-gray-500">
                                 <span>{positioned.item.type}</span>
-                                <span className="font-semibold text-gray-700">p{positioned.item.priority}</span>
+                                <span className="font-semibold text-gray-700">p{positioned.item.priority ?? 0}</span>
                               </div>
                               <p className="mt-1 text-sm font-semibold text-gray-900">{positioned.item.title}</p>
                               <p className="mt-1 text-[0.7rem] text-gray-600">

@@ -11,6 +11,8 @@ import type {
   TimelineDependencyRecord,
   ApprovalRecord,
   ProjectTopAction,
+  ProjectMemberRecord,
+  ProjectMemberRole,
 } from "@cadenzor/shared";
 import {
   createProjectTask,
@@ -26,6 +28,11 @@ import {
   type ProjectHubResponse,
   fetchEmailAttachments,
   fileEmailAttachmentsToDrive,
+  addProjectMember,
+  updateProjectMemberRole,
+  removeProjectMember,
+  searchProfiles,
+  type ProfileSummary,
 } from "../../../../lib/supabaseClient";
 import { useAuth } from "../../../../components/AuthProvider";
 import { TimelineStudio, type DependencyKind } from "../../../../components/projects/TimelineStudio";
@@ -52,6 +59,21 @@ const TIMELINE_TYPES: TimelineItemRecord["type"][] = [
   "lead",
   "gate",
 ];
+
+const MEMBER_ROLE_OPTIONS: ProjectMemberRole[] = ["owner", "editor", "viewer"];
+
+function formatRoleLabel(role: ProjectMemberRole): string {
+  switch (role) {
+    case "owner":
+      return "Owner";
+    case "editor":
+      return "Editor";
+    case "viewer":
+      return "Viewer";
+    default:
+      return role;
+  }
+}
 
 interface TimelineFormState {
   title: string;
@@ -96,7 +118,7 @@ const INITIAL_TASK_FORM: TaskFormState = {
 export default function ProjectHubPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const accessToken = session?.access_token ?? null;
   const projectId = params?.projectId ?? "";
 
@@ -119,6 +141,14 @@ export default function ProjectHubPage() {
   const [filingLoading, setFilingLoading] = useState(false);
   const [filingError, setFilingError] = useState<string | null>(null);
   const [filingSuccess, setFilingSuccess] = useState<string | null>(null);
+  const [memberSearchTerm, setMemberSearchTerm] = useState("");
+  const [memberSearchResults, setMemberSearchResults] = useState<ProfileSummary[]>([]);
+  const [memberSearchLoading, setMemberSearchLoading] = useState(false);
+  const [memberSearchError, setMemberSearchError] = useState<string | null>(null);
+  const [memberInviteRole, setMemberInviteRole] = useState<ProjectMemberRecord["role"]>("editor");
+  const [memberActionKey, setMemberActionKey] = useState<string | null>(null);
+  const [memberActionError, setMemberActionError] = useState<string | null>(null);
+  const [memberActionSuccess, setMemberActionSuccess] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!projectId || !accessToken) {
@@ -149,6 +179,24 @@ export default function ProjectHubPage() {
   const topActions: ProjectTopAction[] = hub?.topActions ?? [];
   const timelineDependencies: TimelineDependencyRecord[] = hub?.timelineDependencies ?? [];
   const approvals: ApprovalRecord[] = hub?.approvals ?? [];
+  const currentUserId = user?.id ?? null;
+
+  const currentMembership = useMemo(() => {
+    if (!hub?.members || !currentUserId) return null;
+    return hub.members.find((entry) => entry.member.userId === currentUserId) ?? null;
+  }, [hub?.members, currentUserId]);
+
+  const ownerCount = useMemo(() => {
+    if (!hub?.members) return 0;
+    return hub.members.filter((entry) => entry.member.role === "owner").length;
+  }, [hub?.members]);
+
+  const canManageMembers = currentMembership?.member.role === "owner";
+
+  const memberIds = useMemo(() => {
+    if (!hub?.members) return new Set<string>();
+    return new Set(hub.members.map((entry) => entry.member.userId));
+  }, [hub?.members]);
 
   const upcomingTimeline = useMemo(() => {
     if (!hub?.timelineItems) return [];
@@ -518,6 +566,139 @@ export default function ProjectHubPage() {
     }
   };
 
+  const handleMemberSearch = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMemberActionError(null);
+    setMemberActionSuccess(null);
+
+    if (!accessToken) {
+      setMemberSearchError("Your session expired. Please sign in again.");
+      setMemberSearchResults([]);
+      return;
+    }
+
+    const query = memberSearchTerm.trim();
+    if (query.length < 2) {
+      setMemberSearchError("Enter at least two characters to search.");
+      setMemberSearchResults([]);
+      return;
+    }
+
+    setMemberSearchLoading(true);
+    setMemberSearchError(null);
+    try {
+      const results = await searchProfiles({ query, limit: 8, accessToken });
+      setMemberSearchResults(results);
+      if (results.length === 0) {
+        setMemberSearchError("No matching profiles found.");
+      }
+    } catch (err: any) {
+      setMemberSearchResults([]);
+      setMemberSearchError(err?.message || "Failed to search profiles");
+    } finally {
+      setMemberSearchLoading(false);
+    }
+  };
+
+  const handleAddMember = async (profile: ProfileSummary) => {
+    if (!projectId || !accessToken) {
+      setMemberActionError("Missing project context or authentication.");
+      return;
+    }
+
+    if (memberIds.has(profile.id)) {
+      setMemberActionError("That profile is already part of the project.");
+      return;
+    }
+
+    setMemberActionError(null);
+    setMemberActionSuccess(null);
+    setMemberActionKey(`add:${profile.id}`);
+
+    try {
+      await addProjectMember(projectId, { userId: profile.id, role: memberInviteRole }, accessToken);
+      const displayName = profile.fullName || profile.email || "New member";
+      setMemberActionSuccess(`Added ${displayName} as ${formatRoleLabel(memberInviteRole)}.`);
+      setMemberSearchTerm("");
+      setMemberSearchResults([]);
+      await loadHub();
+    } catch (err: any) {
+      setMemberActionError(err?.message || "Failed to add project member");
+    } finally {
+      setMemberActionKey(null);
+    }
+  };
+
+  const handleMemberRoleChange = async (
+    member: ProjectMemberRecord,
+    role: ProjectMemberRecord["role"]
+  ) => {
+    if (!projectId || !accessToken) {
+      setMemberActionError("Missing project context or authentication.");
+      return;
+    }
+
+    if (role === member.role) {
+      return;
+    }
+
+    if (member.userId === currentUserId && member.role === "owner" && role !== "owner" && ownerCount <= 1) {
+      setMemberActionError("At least one owner is required.");
+      return;
+    }
+
+    setMemberActionError(null);
+    setMemberActionSuccess(null);
+    setMemberActionKey(`update:${member.id}`);
+
+    const existingEntry = hub?.members.find((entry) => entry.member.id === member.id);
+    const displayName = existingEntry?.profile?.fullName || existingEntry?.profile?.email || member.userId;
+
+    try {
+      await updateProjectMemberRole(projectId, member.id, role, accessToken);
+      setMemberActionSuccess(`Updated ${displayName} to ${formatRoleLabel(role)}.`);
+      await loadHub();
+    } catch (err: any) {
+      setMemberActionError(err?.message || "Failed to update member role");
+    } finally {
+      setMemberActionKey(null);
+    }
+  };
+
+  const handleRemoveMember = async (member: ProjectMemberRecord) => {
+    if (!projectId || !accessToken) {
+      setMemberActionError("Missing project context or authentication.");
+      return;
+    }
+
+    if (member.userId === currentUserId) {
+      setMemberActionError("You cannot remove yourself from the project.");
+      return;
+    }
+
+    if (member.role === "owner" && ownerCount <= 1) {
+      setMemberActionError("At least one owner must remain on the project.");
+      return;
+    }
+
+    setMemberActionError(null);
+    setMemberActionSuccess(null);
+    setMemberActionKey(`remove:${member.id}`);
+
+    const existingEntry = hub?.members.find((entry) => entry.member.id === member.id);
+    const displayName = existingEntry?.profile?.fullName || existingEntry?.profile?.email || member.userId;
+
+    try {
+      await removeProjectMember(projectId, member.id, accessToken);
+      setMemberActionSuccess(`Removed ${displayName} from the project.`);
+      await loadHub();
+    } catch (err: any) {
+      setMemberActionError(err?.message || "Failed to remove member");
+    } finally {
+      setMemberActionKey(null);
+    }
+  };
+
   if (!projectId) {
     return (
       <section className="space-y-4">
@@ -827,7 +1008,7 @@ export default function ProjectHubPage() {
                   <p className="font-semibold text-gray-900">{profile?.fullName || profile?.email || member.userId}</p>
                   <p className="text-xs text-gray-500">{profile?.email || "Email unknown"}</p>
                 </div>
-                <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{member.role}</span>
+                <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{formatRoleLabel(member.role)}</span>
               </li>
             ))}
           </ul>
@@ -972,8 +1153,166 @@ export default function ProjectHubPage() {
           </button>
         </div>
       </form>
+
+      <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <h3 className="text-lg font-semibold text-gray-900">Members &amp; roles</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Owners can adjust access levels, invite collaborators, and keep this project scoped to the right team.
+        </p>
+        {memberActionError ? <p className="mt-3 text-sm text-red-600">{memberActionError}</p> : null}
+        {memberActionSuccess ? <p className="mt-3 text-sm text-emerald-600">{memberActionSuccess}</p> : null}
+
+        <div className="mt-4">
+          {hub.members.length === 0 ? (
+            <p className="text-sm text-gray-500">No members added yet.</p>
+          ) : (
+            <ul className="space-y-3 text-sm text-gray-700">
+              {hub.members.map(({ member, profile }) => {
+                const isCurrent = member.userId === currentUserId;
+                const isLastOwner = member.role === "owner" && ownerCount <= 1;
+                const updateKey = `update:${member.id}`;
+                const removeKey = `remove:${member.id}`;
+                const isUpdating = memberActionKey === updateKey;
+                const isRemoving = memberActionKey === removeKey;
+                const canRemove = canManageMembers && !isCurrent && !(member.role === "owner" && ownerCount <= 1);
+                return (
+                  <li
+                    key={member.id}
+                    className="flex flex-col gap-3 rounded border border-gray-200 p-3 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <p className="font-semibold text-gray-900">
+                        {profile?.fullName || profile?.email || member.userId}
+                        {isCurrent ? " • You" : ""}
+                      </p>
+                      <p className="text-xs text-gray-500">{profile?.email || "Email unknown"}</p>
+                    </div>
+                    {canManageMembers ? (
+                      <div className="flex flex-col items-start gap-2 md:flex-row md:items-center">
+                        <select
+                          value={member.role}
+                          onChange={(event) =>
+                            void handleMemberRoleChange(
+                              member,
+                              event.target.value as ProjectMemberRecord["role"]
+                            )
+                          }
+                          disabled={isUpdating || isRemoving || (isCurrent && isLastOwner)}
+                          className="rounded border border-gray-300 bg-white px-3 py-1 text-xs"
+                        >
+                          {MEMBER_ROLE_OPTIONS.map((roleOption) => (
+                            <option key={roleOption} value={roleOption}>
+                              {formatRoleLabel(roleOption)}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveMember(member)}
+                          disabled={!canRemove || isRemoving}
+                          className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isRemoving ? "Removing…" : "Remove"}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
+                        {formatRoleLabel(member.role)}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {canManageMembers ? (
+          <>
+            <form onSubmit={handleMemberSearch} className="mt-6 flex flex-wrap items-end gap-3">
+              <label className="flex-1 min-w-[220px] text-xs font-semibold uppercase text-gray-500">
+                Search profiles
+                <input
+                  type="search"
+                  value={memberSearchTerm}
+                  onChange={(event) => setMemberSearchTerm(event.target.value)}
+                  placeholder="Name or email"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase text-gray-500">
+                Invite as
+                <select
+                  value={memberInviteRole}
+                  onChange={(event) =>
+                    setMemberInviteRole(event.target.value as ProjectMemberRecord["role"])
+                  }
+                  className="mt-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  {MEMBER_ROLE_OPTIONS.map((roleOption) => (
+                    <option key={roleOption} value={roleOption}>
+                      {formatRoleLabel(roleOption)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-500"
+                disabled={memberSearchLoading}
+              >
+                {memberSearchLoading ? "Searching…" : "Search"}
+              </button>
+            </form>
+            {memberSearchError ? (
+              <p className="mt-2 text-sm text-red-600">{memberSearchError}</p>
+            ) : null}
+            {memberSearchResults.length > 0 ? (
+              <ul className="mt-4 space-y-2 text-sm text-gray-700">
+                {memberSearchResults.map((profile) => {
+                  const alreadyMember = memberIds.has(profile.id);
+                  const actionKey = `add:${profile.id}`;
+                  const isAdding = memberActionKey === actionKey;
+                  return (
+                    <li
+                      key={profile.id}
+                      className="flex flex-col gap-2 rounded border border-gray-200 p-3 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div>
+                        <p className="font-semibold text-gray-900">
+                          {profile.fullName || profile.email || "Unnamed profile"}
+                        </p>
+                        <p className="text-xs text-gray-500">{profile.email || "Email unknown"}</p>
+                      </div>
+                      {alreadyMember ? (
+                        <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
+                          Already added
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleAddMember(profile)}
+                          disabled={isAdding}
+                          className="rounded-md bg-gray-900 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-500"
+                        >
+                          {isAdding ? "Adding…" : `Add as ${formatRoleLabel(memberInviteRole)}`}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </>
+        ) : (
+          <p className="mt-4 text-sm text-gray-500">
+            Only project owners can change access. Ask an owner to promote or invite teammates on your behalf.
+          </p>
+        )}
+      </div>
+
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-gray-500">
-        Source management, default labels, and member roles will surface here in a follow-up release.
+        Source management and default label presets are planned for a later update.
       </div>
     </div>
   );
@@ -1424,7 +1763,7 @@ function TaskRow({
             </select>
           </span>
           {task.dueAt ? <span>Due {new Date(task.dueAt).toLocaleDateString()}</span> : null}
-          <span>Priority {task.priority}</span>
+          <span>Priority {task.priority ?? 0}</span>
         </div>
       </div>
       <button

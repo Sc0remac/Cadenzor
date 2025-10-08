@@ -1,0 +1,246 @@
+What you’re building
+
+When a new lead/promo email arrives (promoter, venue, radio, journalist), the system:
+
+extracts who/where/when,
+
+runs an Enrichment job (internal history + public context),
+
+produces two transparent scores: Reliability and Brand Fit,
+
+recommends an action band: Accept / Caution / Decline with conditions,
+
+saves the snapshot with sources so Oran can trust it (and override).
+
+This runs automatically when labels indicate the sender is a potential partner (e.g., Booking/Promo), and can be re-run on demand.
+
+Scoring model (explainable, versioned)
+A) Reliability score (0–100)
+
+Purpose: “Will they deliver professionally and pay on time?”
+
+Subscores & defaults (tune per artist/project):
+
+On-time payment (0–100, weight 30%)
+Internal metric: average days to settle vs contract terms; chargebacks; deposit compliance.
+
+Response speed (0–100, weight 20%)
+Median reply time over last N threads vs agreed SLA.
+
+Logistics quality (0–100, weight 30%)
+Past incident flags: late itineraries/riders, missing backline, last-minute changes; completion rate of advance checklists.
+
+Past issues (0–100, weight −20% as a penalty)
+Severity-weighted deductions for no-shows, non-payment, safety complaints.
+
+Outputs: Reliability 0–100 + band (High ≥80, Medium 60–79, Low <60) + 2–3 bullet “why” facts.
+
+B) Brand Fit score (0–100)
+
+Purpose: “Does this outlet/venue align with Barry/SHEE’s artistic lane and strategy?”
+
+Subscores & defaults:
+
+Genre/scene adjacency (0–100, weight 25%)
+Embedding similarity between artist brand vector and venue/event/radio format text.
+
+Line-up/recent guests quality (0–100, weight 20%)
+Recent headliners/guests from public listings; overlap with your “admired artists” list.
+
+Reputation pulse (0–100, weight 15%)
+Recent news/posts; penalties for controversies; positive press uplift.
+
+Audience/format match (0–100, weight 15%)
+Station format tier (e.g., BBC R1 Tier-1) or venue capacity/type vs target.
+
+Routing fit (0–100, weight 15%)
+Time/geo fit with tour timeline; travel/timezone feasibility.
+
+Promo leverage (0–100, weight 10%)
+Social footprint proxies (follower bucket, posting cadence, previous campaign performance with this org).
+
+Outputs: Brand Fit 0–100 + band (Great ≥80, Good 60–79, Weak <60) + 2–3 bullet “why” facts.
+
+C) Decision band (policy)
+
+Accept: Reliability High & Brand Fit Good/Great.
+
+Caution: Borderline reliability or fit; suggest conditions (e.g., 50% deposit, earlier soundcheck, tighter deliverables).
+
+Decline: Low reliability or fit; offer a polite decline draft.
+
+All scores are versioned. Store the rubric version so changes don’t rewrite history.
+
+Signals & sources (safe + realistic)
+
+Internal (authoritative):
+
+Settlements & payment dates; checklist completion; response-time stats; incident flags; past approvals/declines; artist brand profile text.
+
+External (public, ToS-safe options first):
+
+Venue/Org basics: Google Places/Maps Details; venue website crawl (Playwright/Browserless).
+
+Event history: Resident Advisor / Bandsintown / Songkick (public pages if API access limited).
+
+Radio/press: station/site “About” pages, recent guest lists, playlist formats.
+
+News pulse: Bing News / NewsAPI / GDELT headlines for the last 12 months.
+
+Social footprint: public counts and cadence (avoid intrusive scraping).
+
+Note on LinkedIn: automated scraping commonly violates ToS. Prefer official APIs/permissions or rely on website mastheads and public bios. Keep it compliant.
+
+AI usage:
+
+Use LLM for synthesis and embedding similarity, not for core facts. Cite sources in the snapshot.
+
+Trigger → Pipeline (what happens, step by step)
+
+Trigger: Email labeled Booking/Promo (and optionally city/venue).
+
+Entity extraction: People/org names, role, domain, venue, city, proposed dates, budget terms.
+
+Internal look-up: Past deals with this contact/org; payment & logistics metrics; incident log.
+
+External enrichment: Venue/org basics; recent lineups/guests; station format; news pulse; social proxies; routing feasibility vs your timeline.
+
+Scoring: Compute Reliability & Brand Fit subscores → weighted totals → decision band.
+
+Snapshot: Store enrichment_snapshot with inputs, outputs, and citations + rubric version.
+
+Surface: Create a Lead Card in the Inbox drawer & in the relevant Project with: score badges, subscores, “why”, suggested conditions, one-click actions (Accept with conditions / Request info / Decline).
+
+Cache: Redis-cache snapshot for 30 days; re-run only on major updates (date change, new info, or manual refresh).
+
+Data model (additions—no code)
+
+org_profiles: id, name, domain, kind (venue/radio/press/brand), capacity, location, links, metadata.
+
+contact_profiles: id, person_name, email, role, org_id, phones, socials, territory.
+
+artist_brand_profiles: artist_id, brand_text, “admired artists” list, banned contexts, capacity targets, tier mapping.
+
+reliability_rollups: org_id/contact_id, on_time_payment %, avg response hrs, logistics score, incidents json, updated_at.
+
+enrichment_runs: id, ref (email_id/thread_id), org_id/contact_id, project_id, rubric_version, inputs json, outputs json, citations json, created_at.
+
+brand_fit_vectors: id, entity_type (org/venue/station), vector, last_refreshed.
+
+artist_brand_vectors: artist_id, vector, last_refreshed.
+
+score_components (optional): run_id, component_key, value, weight, rationale.
+
+UI placements (so it’s actually useful)
+
+Inbox drawer (for a lead):
+Score badges Reliability/Brand Fit, decision band, 3-bullet “why”, conditions, and one-click actions:
+
+Accept (with conditions) → opens draft reply + checklist seeds.
+
+Ask follow-ups → auto-draft clarifying questions (budget, tech, times).
+
+Decline → polite draft with optional reason.
+
+Project Hub → People & Leads:
+Filterable grid by city/venue/station, score bands, and date; show trend (score over time).
+
+Today / Digest:
+“New leads” widget with top 3 by (Brand Fit × Reliability × routing fit) and direct Approve/Decline links.
+
+Conditions library (for “Caution” band)
+
+Payment: “50% deposit on booking; balance T-7”
+
+Promo: “Confirm promo asset deadlines and outlet deliverables by T-14”
+
+Production: “Provide backline spec and soundcheck window ≥90 min”
+
+Routing: “Shift set by +30 min to allow post-flight buffer”
+
+These are selectable toggles that insert into the draft reply & internal checklist.
+
+“City buzz” & calendar conflict signal (lightweight)
+
+When a date is proposed for City X:
+
+Pull the top 3 competing events that night (public calendars/listings).
+
+Show a Crowd Competition subscore (0–100) with links (“Two major festivals nearby”).
+
+Add a Routing Feasibility tag (“OK with 4h buffer” / “Tight: only 1h”).
+
+Privacy, ethics, and guardrails
+
+Store only business-relevant info (no health/religion/politics).
+
+Keep snapshots with citations; Oran can see the source of every claim.
+
+Redact PII (bank/passport) before LLM.
+
+Respect site ToS; prefer official APIs or plainly public pages.
+
+Performance & cost controls
+
+Cache all external lookups for 30 days.
+
+Reuse embeddings (pgvector) for artist and org.
+
+Use small LLM for extraction; reserve larger model for the final 3-bullet rationale only when scores are close to threshold.
+
+MVP slice (2 sprints, high impact)
+
+Reliability (internal-only): on-time payments, response speed, logistics incidents → score + band.
+
+Brand Fit (light): genre/scene similarity (embedding vs org/venue/station description) + tier mapping (BBC R1=Tier-1, etc.).
+
+Lead Card UI in Inbox drawer + Project Leads tab, with decision band and conditions toggles.
+
+Snapshot & cache storage with one-click actions (Accept/Ask/Decline → drafts only).
+Acceptance: Oran sees a new lead → gets a clear score with “why”, and can approve a conditioned acceptance in <60 seconds.
+
+Phase 2 (polish)
+
+External event history & “city buzz” conflict signal.
+
+News pulse & reputation flags.
+
+Org-level rollups and per-territory reliability.
+
+Learning loop: adjust weights from Oran’s Accept/Decline outcomes.
+
+Next best step actions (today → build order)
+
+Product config
+
+Write a Brand Rubric v1 (weights above) per artist; store in artist_brand_profiles + rubric_version=1.
+
+Seed Tier mapping for radio/stations and venue capacity targets.
+
+Data plumbing
+3) Create org_profiles / contact_profiles / reliability_rollups / enrichment_runs tables.
+4) Add artist_brand_vectors / brand_fit_vectors (pgvector ready).
+
+Worker jobs
+5) On Booking/Promo label → queue enrichment_run (internal rollups first, then external light).
+6) Compute scores + save snapshot + cache.
+
+UI
+7) Add Lead Card (Inbox drawer + Project Leads tab) with score badges, bullet “why”, and quick actions.
+8) Add Conditions selector that injects text into draft reply and seeds a checklist.
+
+Governance
+9) Log every enrichment run with sources and keep a toggle to mask external data if needed.
+10) Add a “Re-score” button and a “mark as incorrect” feedback that adjusts future weights (a tiny learning loop).
+
+Why this helps Oran immediately
+
+He stops guessing. Every new lead comes with scores, rationale, and a safe next step.
+
+It scales judgment across dozens of emails without drowning him.
+
+It’s explainable and editable: change weights, re-score, keep receipts (citations).
+
+It sets the stage for smarter playbooks (accept with conditions, decline politely, or ask the right 3 questions).
+
+If you want, I can turn the scoring rubric and the conditions library into a one-page “Business Rules” sheet (plain English) that you can paste into your admin settings and treat as versioned policy.
