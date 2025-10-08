@@ -6,11 +6,17 @@ module.exports = {
     "./components/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
+<<<<<<< ours
     extend: {
       fontFamily: {
         sans: [
           "'Inter'",
+<<<<<<< ours
           "'SF Pro Display'",
+=======
+          "'General Sans'",
+          "'Geist'",
+>>>>>>> theirs
           "'SF Pro Text'",
           "system-ui",
           "-apple-system",
@@ -18,6 +24,7 @@ module.exports = {
           "'Segoe UI'",
           "sans-serif",
         ],
+<<<<<<< ours
       },
       colors: {
         brand: {
@@ -51,6 +58,56 @@ module.exports = {
       },
       dropShadow: {
         glow: "0 10px 35px rgba(99, 102, 241, 0.35)",
+=======
+        display: [
+          "'Satoshi Variable'",
+          "'Aeonik Pro'",
+          "'Space Grotesk'",
+          "'Inter'",
+          "system-ui",
+          "sans-serif",
+        ],
+      },
+      colors: {
+        depth: {
+          950: "#020309",
+          900: "#04050A",
+          800: "#060813",
+          700: "#0E1120",
+          650: "#131728",
+          600: "#171B2A",
+          500: "#1E2433",
+        },
+        accent: {
+          cyan: "#3BC9F5",
+          "cyan-soft": "#7DD3FC",
+          "cyan-deep": "#1F7AE0",
+          magenta: "#D946EF",
+        },
+        ink: {
+          100: "#FFFFFF",
+          200: "#A9B3D1",
+          300: "#9199BD",
+          400: "#777DAF",
+        },
+      },
+      backgroundImage: {
+        "hero-gradient":
+          "linear-gradient(140deg, rgba(31,122,224,0.9) 0%, rgba(66,130,245,0.75) 45%, rgba(217,70,239,0.6) 100%)",
+        "plasma-blue":
+          "radial-gradient(circle at 30% 20%, rgba(59,201,245,0.28), transparent 55%), radial-gradient(circle at 80% 0%, rgba(122,90,255,0.22), transparent 45%)",
+      },
+      boxShadow: {
+        glow: "0 25px 60px -20px rgba(59, 201, 245, 0.5)",
+        elevation: "0 18px 40px -20px rgba(5, 8, 24, 0.6)",
+        "ambient-xl": "0 60px 140px -50px rgba(4, 7, 20, 0.95)",
+        "ambient-md": "0 32px 80px -40px rgba(5, 8, 24, 0.75)",
+        "ambient-sm": "0 18px 40px -24px rgba(8, 12, 28, 0.7)",
+      },
+      dropShadow: {
+        glow: "0 12px 45px rgba(59, 201, 245, 0.35)",
+        "nav-glow": "0 0 45px rgba(59, 201, 245, 0.2)",
+>>>>>>> theirs
       },
       transitionTimingFunction: {
         "gentle-spring": "cubic-bezier(0.22, 1, 0.36, 1)",
@@ -82,6 +139,9 @@ module.exports = {
         xs: "2px",
       },
     },
+=======
+    extend: {},
+>>>>>>> theirs
   },
   plugins: [],
 };
