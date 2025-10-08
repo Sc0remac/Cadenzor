@@ -6,8 +6,9 @@ import { useState, type ReactNode } from "react";
 import { useAuth } from "./AuthProvider";
 
 const NAV_LINKS = [
+  { href: "/", label: "Home" },
+  { href: "/inbox", label: "Inbox" },
   { href: "/today", label: "Today" },
-  { href: "/", label: "Dashboard" },
   { href: "/projects", label: "Projects" },
   { href: "/profile", label: "Profile" },
 ];

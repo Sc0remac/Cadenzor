@@ -128,7 +128,7 @@ export async function GET(request: Request) {
     if (insertPrefError) {
       return formatError(insertPrefError.message, 500);
     }
-    preferences = insertedPref ? mapPreferenceRow(insertPref) : null;
+    preferences = insertedPref ? mapPreferenceRow(insertedPref) : null;
   }
 
   const projectIds = Array.from(

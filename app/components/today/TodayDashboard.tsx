@@ -207,13 +207,10 @@ export default function TodayDashboard() {
       setError(null);
 
       try {
-        const [today, history] = await Promise.all<[
-          TodayDigestResponse,
-          DigestRecord[],
-        ]>([
+        const [today, history] = await Promise.all([
           fetchTodayDigest({ accessToken }),
           fetchDigestHistory({ accessToken }),
-        ]);
+        ] as [Promise<TodayDigestResponse>, Promise<DigestRecord[]>]);
 
         setState({
           digest: today.digest,
