@@ -452,31 +452,34 @@ export default function EmailDashboard() {
   ]);
 
   if (!initialized && loading) {
-    return <p>Loading email statistics…</p>;
+    return (
+      <div className="glass-surface animate-pulse rounded-2xl px-6 py-6 text-sm text-slate-200">
+        Loading email intelligence…
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-2xl font-semibold">
-              Emails by category
-              <span className="ml-2 text-sm font-normal text-gray-500">
-                ({filterSummary})
-              </span>
-            </h2>
-            <span className="text-xs text-gray-500">Last refreshed: {lastRefreshedLabel}</span>
+    <div className="space-y-10 text-slate-100">
+      <div className="glass-surface space-y-5 rounded-2xl px-6 py-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-200">
+              Inbox intelligence
+            </div>
+            <h2 className="text-3xl font-semibold text-white">Emails by category</h2>
+            <p className="text-sm text-slate-300">{filterSummary}</p>
+            <span className="text-xs text-slate-400">Last refreshed: {lastRefreshedLabel}</span>
           </div>
-          <div className="flex items-center gap-3">
-            {initialized && loading && (
-              <span className="text-xs text-gray-500">Refreshing…</span>
-            )}
+          <div className="flex flex-wrap items-center gap-3">
+            {initialized && loading ? (
+              <span className="text-xs text-slate-300">Refreshing…</span>
+            ) : null}
             <button
               type="button"
               onClick={handleManualRefresh}
               disabled={loading}
-              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 transition duration-200 ease-gentle-spring hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Refresh
             </button>
@@ -484,16 +487,17 @@ export default function EmailDashboard() {
               type="button"
               onClick={handleClassifyClick}
               disabled={classifying}
-              className="inline-flex items-center rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-400"
+              className="group relative inline-flex items-center gap-2 overflow-hidden rounded-full border border-brand-400/40 bg-brand-500/20 px-5 py-2 text-sm font-semibold text-white shadow-glow transition duration-200 ease-gentle-spring hover:-translate-y-0.5 hover:border-brand-300/60 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {classifying ? "Classifying…" : "Classify emails"}
+              <span className="absolute inset-0 bg-gradient-to-r from-brand-500 via-rose-500 to-sky-500 opacity-80 transition duration-300 ease-gentle-spring group-hover:opacity-100" />
+              <span className="relative">{classifying ? "Classifying…" : "Classify emails"}</span>
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">Scope:</span>
-            <div className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1 text-sm shadow-sm">
+            <span className="font-medium text-slate-200">Scope:</span>
+            <div className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 p-1">
               {(["unread", "all"] as EmailStatsScope[]).map((scopeOption) => {
                 const isActive = statsScope === scopeOption;
                 return (
@@ -502,10 +506,10 @@ export default function EmailDashboard() {
                     type="button"
                     onClick={() => handleScopeChange(scopeOption)}
                     aria-pressed={isActive}
-                    className={`rounded px-3 py-1 font-medium transition ${
+                    className={`rounded-full px-4 py-1.5 font-semibold transition duration-200 ease-gentle-spring ${
                       isActive
-                        ? "bg-indigo-600 text-white shadow"
-                        : "text-gray-600 hover:bg-gray-100"
+                        ? "bg-gradient-to-r from-brand-500 via-brand-400 to-sky-400 text-slate-900 shadow-glow"
+                        : "text-slate-200 hover:bg-white/10"
                     }`}
                   >
                     {scopeOption === "unread" ? "Unread" : "All"}
@@ -515,8 +519,8 @@ export default function EmailDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">Source:</span>
-            <div className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1 text-sm shadow-sm">
+            <span className="font-medium text-slate-200">Source:</span>
+            <div className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 p-1">
               {(["all", "seeded"] as EmailSourceFilter[]).map((sourceOption) => {
                 const isActive = sourceFilter === sourceOption;
                 return (
@@ -525,10 +529,10 @@ export default function EmailDashboard() {
                     type="button"
                     onClick={() => handleSourceChange(sourceOption)}
                     aria-pressed={isActive}
-                    className={`rounded px-3 py-1 font-medium transition ${
+                    className={`rounded-full px-4 py-1.5 font-semibold transition duration-200 ease-gentle-spring ${
                       isActive
-                        ? "bg-indigo-600 text-white shadow"
-                        : "text-gray-600 hover:bg-gray-100"
+                        ? "bg-gradient-to-r from-brand-500 via-emerald-400 to-sky-400 text-slate-900 shadow-glow"
+                        : "text-slate-200 hover:bg-white/10"
                     }`}
                     title={
                       sourceOption === "seeded"
@@ -543,14 +547,14 @@ export default function EmailDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">Label:</span>
+            <span className="font-medium text-slate-200">Label:</span>
             <select
               value={labelFilter}
               onChange={(event) => handleLabelFilterChange(event.target.value as LabelFilterValue)}
-              className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm text-slate-100 transition hover:border-white/30 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/40"
             >
               {labelFilterOptions.map((option) => (
-                <option key={option} value={option}>
+                <option key={option} value={option} className="bg-midnight text-slate-100">
                   {option === "all" ? "All labels" : formatLabel(option as EmailLabel)}
                 </option>
               ))}
@@ -559,22 +563,22 @@ export default function EmailDashboard() {
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error ? <p className="text-sm text-rose-200">{error}</p> : null}
 
-      {statusMessage && (
+      {statusMessage ? (
         <p
           className={`text-sm ${
-            statusMessage.type === "error" ? "text-red-600" : "text-green-600"
+            statusMessage.type === "error" ? "text-rose-200" : "text-emerald-200"
           }`}
         >
           {statusMessage.message}
         </p>
-      )}
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         {topLabelEntries.length === 0 ? (
-          <div className="col-span-full rounded border border-dashed border-gray-200 bg-white p-6 text-center shadow">
-            <p className="text-sm text-gray-500">No label activity yet.</p>
+          <div className="col-span-full rounded-2xl border border-dashed border-white/20 bg-white/5 p-6 text-center text-sm text-slate-300">
+            No label activity yet.
           </div>
         ) : (
           topLabelEntries.map(({ label, count }, index) => {
@@ -584,20 +588,18 @@ export default function EmailDashboard() {
                 key={label}
                 type="button"
                 onClick={() => handleLabelTileClick(label as EmailLabel)}
-                className={`flex h-full flex-col items-start justify-between rounded border bg-white p-4 text-left shadow transition ${
+                className={`group flex h-full flex-col items-start justify-between rounded-2xl border bg-white/5 p-5 text-left transition duration-300 ease-gentle-spring ${
                   isActive
-                    ? "border-indigo-500 ring-1 ring-indigo-200"
-                    : "border-gray-200 hover:border-indigo-200 hover:shadow-md"
+                    ? "border-brand-400/70 bg-brand-500/15 text-white shadow-glow"
+                    : "border-white/10 text-slate-100 hover:border-brand-400/40 hover:bg-white/10"
                 }`}
               >
-                <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    #{index + 1}
-                  </h3>
-                  <p className="mt-1 text-lg font-semibold text-gray-900">{formatLabel(label)}</p>
+                <div className="space-y-1">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-300">#{index + 1}</h3>
+                  <p className="text-lg font-semibold text-white">{formatLabel(label)}</p>
                 </div>
-                <p className="mt-4 text-3xl font-bold text-indigo-600">{count}</p>
-                <span className="mt-2 text-xs text-gray-500">
+                <p className="mt-4 text-3xl font-bold text-brand-200">{count}</p>
+                <span className="mt-3 text-xs text-slate-300">
                   {isActive ? "Filtering applied" : "Click to filter by this label"}
                 </span>
               </button>
@@ -606,11 +608,9 @@ export default function EmailDashboard() {
         )}
       </div>
 
-      {otherLabelEntries.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Other labels
-          </span>
+      {otherLabelEntries.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-200">
+          <span className="font-semibold uppercase tracking-[0.3em] text-slate-400">Other labels</span>
           {otherLabelEntries.map(({ label, count }) => {
             const isActive = labelFilter === label;
             return (
@@ -618,37 +618,35 @@ export default function EmailDashboard() {
                 key={label}
                 type="button"
                 onClick={() => handleLabelTileClick(label as EmailLabel)}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition ${
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 transition duration-200 ease-gentle-spring ${
                   isActive
-                    ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                    : "border-gray-200 bg-white text-gray-600 hover:border-indigo-200 hover:text-indigo-700"
+                    ? "border-brand-400/70 bg-brand-500/10 text-brand-100 shadow-glow"
+                    : "border-white/15 bg-white/5 text-slate-200 hover:border-brand-400/40 hover:text-brand-100"
                 }`}
               >
                 <span>{formatLabel(label)}</span>
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
-                  {count}
-                </span>
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-slate-200">{count}</span>
               </button>
             );
           })}
         </div>
-      )}
+      ) : null}
 
-      <section className="space-y-4">
+      <section className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-semibold">Latest emails</h2>
-          <span className="text-xs text-gray-500">{tableSummary}</span>
+          <h2 className="text-2xl font-semibold text-white">Latest emails</h2>
+          <span className="text-xs text-slate-300">{tableSummary}</span>
         </div>
-        <div className="overflow-x-auto rounded border border-gray-200 bg-white shadow">
+        <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/5 shadow-glow">
           {visibleEmails.length === 0 ? (
-            <p className="px-6 py-8 text-sm text-gray-600">
+            <p className="px-6 py-8 text-sm text-slate-300">
               {hasLabelFilter
                 ? `No emails labelled ${activeLabelFilterLabel}.`
                 : "No recent emails to display."}
             </p>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <table className="min-w-full divide-y divide-white/10 text-sm text-slate-100">
+              <thead className="bg-white/5 text-left text-xs font-semibold uppercase tracking-[0.3em] text-slate-200">
                 <tr>
                   <th scope="col" className="px-4 py-3">Subject</th>
                   <th scope="col" className="px-4 py-3">Sender</th>
@@ -657,21 +655,21 @@ export default function EmailDashboard() {
                   <th scope="col" className="px-4 py-3">Summary</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-white/10">
                 {visibleEmails.map((email) => {
                   const senderName = email.fromName?.trim();
                   return (
-                    <tr key={email.id} className="align-top">
-                      <td className="px-4 py-3 font-semibold text-gray-900">{email.subject}</td>
-                      <td className="px-4 py-3 text-gray-700">
+                    <tr key={email.id} className="align-top transition duration-200 ease-gentle-spring hover:bg-white/5">
+                      <td className="px-4 py-3 font-semibold text-white">{email.subject}</td>
+                      <td className="px-4 py-3 text-slate-200">
                         <div className="flex flex-col">
                           <span>{senderName || email.fromEmail}</span>
-                          {senderName && (
-                            <span className="text-xs text-gray-500">{email.fromEmail}</span>
-                          )}
+                          {senderName ? (
+                            <span className="text-xs text-slate-400">{email.fromEmail}</span>
+                          ) : null}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-300">
                         {formatReceivedAt(email.receivedAt)}
                       </td>
                       <td className="px-4 py-3">
@@ -680,20 +678,24 @@ export default function EmailDashboard() {
                             email.labels.map((label) => (
                               <span
                                 key={`${email.id}-${label}`}
-                                className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium uppercase tracking-wide text-indigo-600"
+                                className="rounded-full border border-brand-400/40 bg-brand-500/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-brand-100"
                               >
                                 {formatLabel(label)}
                               </span>
                             ))
                           ) : (
-                            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                            <span className="rounded-full border border-white/15 bg-white/5 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-300">
                               Unlabelled
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        {email.summary ? email.summary : <span className="text-gray-400">No summary available.</span>}
+                      <td className="px-4 py-3 text-sm text-slate-200">
+                        {email.summary ? (
+                          email.summary
+                        ) : (
+                          <span className="text-slate-400">No summary available.</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -703,7 +705,7 @@ export default function EmailDashboard() {
           )}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-slate-300">
             Page {currentPage} of {displayTotalPages}
           </span>
           <div className="flex items-center gap-2">
@@ -711,16 +713,16 @@ export default function EmailDashboard() {
               type="button"
               onClick={handlePreviousPage}
               disabled={disablePrevious}
-              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-4 py-1 text-sm font-semibold text-slate-200 transition duration-200 ease-gentle-spring hover:-translate-y-0.5 hover:border-white/30 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Previous
             </button>
-            <span className="text-sm text-gray-600">{currentPage}</span>
+            <span className="text-sm font-semibold text-white">{currentPage}</span>
             <button
               type="button"
               onClick={handleNextPage}
               disabled={disableNext}
-              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-4 py-1 text-sm font-semibold text-slate-200 transition duration-200 ease-gentle-spring hover:-translate-y-0.5 hover:border-white/30 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Next
             </button>

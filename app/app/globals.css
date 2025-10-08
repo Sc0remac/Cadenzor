@@ -2,6 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Add any global styles here */
+/* Global experience styling */
 
-/*to come*/
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply font-sans bg-midnight text-slate-100;
+  background-image: radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.25), transparent 40%),
+    radial-gradient(circle at 80% 0%, rgba(236, 72, 153, 0.18), transparent 45%),
+    radial-gradient(circle at 50% 100%, rgba(14, 165, 233, 0.25), transparent 50%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.92) 25%, rgba(15, 23, 42, 0.85) 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar {
+  width: 0.55rem;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.9), rgba(236, 72, 153, 0.75));
+  border-radius: 9999px;
+}
+
+.glass-surface {
+  @apply bg-surface-50 backdrop-blur-lg border border-white/20 shadow-glow;
+}
+
+.card-gradient {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.55));
+  backdrop-filter: blur(18px);
+}
+
+.neon-divider {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.1), rgba(236, 72, 153, 0.55), rgba(14, 165, 233, 0.1));
+}
