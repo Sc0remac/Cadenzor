@@ -1,8 +1,21 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { requireAdminUser } from "../../../../lib/adminAuth";
 
-async function count(query: any): Promise<number> {
-  const { count, error } = await query.select("id", { head: true, count: "exact" });
+type FilterFn = (query: any) => any;
+
+async function countRows(
+  supabase: SupabaseClient,
+  table: string,
+  applyFilter?: FilterFn
+): Promise<number> {
+  let query = supabase.from(table).select("id", { head: true, count: "exact" });
+
+  if (applyFilter) {
+    query = applyFilter(query);
+  }
+
+  const { count, error } = await query;
 
   if (error) {
     throw error;
@@ -30,13 +43,13 @@ export async function GET(request: Request) {
       unreadEmails,
       seededEmails,
     ] = await Promise.all([
-      count(supabase.from("profiles")),
-      count(supabase.from("profiles").eq("is_admin", true)),
-      count(supabase.from("projects")),
-      count(supabase.from("projects").eq("status", "active")),
-      count(supabase.from("emails")),
-      count(supabase.from("emails").eq("is_read", false)),
-      count(supabase.from("emails").like("id", "seed-%")),
+      countRows(supabase, "profiles"),
+      countRows(supabase, "profiles", (query) => query.eq("is_admin", true)),
+      countRows(supabase, "projects"),
+      countRows(supabase, "projects", (query) => query.eq("status", "active")),
+      countRows(supabase, "emails"),
+      countRows(supabase, "emails", (query) => query.eq("is_read", false)),
+      countRows(supabase, "emails", (query) => query.like("id", "seed-%")),
     ]);
 
     const { data: recentProjects, error: recentProjectsError } = await supabase
