@@ -5,23 +5,20 @@ import {
   mapTimelineDependencyRow,
   mapTimelineItemRow,
 } from "../../../lib/projectMappers";
-import type { ProjectRecord, TimelineItemRecord } from "@cadenzor/shared";
+import type {
+  ProjectRecord,
+  TimelineItemRecord,
+  TimelineItemType,
+  TimelineLane,
+  TimelineItemStatus,
+} from "@cadenzor/shared";
 
-function parseEntryTypes(raw: string | null): string[] {
-  if (!raw) return [];
-  return raw
+function parseCsv(value: string | null): string[] {
+  if (!value) return [];
+  return value
     .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.length > 0);
-}
-
-function normaliseIsoTimestamp(value: string | null): string | null {
-  if (!value) return null;
-  const ms = Date.parse(value);
-  if (Number.isNaN(ms)) {
-    return null;
-  }
-  return new Date(ms).toISOString();
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 function toMs(value: string | null): number | null {
@@ -31,7 +28,7 @@ function toMs(value: string | null): number | null {
 }
 
 function itemMatchesRange(
-  item: { startsAt: string | null; endsAt: string | null },
+  item: TimelineItemRecord,
   rangeStartMs: number | null,
   rangeEndMs: number | null
 ): boolean {
@@ -39,96 +36,66 @@ function itemMatchesRange(
     return true;
   }
 
-  const startMs = item.startsAt ? toMs(item.startsAt) : null;
-  const endMs = item.endsAt ? toMs(item.endsAt) : null;
+  const timestamps = [item.startsAt, item.endsAt, item.dueAt]
+    .map((value) => toMs(value))
+    .filter((value): value is number => value != null);
 
-  if (startMs == null && endMs == null) {
+  if (timestamps.length === 0) {
     return false;
   }
 
-  const effectiveStart = startMs ?? endMs ?? null;
-  const effectiveEnd = endMs ?? startMs ?? null;
+  const windowStart = Math.min(...timestamps);
+  const windowEnd = Math.max(...timestamps);
 
-  if (effectiveStart == null || effectiveEnd == null) {
+  if (rangeStartMs != null && windowEnd < rangeStartMs) {
     return false;
   }
 
-  if (rangeStartMs != null && effectiveEnd < rangeStartMs) {
-    return false;
-  }
-
-  if (rangeEndMs != null && effectiveStart > rangeEndMs) {
+  if (rangeEndMs != null && windowStart > rangeEndMs) {
     return false;
   }
 
   return true;
 }
 
-function coerceEntryType(item: TimelineItemRecord): string {
-  const metadata = (item.metadata ?? {}) as Record<string, unknown>;
-  const candidate = [
-    metadata.entryType,
-    metadata.entry_type,
-    metadata.category,
-    metadata.kind,
-    item.type,
-    item.lane,
-  ]
-    .map((value) =>
-      typeof value === "string"
-        ? value.toLowerCase()
-        : Array.isArray(value) && value.length > 0
-        ? String(value[0]).toLowerCase()
-        : null
-    )
-    .find((value) => value && value.length > 0);
+function toTypeFilter(values: string[]): Set<TimelineItemType> | null {
+  if (values.length === 0) return null;
+  const allowed: TimelineItemType[] = [
+    "LIVE_HOLD",
+    "TRAVEL_SEGMENT",
+    "PROMO_SLOT",
+    "RELEASE_MILESTONE",
+    "LEGAL_ACTION",
+    "FINANCE_ACTION",
+  ];
+  const lookup = new Set(values.map((value) => value.trim().toUpperCase()));
+  const filtered = allowed.filter((type) => lookup.has(type));
+  return filtered.length > 0 ? new Set(filtered) : null;
+}
 
-  switch (candidate) {
-    case "milestone":
-    case "milestones":
-    case "gate":
-      return "milestone";
-    case "email":
-    case "emails":
-    case "urgent email":
-      return "email";
-    case "meeting":
-    case "meetings":
-    case "calendar":
-    case "call":
-      return "meeting";
-    case "interview":
-    case "interviews":
-      return "interview";
-    case "promo":
-    case "promos":
-    case "promotion":
-    case "press":
-    case "event":
-    case "lead":
-      return "promo";
-    case "note":
-    case "notes":
-      return "note";
-    case "comment":
-    case "comments":
-    case "feedback":
-      return "comment";
-    case "travel":
-    case "travel buffer":
-      return "travel";
-    case "hold":
-    case "holdback":
-      return "hold";
-    case "task":
-    case "tasks":
-    case "writing":
-    case "band":
-    case "live":
-    case "release":
-    default:
-      return "task";
+function toLaneFilter(values: string[]): Set<TimelineLane> | null {
+  if (values.length === 0) return null;
+  const allowed: TimelineLane[] = ["LIVE_HOLDS", "TRAVEL", "PROMO", "RELEASE", "LEGAL", "FINANCE"];
+  const lookup = new Set(values.map((value) => value.trim().toUpperCase()));
+  const filtered = allowed.filter((lane) => lookup.has(lane));
+  return filtered.length > 0 ? new Set(filtered) : null;
+}
+
+function toStatusFilter(values: string[]): Set<TimelineItemStatus> | null {
+  if (values.length === 0) return null;
+  const allowed: TimelineItemStatus[] = ["planned", "tentative", "confirmed", "waiting", "done", "canceled"];
+  const lookup = new Set(values.map((value) => value.trim().toLowerCase()));
+  const filtered = allowed.filter((status) => lookup.has(status));
+  return filtered.length > 0 ? new Set(filtered) : null;
+}
+
+function normaliseIsoTimestamp(value: string | null): string | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) {
+    return null;
   }
+  return new Date(ms).toISOString();
 }
 
 export async function GET(request: Request) {
@@ -144,9 +111,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "projectId is required" }, { status: 400 });
   }
 
-  const entryTypes = parseEntryTypes(searchParams.get("entryTypes"));
+  const typeFilter = toTypeFilter(parseCsv(searchParams.get("types")));
+  const laneFilter = toLaneFilter(parseCsv(searchParams.get("lanes")));
+  const statusFilter = toStatusFilter(parseCsv(searchParams.get("status")));
   const rangeStart = normaliseIsoTimestamp(searchParams.get("rangeStart"));
   const rangeEnd = normaliseIsoTimestamp(searchParams.get("rangeEnd"));
+  const rangeStartMs = rangeStart ? Date.parse(rangeStart) : null;
+  const rangeEndMs = rangeEnd ? Date.parse(rangeEnd) : null;
 
   const { data: membershipRow, error: membershipError } = await supabase
     .from("project_members")
@@ -180,10 +151,11 @@ export async function GET(request: Request) {
   const project: ProjectRecord = mapProjectRow(projectRow);
 
   const { data: timelineRows, error: timelineError } = await supabase
-    .from("timeline_items")
+    .from("timeline_entries")
     .select("*")
     .eq("project_id", projectId)
-    .order("starts_at", { ascending: true });
+    .order("start_at", { ascending: true, nullsFirst: false })
+    .order("due_at", { ascending: true, nullsFirst: false });
 
   if (timelineError) {
     return NextResponse.json({ error: timelineError.message }, { status: 500 });
@@ -199,20 +171,22 @@ export async function GET(request: Request) {
   }
 
   const items = (timelineRows ?? []).map(mapTimelineItemRow);
-  const dependencies = (dependencyRows ?? []).map(mapTimelineDependencyRow);
+  const filteredItems = items.filter((item) => itemMatchesRange(item, rangeStartMs, rangeEndMs));
 
-  const startMs = rangeStart ? Date.parse(rangeStart) : null;
-  const endMs = rangeEnd ? Date.parse(rangeEnd) : null;
-
-  const filteredItems = items.filter((item) => itemMatchesRange(item, startMs, endMs));
-  const typeFilter = entryTypes.length > 0 ? new Set(entryTypes) : null;
-  const typedItems = typeFilter
-    ? filteredItems.filter((item) => typeFilter.has(coerceEntryType(item)))
+  const itemsByType = typeFilter
+    ? filteredItems.filter((item) => typeFilter.has(item.type))
     : filteredItems;
-  const filteredItemIds = new Set(typedItems.map((item) => item.id));
-  const filteredDependencies = dependencies.filter(
-    (dependency) => filteredItemIds.has(dependency.fromItemId) && filteredItemIds.has(dependency.toItemId)
-  );
+  const itemsByLane = laneFilter ? itemsByType.filter((item) => laneFilter.has(item.lane)) : itemsByType;
+  const itemsByStatus = statusFilter
+    ? itemsByLane.filter((item) => item.status && statusFilter.has(item.status))
+    : itemsByLane;
 
-  return NextResponse.json({ project, items: typedItems, dependencies: filteredDependencies });
+  const allowedIds = new Set(itemsByStatus.map((item) => item.id));
+  const dependencies = (dependencyRows ?? [])
+    .map(mapTimelineDependencyRow)
+    .filter(
+      (dependency) => allowedIds.has(dependency.fromItemId) && allowedIds.has(dependency.toItemId)
+    );
+
+  return NextResponse.json({ project, items: itemsByStatus, dependencies });
 }

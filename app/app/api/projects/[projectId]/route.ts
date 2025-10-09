@@ -100,10 +100,10 @@ export async function GET(request: Request, { params }: Params) {
       .select("*")
       .eq("project_id", projectId),
     supabase
-      .from("timeline_items")
+      .from("timeline_entries")
       .select("*")
       .eq("project_id", projectId)
-      .order("starts_at", { ascending: true }),
+      .order("start_at", { ascending: true, nullsFirst: true }),
     supabase
       .from("project_tasks")
       .select("*")

@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../../../../lib/serverAuth";
 import { assertProjectRole } from "../../../../../../lib/projectAccess";
 import { mapTimelineItemRow } from "../../../../../../lib/projectMappers";
-import type { TimelineItemType } from "@cadenzor/shared";
+import {
+  getTimelineLaneForType,
+  normaliseTimelineItemStatus,
+  normaliseTimelineItemType,
+  type TimelineItemRecord,
+  type TimelineItemType,
+} from "@cadenzor/shared";
 
 interface Params {
   params: {
@@ -13,6 +19,25 @@ interface Params {
 
 function formatError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
+}
+
+interface UpdateTimelineItemPayload {
+  title?: string;
+  type?: TimelineItemType | string;
+  kind?: string | null;
+  description?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  dueAt?: string | null;
+  timezone?: string | null;
+  lane?: string | null;
+  territory?: string | null;
+  status?: string | null;
+  priority?: number | null;
+  priorityComponents?: Record<string, unknown> | null;
+  labels?: Record<string, unknown> | null;
+  links?: Record<string, unknown> | null;
+  dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
 }
 
 export async function PATCH(request: Request, { params }: Params) {
@@ -34,58 +59,93 @@ export async function PATCH(request: Request, { params }: Params) {
     return formatError(err?.message || "Forbidden", err?.status ?? 403);
   }
 
-  let payload: Partial<{
-    title: string;
-    type: TimelineItemType;
-    startsAt: string | null;
-    endsAt: string | null;
-    lane: string | null;
-    territory: string | null;
-    status: string | null;
-    priority: number;
-    refTable: string | null;
-    refId: string | null;
-    metadata: Record<string, unknown>;
-    dependencies: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
-  }>;
-
+  let payload: UpdateTimelineItemPayload;
   try {
-    payload = (await request.json()) as typeof payload;
-  } catch (err) {
+    payload = (await request.json()) as UpdateTimelineItemPayload;
+  } catch {
     return formatError("Invalid JSON payload", 400);
   }
 
-  const updatePayload: Record<string, unknown> = {};
-  if (payload.title !== undefined) updatePayload["title"] = payload.title;
-  if (payload.type !== undefined) updatePayload["type"] = payload.type;
-  if (payload.startsAt !== undefined) updatePayload["starts_at"] = payload.startsAt;
-  if (payload.endsAt !== undefined) updatePayload["ends_at"] = payload.endsAt;
-  if (payload.lane !== undefined) updatePayload["lane"] = payload.lane;
-  if (payload.territory !== undefined) updatePayload["territory"] = payload.territory;
-  if (payload.status !== undefined) updatePayload["status"] = payload.status;
-  if (payload.priority !== undefined) updatePayload["priority"] = payload.priority;
-  if (payload.refTable !== undefined) updatePayload["ref_table"] = payload.refTable;
-  if (payload.refId !== undefined) updatePayload["ref_id"] = payload.refId;
-  if (payload.metadata !== undefined) updatePayload["metadata"] = payload.metadata;
+  const { data: existingRow, error: fetchError } = await supabase
+    .from("project_items")
+    .select("*")
+    .eq("id", itemId)
+    .eq("project_id", projectId)
+    .maybeSingle();
 
-  if (Object.keys(updatePayload).length === 0) {
-    return formatError("No fields to update", 400);
+  if (fetchError) {
+    return formatError(fetchError.message, 500);
   }
 
-  const { data, error } = await supabase
-    .from("timeline_items")
+  if (!existingRow) {
+    return formatError("Timeline item not found", 404);
+  }
+
+  const currentLabels = (existingRow.labels as Record<string, unknown> | null) ?? {};
+  const labels: Record<string, unknown> = { ...currentLabels };
+  if (payload.labels) {
+    Object.assign(labels, payload.labels);
+  }
+  if (payload.territory !== undefined) {
+    if (payload.territory === null) {
+      delete labels.territory;
+    } else {
+      labels.territory = payload.territory;
+    }
+  }
+
+  const type = payload.type !== undefined
+    ? normaliseTimelineItemType(payload.type)
+    : normaliseTimelineItemType(existingRow.type as string);
+  if (payload.lane !== undefined && payload.lane !== null) {
+    labels.lane = payload.lane;
+  } else {
+    labels.lane = labels.lane ?? getTimelineLaneForType(type);
+  }
+
+  const currentLinks = (existingRow.links as Record<string, unknown> | null) ?? {};
+  const links: Record<string, unknown> = { ...currentLinks };
+  if (payload.links) {
+    Object.assign(links, payload.links);
+  }
+
+  const priorityComponents =
+    payload.priorityComponents ?? (existingRow.priority_components as Record<string, unknown> | null) ?? {};
+
+  const updatePayload: Record<string, unknown> = {};
+  if (payload.title !== undefined) updatePayload["title"] = payload.title;
+  if (payload.kind !== undefined) updatePayload["kind"] = payload.kind;
+  if (payload.description !== undefined) updatePayload["description"] = payload.description;
+  if (payload.startsAt !== undefined) updatePayload["start_at"] = payload.startsAt;
+  if (payload.endsAt !== undefined) updatePayload["end_at"] = payload.endsAt;
+  if (payload.dueAt !== undefined) updatePayload["due_at"] = payload.dueAt;
+  if (payload.timezone !== undefined) updatePayload["tz"] = payload.timezone;
+  if (payload.priority !== undefined) updatePayload["priority_score"] = payload.priority;
+  updatePayload["labels"] = labels;
+  updatePayload["links"] = links;
+  updatePayload["priority_components"] = priorityComponents;
+
+  const status = payload.status !== undefined
+    ? normaliseTimelineItemStatus(payload.status)
+    : normaliseTimelineItemStatus(existingRow.status as string | null);
+  updatePayload["status"] = status;
+
+  updatePayload["type"] = type;
+
+  const { data: updatedRow, error: updateError } = await supabase
+    .from("project_items")
     .update(updatePayload)
     .eq("id", itemId)
     .eq("project_id", projectId)
-    .select("*")
+    .select("id")
     .maybeSingle();
 
-  if (error) {
-    return formatError(error.message, 400);
+  if (updateError) {
+    return formatError(updateError.message, 400);
   }
 
-  if (!data) {
-    return formatError("Timeline item not found", 404);
+  if (!updatedRow?.id) {
+    return formatError("Failed to update timeline item", 500);
   }
 
   if (payload.dependencies) {
@@ -115,7 +175,23 @@ export async function PATCH(request: Request, { params }: Params) {
     }
   }
 
-  return NextResponse.json({ item: mapTimelineItemRow(data) });
+  const { data: entryRow, error: entryError } = await supabase
+    .from("timeline_entries")
+    .select("*")
+    .eq("id", itemId)
+    .maybeSingle();
+
+  if (entryError) {
+    return formatError(entryError.message, 500);
+  }
+
+  if (!entryRow) {
+    return formatError("Failed to load updated item", 500);
+  }
+
+  const item: TimelineItemRecord = mapTimelineItemRow(entryRow);
+
+  return NextResponse.json({ item });
 }
 
 export async function DELETE(request: Request, { params }: Params) {
@@ -138,7 +214,7 @@ export async function DELETE(request: Request, { params }: Params) {
   }
 
   const { error } = await supabase
-    .from("timeline_items")
+    .from("project_items")
     .delete()
     .eq("id", itemId)
     .eq("project_id", projectId);

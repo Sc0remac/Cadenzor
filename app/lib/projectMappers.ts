@@ -16,6 +16,8 @@ import type {
   EmailAttachmentRecord,
 } from "@cadenzor/shared";
 
+import { getTimelineLaneForType } from "@cadenzor/shared";
+
 function parseDateTime(value: any): string | null {
   if (!value) {
     return null;
@@ -188,23 +190,34 @@ export function mapTimelineDependencyRow(row: any): TimelineDependencyRecord {
 }
 
 export function mapTimelineItemRow(row: any): TimelineItemRecord {
+  const labels = parseJson<TimelineItemRecord["labels"]>(row.labels);
+  const priorityComponentsRaw = row.priority_components != null ? parseJson<TimelineItemRecord["priorityComponents"]>(row.priority_components) : null;
+  const priorityComponents = priorityComponentsRaw && Object.keys(priorityComponentsRaw).length > 0 ? priorityComponentsRaw : null;
+  const links = parseJson<TimelineItemRecord["links"]>(row.links);
+  const conflictFlags = row.conflict_flags ?? null;
   return {
     id: row.id as string,
     projectId: row.project_id as string,
     type: row.type as TimelineItemRecord["type"],
+    lane: (row.lane as TimelineItemRecord["lane"]) ?? getTimelineLaneForType(row.type as TimelineItemRecord["type"]),
+    kind: (row.kind as string) ?? null,
     title: row.title as string,
-    startsAt: parseDateTime(row.starts_at),
-    endsAt: parseDateTime(row.ends_at),
-    lane: (row.lane as string) ?? null,
-    territory: (row.territory as string) ?? null,
-    status: (row.status as string) ?? null,
-    priority: row.priority != null ? Number(row.priority) : null,
-    refTable: (row.ref_table as string) ?? null,
-    refId: (row.ref_id as string) ?? null,
-    metadata: parseJson(row.metadata),
+    description: (row.description as string) ?? null,
+    startsAt: parseDateTime(row.start_at),
+    endsAt: parseDateTime(row.end_at),
+    dueAt: parseDateTime(row.due_at),
+    timezone: (row.tz as string) ?? null,
+    status: (row.status as TimelineItemRecord["status"]) ?? "planned",
+    priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
+    priorityComponents,
+    labels,
+    links,
     createdBy: (row.created_by as string) ?? null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    conflictFlags,
+    layoutRow: row.layout_row != null ? Number(row.layout_row) : null,
+    territory: typeof labels.territory === "string" ? labels.territory : null,
   };
 }
 

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapApprovalRow } from "./projectMappers";
-import type { ApprovalRecord } from "@cadenzor/shared";
+import { getTimelineLaneForType, normaliseTimelineItemStatus, normaliseTimelineItemType } from "@cadenzor/shared";
+import type { ApprovalRecord, TimelineItemRecord } from "@cadenzor/shared";
 
 export type ApprovalAction = "approve" | "decline";
 
@@ -14,8 +15,17 @@ interface EmailLinkPayload {
     type?: string;
     startsAt?: string | null;
     endsAt?: string | null;
+    dueAt?: string | null;
+    timezone?: string | null;
     lane?: string | null;
     territory?: string | null;
+    kind?: string | null;
+    description?: string | null;
+    status?: string | null;
+    priority?: number;
+    priorityComponents?: Record<string, unknown>;
+    labels?: Record<string, unknown>;
+    links?: Record<string, unknown>;
     metadata?: Record<string, unknown>;
     dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
   };
@@ -27,11 +37,78 @@ interface TimelineItemPayload {
   type?: string;
   startsAt?: string | null;
   endsAt?: string | null;
+  dueAt?: string | null;
+  timezone?: string | null;
   lane?: string | null;
   territory?: string | null;
+  kind?: string | null;
+  description?: string | null;
+  status?: string | null;
   priority?: number;
+  priorityComponents?: Record<string, unknown>;
+  labels?: Record<string, unknown>;
+  links?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
+}
+
+interface TimelineInsertOptions {
+  title: string;
+  type?: string | null;
+  kind?: string | null;
+  description?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  dueAt?: string | null;
+  timezone?: string | null;
+  status?: string | null;
+  priority?: number | null;
+  priorityComponents?: Record<string, unknown> | null;
+  territory?: string | null;
+  lane?: string | null;
+  labels?: Record<string, unknown> | null;
+  links?: Record<string, unknown> | null;
+  source?: string | null;
+}
+
+function buildProjectItemInsert(
+  projectId: string,
+  actorId: string,
+  options: TimelineInsertOptions
+): Record<string, unknown> {
+  const type = normaliseTimelineItemType(options.type);
+  const status = normaliseTimelineItemStatus(options.status);
+  const labels: Record<string, unknown> = options.labels ? { ...options.labels } : {};
+  if (options.territory) {
+    labels.territory = options.territory;
+  }
+  const laneLabel = options.lane ?? getTimelineLaneForType(type);
+  labels.lane = laneLabel;
+
+  const links: Record<string, unknown> = options.links ? { ...options.links } : {};
+  if (options.source) {
+    links.source = options.source;
+  }
+
+  return {
+    project_id: projectId,
+    type,
+    kind: options.kind ?? null,
+    title: options.title,
+    description: options.description ?? null,
+    start_at: options.startsAt ?? null,
+    end_at: options.endsAt ?? null,
+    due_at: options.dueAt ?? null,
+    tz: options.timezone ?? null,
+    status,
+    priority_score: options.priority ?? null,
+    priority_components: options.priorityComponents ?? {},
+    labels,
+    links,
+    created_by: actorId,
+  } satisfies Record<string, unknown>;
+}
+
 }
 
 function assertString(value: unknown, field: string): string {
@@ -69,25 +146,39 @@ async function applyProjectEmailLink(
   if (payload.timelineSeed) {
     const seed = payload.timelineSeed;
     const title = assertString(seed.title, "timelineSeed.title");
-    const type = typeof seed.type === "string" ? seed.type : "event";
+    const priorityComponents = seed.priorityComponents ?? (seed.metadata?.priorityComponents as Record<string, unknown> | undefined) ?? null;
+    const labels = seed.labels ?? (seed.metadata?.labels as Record<string, unknown> | undefined) ?? null;
+    const links: Record<string, unknown> = {
+      ...(seed.links ?? {}),
+      emailId,
+      refTable: "emails",
+      refId: emailId,
+    };
+    if (seed.metadata && Object.keys(seed.metadata).length > 0) {
+      links.metadata = seed.metadata;
+    }
 
-    const insertPayload: Record<string, unknown> = {
-      project_id: projectId,
+    const insertPayload = buildProjectItemInsert(projectId, actorId, {
       title,
-      type,
-      starts_at: seed.startsAt ?? null,
-      ends_at: seed.endsAt ?? null,
+      type: seed.type,
+      kind: seed.kind ?? null,
+      description: seed.description ?? null,
+      startsAt: seed.startsAt ?? null,
+      endsAt: seed.endsAt ?? null,
+      dueAt: seed.dueAt ?? null,
+      timezone: seed.timezone ?? null,
       lane: seed.lane ?? null,
       territory: seed.territory ?? null,
-      priority: 50,
-      metadata: seed.metadata ?? { source: "email_seed" },
-      ref_table: "emails",
-      ref_id: emailId,
-      created_by: actorId,
-    };
+      status: seed.status ?? null,
+      priority: seed.priority ?? 50,
+      priorityComponents,
+      labels,
+      links,
+      source: "email_seed",
+    });
 
     const { data: timelineRow, error: timelineError } = await supabase
-      .from("timeline_items")
+      .from("project_items")
       .insert(insertPayload)
       .select("*")
       .maybeSingle();
@@ -122,23 +213,33 @@ async function applyTimelineItem(
 ) {
   const projectId = assertString(payload.projectId, "projectId");
   const title = assertString(payload.title, "title");
-  const type = typeof payload.type === "string" ? payload.type : "event";
+  const metadata = payload.metadata ?? {};
+  const priorityComponents = payload.priorityComponents ?? (metadata.priorityComponents as Record<string, unknown> | undefined) ?? null;
+  const labels = payload.labels ?? (metadata.labels as Record<string, unknown> | undefined) ?? null;
+  const links = payload.links ?? (metadata.links as Record<string, unknown> | undefined) ?? null;
+  const source = typeof metadata.source === "string" ? (metadata.source as string) : undefined;
 
-  const insertPayload: Record<string, unknown> = {
-    project_id: projectId,
+  const insertPayload = buildProjectItemInsert(projectId, actorId, {
     title,
-    type,
-    starts_at: payload.startsAt ?? null,
-    ends_at: payload.endsAt ?? null,
+    type: payload.type,
+    kind: payload.kind ?? null,
+    description: payload.description ?? null,
+    startsAt: payload.startsAt ?? null,
+    endsAt: payload.endsAt ?? null,
+    dueAt: payload.dueAt ?? null,
+    timezone: payload.timezone ?? null,
     lane: payload.lane ?? null,
     territory: payload.territory ?? null,
+    status: payload.status ?? null,
     priority: payload.priority ?? 50,
-    metadata: payload.metadata ?? {},
-    created_by: actorId,
-  };
+    priorityComponents,
+    labels,
+    links,
+    source,
+  });
 
   const { data: timelineRow, error: timelineError } = await supabase
-    .from("timeline_items")
+    .from("project_items")
     .insert(insertPayload)
     .select("*")
     .maybeSingle();

@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../../../lib/serverAuth";
 import { assertProjectRole } from "../../../../../lib/projectAccess";
 import { mapTimelineItemRow } from "../../../../../lib/projectMappers";
-import type { TimelineItemType } from "@cadenzor/shared";
+import {
+  getTimelineLaneForType,
+  normaliseTimelineItemStatus,
+  normaliseTimelineItemType,
+  type TimelineItemType,
+  type TimelineItemRecord,
+} from "@cadenzor/shared";
 
 interface Params {
   params: {
@@ -34,16 +40,36 @@ export async function GET(request: Request, { params }: Params) {
   }
 
   const { data, error } = await supabase
-    .from("timeline_items")
+    .from("timeline_entries")
     .select("*")
     .eq("project_id", projectId)
-    .order("starts_at", { ascending: true });
+    .order("start_at", { ascending: true, nullsFirst: true })
+    .order("due_at", { ascending: true, nullsFirst: true });
 
   if (error) {
     return formatError(error.message, 500);
   }
 
   return NextResponse.json({ items: (data ?? []).map(mapTimelineItemRow) });
+}
+
+interface CreateTimelineItemPayload {
+  title: string;
+  type: TimelineItemType | string;
+  kind?: string | null;
+  description?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  dueAt?: string | null;
+  timezone?: string | null;
+  lane?: string | null;
+  territory?: string | null;
+  status?: string | null;
+  priority?: number | null;
+  priorityComponents?: Record<string, unknown> | null;
+  labels?: Record<string, unknown> | null;
+  links?: Record<string, unknown> | null;
+  dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
 }
 
 export async function POST(request: Request, { params }: Params) {
@@ -65,90 +91,97 @@ export async function POST(request: Request, { params }: Params) {
     return formatError(err?.message || "Forbidden", err?.status ?? 403);
   }
 
-  let payload: {
-    title: string;
-    type: TimelineItemType;
-    startsAt?: string | null;
-    endsAt?: string | null;
-    lane?: string | null;
-    territory?: string | null;
-    status?: string | null;
-    priority?: number;
-    refTable?: string | null;
-    refId?: string | null;
-    metadata?: Record<string, unknown>;
-    dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
-  };
+  let payload: CreateTimelineItemPayload;
 
   try {
-    payload = (await request.json()) as typeof payload;
+    payload = (await request.json()) as CreateTimelineItemPayload;
   } catch (err) {
     return formatError("Invalid JSON payload", 400);
   }
 
-  if (!payload?.title || !payload?.type) {
-    return formatError("title and type are required", 400);
+  if (!payload?.title) {
+    return formatError("title is required", 400);
   }
+
+  const type = normaliseTimelineItemType(payload.type);
+  const status = normaliseTimelineItemStatus(payload.status);
+  const labels: Record<string, unknown> = payload.labels ? { ...payload.labels } : {};
+  if (payload.territory) {
+    labels.territory = payload.territory;
+  }
+  labels.lane = payload.lane ?? getTimelineLaneForType(type);
+
+  const links: Record<string, unknown> = payload.links ? { ...payload.links } : {};
 
   const insertPayload = {
     project_id: projectId,
+    type,
+    kind: payload.kind ?? null,
     title: payload.title,
-    type: payload.type,
-    starts_at: payload.startsAt ?? null,
-    ends_at: payload.endsAt ?? null,
-    lane: payload.lane ?? null,
-    territory: payload.territory ?? null,
-    status: payload.status ?? null,
-    priority: payload.priority ?? 0,
-    ref_table: payload.refTable ?? null,
-    ref_id: payload.refId ?? null,
-    metadata: payload.metadata ?? {},
+    description: payload.description ?? null,
+    start_at: payload.startsAt ?? null,
+    end_at: payload.endsAt ?? null,
+    due_at: payload.dueAt ?? null,
+    tz: payload.timezone ?? null,
+    status,
+    priority_score: payload.priority ?? null,
+    priority_components: payload.priorityComponents ?? {},
+    labels,
+    links,
     created_by: user.id,
-  };
+  } satisfies Record<string, unknown>;
 
   const { data, error } = await supabase
-    .from("timeline_items")
+    .from("project_items")
     .insert(insertPayload)
-    .select("*")
+    .select("id")
     .maybeSingle();
 
   if (error) {
     return formatError(error.message, 400);
   }
 
-  if (!data) {
+  if (!data?.id) {
     return formatError("Failed to create timeline item", 500);
   }
 
-  const timelineItem = mapTimelineItemRow(data);
+  const { data: entryRow, error: entryError } = await supabase
+    .from("timeline_entries")
+    .select("*")
+    .eq("id", data.id)
+    .maybeSingle();
 
-  const dependencies = Array.isArray(payload.dependencies)
-    ? payload.dependencies
-        .map((entry) => ({
-          from_item_id: entry.itemId,
-          to_item_id: timelineItem.id,
-          kind: entry.kind === "SS" ? "SS" : "FS",
-          note: entry.note ?? null,
-        }))
-        .filter((entry) => entry.from_item_id && entry.to_item_id)
-    : [];
+  if (entryError) {
+    return formatError(entryError.message, 500);
+  }
 
-  if (dependencies.length > 0) {
-    const insertDependencies = dependencies.map((dependency) => ({
-      project_id: projectId,
-      from_item_id: dependency.from_item_id,
-      to_item_id: dependency.to_item_id,
-      kind: dependency.kind,
-      note: dependency.note,
-    }));
+  const timelineItem: TimelineItemRecord | null = entryRow ? mapTimelineItemRow(entryRow) : null;
 
-    const { error: dependencyError } = await supabase
-      .from("timeline_dependencies")
-      .insert(insertDependencies);
+  if (Array.isArray(payload.dependencies) && payload.dependencies.length > 0) {
+    const dependencyRows = payload.dependencies
+      .filter((dependency) => typeof dependency.itemId === "string" && dependency.itemId)
+      .map((dependency) => ({
+        project_id: projectId,
+        from_item_id: dependency.itemId,
+        to_item_id: data.id as string,
+        kind: dependency.kind === "SS" ? "SS" : "FS",
+        note: dependency.note ?? null,
+        created_by: user.id,
+      }));
 
-    if (dependencyError) {
-      console.error("Failed to insert timeline dependencies", dependencyError);
+    if (dependencyRows.length > 0) {
+      const { error: dependencyError } = await supabase
+        .from("timeline_dependencies")
+        .insert(dependencyRows);
+
+      if (dependencyError) {
+        console.error("Failed to insert timeline dependencies", dependencyError);
+      }
     }
+  }
+
+  if (!timelineItem) {
+    return formatError("Failed to load created item", 500);
   }
 
   return NextResponse.json({ item: timelineItem });

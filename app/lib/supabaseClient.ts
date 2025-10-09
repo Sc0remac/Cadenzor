@@ -862,16 +862,20 @@ export async function fetchProjectSuggestionsForEmail(
 
 export interface CreateTimelineItemInput {
   title: string;
-  type: TimelineItemRecord["type"];
+  type: TimelineItemRecord["type"] | string;
+  kind?: string | null;
+  description?: string | null;
   startsAt?: string | null;
   endsAt?: string | null;
+  dueAt?: string | null;
+  timezone?: string | null;
   lane?: string | null;
   territory?: string | null;
-  status?: string | null;
-  priority?: number;
-  refTable?: string | null;
-  refId?: string | null;
-  metadata?: Record<string, unknown>;
+  status?: TimelineItemRecord["status"] | string | null;
+  priority?: number | null;
+  priorityComponents?: Record<string, unknown> | null;
+  labels?: Record<string, unknown> | null;
+  links?: Record<string, unknown> | null;
   dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
 }
 
