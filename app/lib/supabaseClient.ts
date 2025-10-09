@@ -180,6 +180,20 @@ export interface ProjectListItem {
   role?: string;
 }
 
+export interface TimelineExplorerResponse {
+  projects: ProjectRecord[];
+  items: TimelineItemRecord[];
+  dependencies: TimelineDependencyRecord[];
+}
+
+export interface FetchTimelineExplorerOptions {
+  accessToken?: string;
+  projectIds?: string[];
+  status?: string | null;
+  rangeStart?: string | null;
+  rangeEnd?: string | null;
+}
+
 export async function fetchProjects(options: {
   accessToken?: string;
   status?: string | null;
@@ -280,6 +294,48 @@ export async function fetchProjectHub(
   }
 
   return payload as ProjectHubResponse;
+}
+
+export async function fetchTimelineExplorer(
+  options: FetchTimelineExplorerOptions = {}
+): Promise<TimelineExplorerResponse> {
+  const { accessToken, projectIds, status, rangeStart, rangeEnd } = options;
+
+  const searchParams = new URLSearchParams();
+  if (projectIds && projectIds.length > 0) {
+    searchParams.set("projects", projectIds.join(","));
+  }
+  if (status && status !== "all") {
+    searchParams.set("status", status);
+  }
+  if (rangeStart) {
+    searchParams.set("rangeStart", rangeStart);
+  }
+  if (rangeEnd) {
+    searchParams.set("rangeEnd", rangeEnd);
+  }
+
+  const endpoint = searchParams.size > 0 ? `/api/timeline?${searchParams.toString()}` : "/api/timeline";
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to fetch timeline view");
+  }
+
+  const projects = Array.isArray(payload?.projects) ? (payload.projects as ProjectRecord[]) : [];
+  const items = Array.isArray(payload?.items) ? (payload.items as TimelineItemRecord[]) : [];
+  const dependencies = Array.isArray(payload?.dependencies)
+    ? (payload.dependencies as TimelineDependencyRecord[])
+    : [];
+
+  return { projects, items, dependencies };
 }
 
 export async function searchProfiles(options: {

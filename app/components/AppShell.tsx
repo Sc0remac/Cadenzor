@@ -10,6 +10,7 @@ const BASE_NAV_LINKS = [
   { href: "/inbox", label: "Inbox" },
   { href: "/today", label: "Today" },
   { href: "/projects", label: "Projects" },
+  { href: "/timeline", label: "Timeline" },
   { href: "/profile", label: "Profile" },
 ];
 
