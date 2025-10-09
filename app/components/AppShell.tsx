@@ -11,7 +11,6 @@ const BASE_NAV_LINKS = [
   { href: "/today", label: "Today" },
   { href: "/projects", label: "Projects" },
   { href: "/timeline", label: "Timeline" },
-  { href: "/profile", label: "Profile" },
 ];
 
 const PLACEHOLDER_BUTTONS = ["Clients", "Reports"];
@@ -26,27 +25,41 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
-  const navLinks = useMemo(() => {
-    const links = [...BASE_NAV_LINKS];
+  const navLinks = BASE_NAV_LINKS;
 
-    if (profile?.isAdmin) {
-      const profileIndex = links.findIndex((link) => link.href === "/profile");
-      const adminLink = { href: "/admin", label: "Admin" };
+  const displayName =
+    user?.user_metadata?.full_name?.trim() || user?.email || "Team member";
 
-      if (profileIndex >= 0) {
-        links.splice(profileIndex, 0, adminLink);
-      } else {
-        links.push(adminLink);
-      }
+  const userInitials = useMemo(() => {
+    const source =
+      user?.user_metadata?.full_name?.trim() || user?.email || "Team member";
+
+    const initials = source
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("");
+
+    return initials || "U";
+  }, [user?.email, user?.user_metadata?.full_name]);
+
+  const handleProfileMenuBlur = (
+    event: React.FocusEvent<HTMLDivElement>,
+  ) => {
+    const nextFocus = event.relatedTarget as Node | null;
+
+    if (!nextFocus || !event.currentTarget.contains(nextFocus)) {
+      setProfileMenuOpen(false);
     }
-
-    return links;
-  }, [profile?.isAdmin]);
+  };
 
   const handleSignOut = async () => {
     setSignOutError(null);
     setSigningOut(true);
+    setProfileMenuOpen(false);
 
     const error = await signOut();
 
@@ -96,21 +109,62 @@ export default function AppShell({ children }: { children: ReactNode }) {
               ))}
             </nav>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm font-medium text-gray-900">
-                {user?.user_metadata?.full_name || user?.email || "Team member"}
-              </p>
-              <p className="text-xs text-gray-500">{user?.email}</p>
-            </div>
+          <div
+            className="relative"
+            onMouseEnter={() => setProfileMenuOpen(true)}
+            onMouseLeave={() => setProfileMenuOpen(false)}
+            onFocusCapture={() => setProfileMenuOpen(true)}
+            onBlurCapture={handleProfileMenuBlur}
+          >
             <button
               type="button"
-              onClick={handleSignOut}
-              disabled={signingOut}
-              className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+              onClick={() => setProfileMenuOpen((open) => !open)}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-200 text-sm font-semibold text-gray-700 transition hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              aria-haspopup="menu"
+              aria-expanded={profileMenuOpen}
             >
-              {signingOut ? "Signing out…" : "Sign out"}
+              <span className="sr-only">Open profile menu</span>
+              {userInitials}
             </button>
+            <div
+              className={`absolute right-0 mt-2 w-56 overflow-hidden rounded-md bg-white shadow-lg ring-1 ring-black/5 transition-all ${
+                profileMenuOpen
+                  ? "visible translate-y-0 opacity-100"
+                  : "invisible -translate-y-1 opacity-0"
+              }`}
+            >
+              <div className="border-b border-gray-100 px-4 py-3">
+                <p className="text-sm font-medium text-gray-900">{displayName}</p>
+                <p className="text-xs text-gray-500">{user?.email}</p>
+              </div>
+              <div className="py-1" role="menu" aria-label="Profile">
+                <Link
+                  href="/profile"
+                  className="block px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-100"
+                  role="menuitem"
+                >
+                  Profile
+                </Link>
+                {profile?.isAdmin ? (
+                  <Link
+                    href="/admin"
+                    className="block px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-100"
+                    role="menuitem"
+                  >
+                    Admin
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  disabled={signingOut}
+                  className="block w-full px-4 py-2 text-left text-sm text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
+                  role="menuitem"
+                >
+                  {signingOut ? "Signing out…" : "Sign out"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
         {signOutError ? (

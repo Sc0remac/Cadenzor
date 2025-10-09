@@ -20,7 +20,9 @@
     "incremental": true,
     "baseUrl": "./",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@kazador/shared": ["../shared/src/index.ts"],
+      "@kazador/shared/*": ["../shared/src/*"]
     },
     "plugins": [
       {

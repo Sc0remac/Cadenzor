@@ -9,6 +9,7 @@ import type {
   ProjectTaskRecord,
   TimelineItemRecord,
   TimelineDependencyRecord,
+  TimelineDependencyKind,
   ApprovalRecord,
   ProjectTopAction,
   ProjectMemberRecord,
@@ -35,7 +36,7 @@ import {
   type ProfileSummary,
 } from "../../../../lib/supabaseClient";
 import { useAuth } from "../../../../components/AuthProvider";
-import { TimelineStudio, type DependencyKind } from "../../../../components/projects/TimelineStudio";
+import { TimelineStudio } from "../../../../components/projects/TimelineStudio";
 import ProjectFilesTab from "../../../../components/projects/FilesTab";
 
 const TABS = [
@@ -52,15 +53,17 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["value"];
 
 const TIMELINE_TYPES: TimelineItemRecord["type"][] = [
-  "event",
-  "milestone",
-  "task",
-  "hold",
-  "lead",
-  "gate",
+  "LIVE_HOLD",
+  "TRAVEL_SEGMENT",
+  "PROMO_SLOT",
+  "RELEASE_MILESTONE",
+  "LEGAL_ACTION",
+  "FINANCE_ACTION",
 ];
 
 const MEMBER_ROLE_OPTIONS: ProjectMemberRole[] = ["owner", "editor", "viewer"];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function formatRoleLabel(role: ProjectMemberRole): string {
   switch (role) {
@@ -84,7 +87,7 @@ interface TimelineFormState {
   territory: string;
   priority: number;
   dependencies: string[];
-  dependencyKind: DependencyKind;
+  dependencyKind: TimelineDependencyKind;
 }
 
 interface TaskFormState {
@@ -97,10 +100,10 @@ interface TaskFormState {
 
 const INITIAL_TIMELINE_FORM: TimelineFormState = {
   title: "",
-  type: "event",
+  type: "LIVE_HOLD",
   startsAt: "",
   endsAt: "",
-  lane: "Live",
+  lane: "",
   territory: "",
   priority: 50,
   dependencies: [],
@@ -178,8 +181,57 @@ export default function ProjectHubPage() {
 
   const topActions: ProjectTopAction[] = hub?.topActions ?? [];
   const timelineDependencies: TimelineDependencyRecord[] = hub?.timelineDependencies ?? [];
+  const timelineItems: TimelineItemRecord[] = hub?.timelineItems ?? [];
   const approvals: ApprovalRecord[] = hub?.approvals ?? [];
   const currentUserId = user?.id ?? null;
+
+  const { timelineStartDate, timelineEndDate } = useMemo(() => {
+    const now = Date.now();
+    const defaultStart = new Date(now - DAY_MS * 3);
+    const defaultEnd = new Date(now + DAY_MS * 10);
+
+    if (timelineItems.length === 0) {
+      return { timelineStartDate: defaultStart, timelineEndDate: defaultEnd };
+    }
+
+    let minStart = Number.POSITIVE_INFINITY;
+    let maxEnd = Number.NEGATIVE_INFINITY;
+
+    for (const item of timelineItems) {
+      const parsedStart = item.startsAt ? Date.parse(item.startsAt) : null;
+      const parsedEnd = item.endsAt ? Date.parse(item.endsAt) : null;
+
+      if (parsedStart != null && !Number.isNaN(parsedStart)) {
+        minStart = Math.min(minStart, parsedStart);
+        if (parsedEnd != null && !Number.isNaN(parsedEnd)) {
+          maxEnd = Math.max(maxEnd, parsedEnd);
+        } else {
+          maxEnd = Math.max(maxEnd, parsedStart);
+        }
+      } else if (parsedEnd != null && !Number.isNaN(parsedEnd)) {
+        minStart = Math.min(minStart, parsedEnd);
+        maxEnd = Math.max(maxEnd, parsedEnd);
+      }
+    }
+
+    if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd)) {
+      return { timelineStartDate: defaultStart, timelineEndDate: defaultEnd };
+    }
+
+    if (maxEnd < minStart) {
+      maxEnd = minStart + DAY_MS;
+    }
+
+    const padding = DAY_MS;
+
+    return {
+      timelineStartDate: new Date(minStart - padding),
+      timelineEndDate: new Date(maxEnd + padding),
+    };
+  }, [timelineItems]);
+
+  const timelineViewMode = "week" as const;
+  const timelineZoom = 1;
 
   const currentMembership = useMemo(() => {
     if (!hub?.members || !currentUserId) return null;
@@ -199,13 +251,13 @@ export default function ProjectHubPage() {
   }, [hub?.members]);
 
   const upcomingTimeline = useMemo(() => {
-    if (!hub?.timelineItems) return [];
+    if (timelineItems.length === 0) return [];
     const now = Date.now();
-    return hub.timelineItems
+    return timelineItems
       .filter((item) => item.startsAt && new Date(item.startsAt).getTime() >= now)
       .sort((a, b) => new Date(a.startsAt ?? 0).getTime() - new Date(b.startsAt ?? 0).getTime())
       .slice(0, 5);
-  }, [hub]);
+  }, [timelineItems]);
 
   const emailSuggestionApprovals = useMemo(
     () => approvals.filter((approval) => approval.type === "project_email_link"),
@@ -850,7 +902,14 @@ export default function ProjectHubPage() {
         onSubmit={submitTimelineItem}
         existingItems={hub?.timelineItems ?? []}
       />
-      <TimelineStudio items={hub?.timelineItems ?? []} dependencies={timelineDependencies} />
+      <TimelineStudio
+        items={timelineItems}
+        dependencies={timelineDependencies}
+        viewMode={timelineViewMode}
+        startDate={timelineStartDate}
+        endDate={timelineEndDate}
+        zoom={timelineZoom}
+      />
     </div>
   );
 
