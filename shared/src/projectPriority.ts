@@ -375,7 +375,7 @@ export function computeTopActions(input: ComputeTopActionsInput): ProjectTopActi
   }
 
   for (const item of timelineItems) {
-    if (item.status && ["done", "completed"].includes(item.status)) {
+    if (item.status === "done" || item.status === "canceled") {
       continue;
     }
 
@@ -384,11 +384,13 @@ export function computeTopActions(input: ComputeTopActionsInput): ProjectTopActi
       components.push(...computeDateComponent(new Date(item.startsAt), now, "Starts"));
     } else if (item.endsAt) {
       components.push(...computeDateComponent(new Date(item.endsAt), now, "Ends"));
+    } else if (item.dueAt) {
+      components.push(...computeDateComponent(new Date(item.dueAt), now, "Due"));
     } else {
       components.push({ label: "Undated timeline entry", value: 6 });
     }
 
-    components.push(...computeManualPriorityComponent(item.priority, 0.25));
+    components.push(...computeManualPriorityComponent(item.priorityScore, 0.25));
 
     const itemConflicts = computeConflictComponents(item.id, conflictIndex);
     components.push(...itemConflicts);
@@ -417,13 +419,13 @@ export function computeTopActions(input: ComputeTopActionsInput): ProjectTopActi
       title: item.title,
       score,
       rationale,
-      dueAt: item.endsAt,
+      dueAt: item.dueAt ?? item.endsAt,
       startsAt: item.startsAt,
       endsAt: item.endsAt,
       status: item.status,
-      refTable: "timeline_items",
+      refTable: "project_items",
       refId: item.id,
-      priority: item.priority,
+      priority: item.priorityScore,
     });
   }
 

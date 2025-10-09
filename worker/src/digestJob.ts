@@ -8,6 +8,7 @@ import {
   ensureDefaultLabelCoverage,
   normaliseLabel,
   normaliseLabels,
+  getTimelineLaneForType,
   type DigestPayload,
   type ProjectRecord,
   type ProjectTaskRecord,
@@ -67,23 +68,38 @@ function mapTaskRow(row: any): ProjectTaskRecord {
 }
 
 function mapTimelineItemRow(row: any): TimelineItemRecord {
+  const type = row.type as TimelineItemRecord["type"];
+  const labels = parseJson<TimelineItemRecord["labels"]>(row.labels);
+  const priorityComponentsRaw = row.priority_components != null
+    ? parseJson<TimelineItemRecord["priorityComponents"]>(row.priority_components)
+    : null;
+  const priorityComponents = priorityComponentsRaw && Object.keys(priorityComponentsRaw).length > 0 ? priorityComponentsRaw : null;
+  const links = parseJson<TimelineItemRecord["links"]>(row.links);
+  const lane = (row.lane as TimelineItemRecord["lane"]) ?? getTimelineLaneForType(type);
+  const conflictFlags = row.conflict_flags ?? null;
   return {
     id: row.id as string,
     projectId: row.project_id as string,
-    type: row.type as TimelineItemRecord["type"],
+    type,
+    lane,
+    kind: (row.kind as string) ?? null,
     title: row.title as string,
-    startsAt: row.starts_at ? String(row.starts_at) : null,
-    endsAt: row.ends_at ? String(row.ends_at) : null,
-    lane: (row.lane as string) ?? null,
-    territory: (row.territory as string) ?? null,
-    status: (row.status as string) ?? null,
-    priority: row.priority != null ? Number(row.priority) : null,
-    metadata: parseJson(row.metadata),
-    refTable: (row.ref_table as string) ?? null,
-    refId: (row.ref_id as string) ?? null,
+    description: (row.description as string) ?? null,
+    startsAt: row.start_at ? String(row.start_at) : null,
+    endsAt: row.end_at ? String(row.end_at) : null,
+    dueAt: row.due_at ? String(row.due_at) : null,
+    timezone: (row.tz as string) ?? null,
+    status: (row.status as TimelineItemRecord["status"]) ?? "planned",
+    priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
+    priorityComponents,
+    labels,
+    links,
     createdBy: (row.created_by as string) ?? null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    conflictFlags,
+    layoutRow: row.layout_row != null ? Number(row.layout_row) : null,
+    territory: typeof labels.territory === "string" ? labels.territory : null,
   } satisfies TimelineItemRecord;
 }
 
@@ -251,7 +267,7 @@ async function buildDigestForUser(client: ServiceClient, userId: string) {
       .select("*")
       .in("project_id", projectIds),
     client
-      .from("timeline_items")
+      .from("timeline_entries")
       .select("*")
       .in("project_id", projectIds),
     client

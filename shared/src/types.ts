@@ -456,25 +456,143 @@ export interface TimelineDependencyRecord {
   updatedAt: string;
 }
 
-export type TimelineItemType = "event" | "milestone" | "task" | "hold" | "lead" | "gate";
+export type TimelineItemType =
+  | "LIVE_HOLD"
+  | "TRAVEL_SEGMENT"
+  | "PROMO_SLOT"
+  | "RELEASE_MILESTONE"
+  | "LEGAL_ACTION"
+  | "FINANCE_ACTION";
+
+export type TimelineLane = "LIVE_HOLDS" | "TRAVEL" | "PROMO" | "RELEASE" | "LEGAL" | "FINANCE";
+
+export type TimelineItemStatus = "planned" | "tentative" | "confirmed" | "waiting" | "done" | "canceled";
+
+export interface TimelinePriorityComponents {
+  urgency?: number | null;
+  impact?: number | null;
+  proximity?: number | null;
+  dependencies?: number | null;
+  risk?: number | null;
+  [key: string]: unknown;
+}
+
+export interface TimelineItemLabels {
+  city?: string | null;
+  venue?: string | null;
+  territory?: string | null;
+  artist?: string | null;
+  tier?: string | null;
+  [key: string]: unknown;
+}
+
+export interface TimelineItemLinks {
+  emailId?: string | null;
+  threadId?: string | null;
+  assetIds?: string[] | null;
+  calendarId?: string | null;
+  contactId?: string | null;
+  [key: string]: unknown;
+}
 
 export interface TimelineItemRecord {
   id: string;
   projectId: string;
   type: TimelineItemType;
+  lane: TimelineLane;
+  kind: string | null;
   title: string;
+  description: string | null;
   startsAt: string | null;
   endsAt: string | null;
-  lane: string | null;
-  territory: string | null;
-  status: string | null;
-  priority: number | null;
-  refTable: string | null;
-  refId: string | null;
-  metadata: Record<string, unknown>;
+  dueAt: string | null;
+  timezone: string | null;
+  status: TimelineItemStatus;
+  priorityScore: number | null;
+  priorityComponents: TimelinePriorityComponents | null;
+  labels: TimelineItemLabels;
+  links: TimelineItemLinks;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+  conflictFlags?: Record<string, unknown> | null;
+  layoutRow?: number | null;
+  territory?: string | null;
+}
+
+
+export function normaliseTimelineItemType(raw?: string | null): TimelineItemType {
+  const candidate = (raw ?? "").trim().toUpperCase();
+  switch (candidate) {
+    case "LIVE_HOLD":
+    case "LIVE/HOLD":
+    case "LIVE HOLDS":
+    case "HOLDS":
+      return "LIVE_HOLD";
+    case "TRAVEL_SEGMENT":
+    case "TRAVEL":
+      return "TRAVEL_SEGMENT";
+    case "RELEASE_MILESTONE":
+    case "RELEASE":
+      return "RELEASE_MILESTONE";
+    case "LEGAL_ACTION":
+    case "LEGAL":
+      return "LEGAL_ACTION";
+    case "FINANCE_ACTION":
+    case "FINANCE":
+      return "FINANCE_ACTION";
+    case "PROMO_SLOT":
+    case "PROMO":
+    case "PRESS":
+    case "RADIO":
+      return "PROMO_SLOT";
+    default:
+      if (candidate.includes("LEGAL")) return "LEGAL_ACTION";
+      if (candidate.includes("FINANCE")) return "FINANCE_ACTION";
+      if (candidate.includes("RELEASE")) return "RELEASE_MILESTONE";
+      if (candidate.includes("TRAVEL")) return "TRAVEL_SEGMENT";
+      if (candidate.includes("LIVE") || candidate.includes("HOLD")) return "LIVE_HOLD";
+      return "PROMO_SLOT";
+  }
+}
+
+export function normaliseTimelineItemStatus(raw?: string | null): TimelineItemStatus {
+  const candidate = (raw ?? "").trim().toLowerCase();
+  switch (candidate) {
+    case "tentative":
+      return "tentative";
+    case "confirmed":
+      return "confirmed";
+    case "waiting":
+      return "waiting";
+    case "done":
+    case "completed":
+      return "done";
+    case "canceled":
+    case "cancelled":
+      return "canceled";
+    default:
+      return "planned";
+  }
+}
+
+export function getTimelineLaneForType(type: TimelineItemType): TimelineLane {
+  switch (type) {
+    case "LIVE_HOLD":
+      return "LIVE_HOLDS";
+    case "TRAVEL_SEGMENT":
+      return "TRAVEL";
+    case "PROMO_SLOT":
+      return "PROMO";
+    case "RELEASE_MILESTONE":
+      return "RELEASE";
+    case "LEGAL_ACTION":
+      return "LEGAL";
+    case "FINANCE_ACTION":
+      return "FINANCE";
+    default:
+      return "PROMO";
+  }
 }
 
 export interface ProjectTaskRecord {

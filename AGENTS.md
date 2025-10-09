@@ -54,7 +54,7 @@ Next.js 14 App Router project with Tailwind CSS styling. Uses Supabase auth on t
   - `emails` – Paginates email records with optional label/source filters and returns metadata & attachments.
   - `classify-emails` – Triggers the worker classification endpoint for manual reruns.
   - `projects` – Lists projects with joined membership/roles and supports text/status filters.
-  - `project-templates` – Serves reusable project templates and starter timeline items.
+  - `project-templates` – Serves reusable project templates and seeds new `project_items` with default lanes/types.
   - `project-approvals`/`approvals` – Exposes approval records for the Today digest & admin review.
   - `digests` – Returns current digest payload and history snapshots.
 
@@ -66,14 +66,14 @@ The component library is grouped by feature area:
 - `EmailDashboard` – polling email stats, pagination, manual classification trigger, filters (label, scope, seeded/fake sources), status toasts, 60s refresh cadence.
 - `home/HomeDashboard` – high-level digest summary, top priorities, upcoming deadlines, seeded email feed.
 - `today/TodayDashboard` – rich Today digest including historical runs, per-project metrics, approvals, top actions.
-- `projects/` – project cards, creation dialog, timeline studio (multi-lane Gantt view with dependencies, buffers, conflict warnings), files tab for asset management.
+- `projects/` – project cards, creation dialog, Timeline Studio (week/day focus, lane filters, conflict overlays), files tab for asset management.
 - `admin/` – admin dashboard/panels for inspecting seeded data, project registries, user provisioning.
 - `ProfileDriveIntegration`, `ProfileTimelinePreferences` (if present) – account integrations & preferences.
 - Component test stubs live under `app/components/__tests__/`.
 
 ### 3.3 Frontend libraries (`app/lib/`)
 Utility modules and API clients:
-- `supabaseClient.ts` – fetch helpers for email stats, email lists, projects, digest data, approvals, assets; normalises pagination objects.
+- `supabaseClient.ts` – fetch helpers for email stats, email lists, projects, digest data, approvals, assets; normalises pagination objects and interfaces with the `timeline_entries` view plus the project item CRUD endpoints.
 - `supabaseBrowserClient.ts` / `serverSupabase.ts` / `serverAuth.ts` – Supabase client factories and bearer token verification used in API handlers.
 - `adminAuth.ts`, `projectAccess.ts`, `projectMappers.ts` – gatekeeping & mapping helpers for admin/project APIs.
 - `approvalActions.ts` – mutate approval state (approve/decline) and emit audit logs.
@@ -88,11 +88,11 @@ Utility modules and API clients:
 
 ## 4. Shared package (`shared/`)
 Pure TypeScript library compiled for consumption across packages.
-- `src/types.ts` – canonical domain types (emails, contacts, projects, tasks, timeline items, approvals, digests, assets, taxonomy constants, helper enums).
+- `src/types.ts` – canonical domain types (emails, contacts, projects, tasks, project items, approvals, digests, assets, taxonomy constants, helper enums).
 - `analyzeEmail.ts` – orchestrates OpenAI email summarisation with retry/backoff, taxonomy guardrails, playbook instructions, subject/body normalisation, label sanitisation.
 - `heuristicLabels.ts` – rule-based label detection used as fallback or for quick classification.
 - `labelUtils.ts` – normalisation helpers, default coverage (ensures at least primary label), selection of primary category.
-- `projectPriority.ts` – scoring algorithm for project top actions combining urgency, dependencies, buffers, risk.
+- `projectPriority.ts` – scoring algorithm for project top actions combining urgency, dependencies, buffers, risk; now consumes `project_items` priorities and shared lane/type metadata.
 - `timelineConflicts.ts` – detects schedule conflicts given territory jumps, travel buffers, overlapping items.
 - `projectSuggestions.ts` – heuristics to attach incoming emails to existing projects or suggest new ones.
 - `projectPriority`, `analyzeEmail`, `heuristicLabels` all have Vitest unit suites under `__tests__/`.
@@ -107,9 +107,9 @@ Node-based background services that operate against Gmail and Supabase.
   - Reads cached summaries/labels from Supabase, calls `classifyEmail` (using shared AI + heuristics), writes contacts/emails back to Supabase, applies Gmail labels (`Cadenzor/...`).
 - `classifyEmail.ts` – orchestrates summary/label reuse, AI calls, heuristic fallback, coverage enforcement; returns metadata on caching vs AI usage.
 - `digestJob.ts` – builds the "Today" digest:
-  - Pulls projects, tasks, timeline items, approvals, emails.
+  - Pulls projects, tasks, project items via `timeline_entries`, approvals, emails.
   - Maps rows to shared types, computes metrics, stores digests & preferences.
-- `projectJobs.ts` – refreshes per-project metrics (open tasks, timeline counts, linked emails, sources, members) and writes aggregated profiles plus suggestions for linking emails to projects.
+- `projectJobs.ts` – refreshes per-project metrics (open tasks, timeline counts, linked emails, sources, members) and writes aggregated profiles plus suggestions for linking emails to projects; timeline metrics now expect the `project_items` source.
 - `projectSuggestions` usage ensures email-project linking.
 - `__tests__/classifyEmail.test.ts` covers classification behaviour.
 - `package.json` / `tsconfig.json` configure the worker build (`tsc`) and runtime scripts (`npm run build`, `npm start`, `npm run digest`).
@@ -117,7 +117,7 @@ Node-based background services that operate against Gmail and Supabase.
 ## 6. Database & migrations
 `schema_final.sql` defines the full Supabase/Postgres setup:
 - Supabase auth schemas/extensions (auth, storage, realtime, vault, etc.).
-- Application tables: `contacts`, `emails`, `projects`, `project_tasks`, `timeline_items`, `timeline_dependencies`, `project_members`, `project_sources`, `project_email_links`, `project_item_links`, `assets`, `asset_links`, `approvals`, `digests`, `user_preferences`, `action_logs`, supporting indexes & RLS policies.
+- Application tables: `contacts`, `emails`, `projects`, `project_tasks`, `project_items`, view `timeline_entries`, `timeline_dependencies`, `project_members`, `project_sources`, `project_email_links`, `project_item_links`, `assets`, `asset_links`, `approvals`, `digests`, `user_preferences`, `action_logs`, supporting indexes & RLS policies.
 - Use this file to recreate the database locally or seed Supabase.
 
 ## 7. Testing & quality
@@ -145,5 +145,6 @@ With this guide, contributors should be able to navigate the codebase, identify 
 
 ## Update log
 
+- **2025-11-05T12:30:00Z** – Introduced the project item engine: new `project_items` table, `timeline_entries` view, Supabase policies, and API/client updates consuming deterministic type→lane mapping and shared priority metadata.
 - **2025-10-09T00:33:37Z** – Documented the newly added workspace Timeline Studio feature set: navigation entry, `/api/timeline` aggregation endpoint, Supabase client helpers, and the protected Timeline Studio page with advanced filtering controls.
 - **2025-10-09T02:15:00Z** – Reworked the dedicated Timeline Studio into a project-focused, full-screen experience with simplified top filters, entry-type classification, refined API contract, and documented third-party timeline research options.
