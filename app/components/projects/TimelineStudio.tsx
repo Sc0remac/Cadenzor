@@ -1,537 +1,975 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { TimelineItemRecord, TimelineDependencyRecord } from "@cadenzor/shared";
-import { detectTimelineConflicts, buildConflictIndex, type TimelineConflict } from "@cadenzor/shared";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import type {
+  TimelineDependencyRecord,
+  TimelineItemRecord,
+  TimelineItemStatus,
+  TimelineLane,
+} from "@cadenzor/shared";
+import { buildConflictIndex, detectTimelineConflicts } from "@cadenzor/shared";
 
-const DEFAULT_LANES = [
-  "Live",
-  "Promo",
-  "Writing",
-  "Brand",
-  "Release",
-  "General",
-];
-const MIN_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours
 const DAY_MS = 24 * 60 * 60 * 1000;
-const LANE_PADDING_TOP = 12;
-const LANE_PADDING_BOTTOM = 16;
+const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
 const ITEM_HEIGHT = 52;
-const ROW_GAP = 10;
-const AXIS_HEIGHT = 44;
-const DEFAULT_BUFFER_HOURS = 4;
+const PIN_SIZE = 18;
+const LANE_HEADER_HEIGHT = 48;
+const LANE_PADDING_Y = 18;
+const ROW_GAP = 12;
+const VIRTUALIZATION_BUFFER = 640;
+const MIN_BAR_WIDTH = 36;
+const MIN_PIN_WIDTH = 12;
+const MAX_ZOOM = 3;
+const MIN_ZOOM = 0.4;
 
-export type DependencyKind = "FS" | "SS";
+const LANE_CONFIG: Record<
+  TimelineLane,
+  { label: string; tint: string; accent: string; border: string }
+> = {
+  LIVE_HOLDS: {
+    label: "Live / Holds",
+    tint: "bg-slate-900/60",
+    accent: "from-purple-500/30 to-purple-500/0",
+    border: "border-purple-400/40",
+  },
+  TRAVEL: {
+    label: "Travel",
+    tint: "bg-sky-900/60",
+    accent: "from-sky-400/30 to-sky-400/0",
+    border: "border-sky-400/40",
+  },
+  PROMO: {
+    label: "Promo",
+    tint: "bg-emerald-900/60",
+    accent: "from-emerald-400/30 to-emerald-400/0",
+    border: "border-emerald-400/40",
+  },
+  RELEASE: {
+    label: "Release",
+    tint: "bg-amber-900/60",
+    accent: "from-amber-400/30 to-amber-400/0",
+    border: "border-amber-400/40",
+  },
+  LEGAL: {
+    label: "Legal",
+    tint: "bg-rose-900/60",
+    accent: "from-rose-400/30 to-rose-400/0",
+    border: "border-rose-400/40",
+  },
+  FINANCE: {
+    label: "Finance",
+    tint: "bg-cyan-900/60",
+    accent: "from-cyan-400/30 to-cyan-400/0",
+    border: "border-cyan-400/40",
+  },
+};
 
-interface DependencyMeta {
-  itemId: string;
-  kind?: DependencyKind;
-  note?: string;
+const TYPE_COLORS: Record<
+  TimelineItemRecord["type"],
+  { base: string; text: string; border: string }
+> = {
+  LIVE_HOLD: {
+    base: "bg-purple-500/15",
+    text: "text-purple-100",
+    border: "border-purple-400/70",
+  },
+  TRAVEL_SEGMENT: {
+    base: "bg-sky-500/15",
+    text: "text-sky-100",
+    border: "border-sky-400/70",
+  },
+  PROMO_SLOT: {
+    base: "bg-emerald-500/15",
+    text: "text-emerald-100",
+    border: "border-emerald-400/70",
+  },
+  RELEASE_MILESTONE: {
+    base: "bg-amber-500/15",
+    text: "text-amber-100",
+    border: "border-amber-400/70",
+  },
+  LEGAL_ACTION: {
+    base: "bg-rose-500/15",
+    text: "text-rose-100",
+    border: "border-rose-400/70",
+  },
+  FINANCE_ACTION: {
+    base: "bg-cyan-500/15",
+    text: "text-cyan-100",
+    border: "border-cyan-400/70",
+  },
+};
+
+const STATUS_DECORATION: Partial<Record<TimelineItemStatus, string>> = {
+  tentative: "border-dashed",
+  done: "opacity-60",
+  canceled: "opacity-60",
+};
+
+const PRIORITY_LEVELS = [
+  { id: "HIGH", label: "High", min: 70, color: "bg-red-500" },
+  { id: "MEDIUM", label: "Medium", min: 40, color: "bg-amber-500" },
+  { id: "LOW", label: "Low", min: 0, color: "bg-emerald-500" },
+];
+
+type TimelineViewMode = "day" | "week" | "month";
+
+type ContextAction = "edit" | "attach" | "convert";
+
+interface LaneState {
+  id: TimelineLane;
+  label: string;
+  visible: boolean;
+  collapsed: boolean;
 }
 
-interface ParsedItem {
+interface TimelineStudioProps {
+  items: TimelineItemRecord[];
+  dependencies?: TimelineDependencyRecord[];
+  lanes?: LaneState[];
+  viewMode: TimelineViewMode;
+  startDate: Date;
+  endDate: Date;
+  zoom: number;
+  onZoomChange?: (next: number) => void;
+  onSelectItem?: (item: TimelineItemRecord) => void;
+  onToggleLaneCollapse?: (lane: TimelineLane) => void;
+  onContextAction?: (action: ContextAction, item: TimelineItemRecord) => void;
+  onAddItem?: () => void;
+  realtimeLabel?: string;
+}
+
+interface PositionedItem {
   item: TimelineItemRecord;
-  lane: string;
-  start: number;
-  end: number;
-}
-
-interface PositionedItem extends ParsedItem {
-  leftRatio: number;
-  widthRatio: number;
-  rowIndex: number;
-  top: number;
+  laneId: TimelineLane;
+  isPin: boolean;
+  startMs: number;
+  endMs: number;
+  left: number;
+  width: number;
+  row: number;
   height: number;
+  top: number;
 }
 
 interface LaneLayout {
-  name: string;
+  lane: LaneState;
   items: PositionedItem[];
   height: number;
-  top: number;
   rowCount: number;
+  offsetTop: number;
 }
 
-interface DependencyEdge {
-  fromId: string;
-  toId: string;
-  kind: DependencyKind;
-  note?: string;
+interface VirtualizedLaneLayout extends LaneLayout {
+  visibleItems: PositionedItem[];
 }
 
-function normaliseLane(rawLane: string | null): string {
-  const trimmed = rawLane?.trim();
-  if (!trimmed) {
-    return "General";
-  }
-  return trimmed;
+interface HoverState {
+  item: TimelineItemRecord;
+  x: number;
+  y: number;
 }
 
-function toTimestamp(value: string | null): number | null {
+interface ContextMenuState {
+  item: TimelineItemRecord;
+  x: number;
+  y: number;
+}
+
+function clampZoom(value: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+}
+
+function toMs(value: string | null): number | null {
   if (!value) return null;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? null : ms;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
-function ensureDuration(start: number, end: number | null): number {
-  if (!end || end <= start) {
-    return start + MIN_DURATION_MS;
+function getPriorityMeta(score: number | null) {
+  if (score == null) {
+    return { id: "LOW", label: "Low", color: "bg-emerald-500" };
   }
-  return end;
+  for (const level of PRIORITY_LEVELS) {
+    if (score >= level.min) {
+      return level;
+    }
+  }
+  return PRIORITY_LEVELS[PRIORITY_LEVELS.length - 1];
 }
 
-function extractDependencies(item: TimelineItemRecord): DependencyMeta[] {
-  const maybeDeps = (item.metadata as Record<string, unknown>)?.dependencies;
-  if (!maybeDeps) return [];
-
-  const buildFromObject = (entry: any): DependencyMeta | null => {
-    if (!entry || typeof entry !== "object" || !("itemId" in entry)) {
-      return null;
+function describeRange(viewMode: TimelineViewMode, start: Date, end: Date) {
+  const startMs = start.getTime();
+  let endMs = end.getTime();
+  if (endMs <= startMs) {
+    switch (viewMode) {
+      case "day":
+        endMs = startMs + DAY_MS;
+        break;
+      case "week":
+        endMs = startMs + 7 * DAY_MS;
+        break;
+      default:
+        endMs = startMs + 30 * DAY_MS;
     }
-    const candidate = entry as { itemId?: unknown; kind?: unknown; note?: unknown };
-    if (typeof candidate.itemId !== "string" || candidate.itemId.length === 0) {
-      return null;
-    }
-    const kind = candidate.kind === "SS" ? "SS" : candidate.kind === "FS" ? "FS" : undefined;
-    const note = typeof candidate.note === "string" ? candidate.note : undefined;
-    return { itemId: candidate.itemId, kind, note };
-  };
-
-  const results: DependencyMeta[] = [];
-
-  if (Array.isArray(maybeDeps)) {
-    for (const entry of maybeDeps) {
-      if (typeof entry === "string" && entry.trim()) {
-        results.push({ itemId: entry.trim() });
-        continue;
-      }
-      const normalised = buildFromObject(entry);
-      if (normalised) {
-        results.push(normalised);
-      }
-    }
-    return results;
   }
-
-  if (typeof maybeDeps === "string" && maybeDeps.trim()) {
-    return [{ itemId: maybeDeps.trim() }];
-  }
-
-  const single = buildFromObject(maybeDeps);
-  return single ? [single] : [];
+  return { startMs, endMs };
 }
 
-function buildTimeScale(rangeStart: number, rangeEnd: number) {
-  const total = Math.max(rangeEnd - rangeStart, DAY_MS);
-  const segments: Array<{ leftRatio: number; label: string }> = [];
-  const cursor = new Date(rangeStart);
-  cursor.setHours(0, 0, 0, 0);
-  for (let ms = cursor.getTime(); ms <= rangeEnd; ms += DAY_MS) {
-    const ratio = (ms - rangeStart) / total;
-    if (ratio >= 0 && ratio <= 1) {
-      const label = new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-      segments.push({ leftRatio: ratio, label });
-    }
-  }
-  return segments;
-}
-
-function getTypeStyles(type: TimelineItemRecord["type"]): string {
-  switch (type) {
-    case "event":
-      return "bg-blue-100 border-blue-300 text-blue-900";
-    case "milestone":
-      return "bg-amber-100 border-amber-300 text-amber-900";
-    case "task":
-      return "bg-emerald-100 border-emerald-300 text-emerald-900";
-    case "hold":
-      return "bg-slate-100 border-slate-300 text-slate-800";
-    case "lead":
-      return "bg-purple-100 border-purple-300 text-purple-900";
-    case "gate":
-      return "bg-rose-100 border-rose-300 text-rose-900";
+function getPxPerMs(viewMode: TimelineViewMode, zoom: number): number {
+  const z = clampZoom(zoom);
+  switch (viewMode) {
+    case "day":
+      return (z * 160) / HOUR_MS;
+    case "week":
+      return (z * 220) / DAY_MS;
     default:
-      return "bg-gray-100 border-gray-300 text-gray-800";
+      return (z * 140) / DAY_MS;
   }
 }
 
+function getAxisTicks(viewMode: TimelineViewMode, startMs: number, endMs: number) {
+  const ticks: Array<{ position: number; label: string }> = [];
+  if (viewMode === "day") {
+    const start = new Date(startMs);
+    start.setMinutes(0, 0, 0);
+    for (let ms = start.getTime(); ms <= endMs; ms += HOUR_MS) {
+      const date = new Date(ms);
+      ticks.push({
+        position: ms,
+        label: date.toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+        }),
+      });
+    }
+    return ticks;
+  }
+
+  const cursor = new Date(startMs);
+  cursor.setHours(0, 0, 0, 0);
+  const step = viewMode === "week" ? DAY_MS : 7 * DAY_MS;
+  for (let ms = cursor.getTime(); ms <= endMs; ms += step) {
+    const date = new Date(ms);
+    ticks.push({
+      position: ms,
+      label:
+        viewMode === "week"
+          ? date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+          : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    });
+  }
+  return ticks;
+}
+
+function getGridlines(startMs: number, endMs: number) {
+  const lines: number[] = [];
+  const cursor = new Date(startMs);
+  cursor.setHours(0, 0, 0, 0);
+  for (let ms = cursor.getTime(); ms <= endMs; ms += DAY_MS) {
+    lines.push(ms);
+  }
+  return lines;
+}
+function isOverdue(item: TimelineItemRecord, now = Date.now()): boolean {
+  const due = toMs(item.dueAt);
+  if (!due) return false;
+  if (item.status === "done" || item.status === "canceled") return false;
+  return due < now;
+}
+
+function hasAttachments(item: TimelineItemRecord): boolean {
+  const links = item.links ?? {};
+  if (Array.isArray(links.assetIds) && links.assetIds.length > 0) return true;
+  if (typeof (links as any).assetId === "string") return true;
+  return Boolean(links.emailId || links.threadId);
+}
+
+function formatTimeRange(item: TimelineItemRecord): string {
+  const start = toMs(item.startsAt);
+  const end = toMs(item.endsAt);
+  const due = toMs(item.dueAt);
+  if (start && end) {
+    const sameDay = new Date(start).toDateString() === new Date(end).toDateString();
+    const startStr = new Date(start).toLocaleString(undefined, {
+      month: sameDay ? undefined : "short",
+      day: sameDay ? undefined : "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const endStr = new Date(end).toLocaleString(undefined, {
+      month: sameDay ? undefined : "short",
+      day: sameDay ? undefined : "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return `${startStr} – ${endStr}`;
+  }
+  if (start) {
+    return new Date(start).toLocaleString();
+  }
+  if (due) {
+    return new Date(due).toLocaleString();
+  }
+  return "No schedule";
+}
 export function TimelineStudio({
   items,
   dependencies = [],
-  laneOrder,
-  showBufferControl = false,
-  showConflictSummary = true,
-  title = "Timeline Studio",
-  subtitle = "Visualise items across lanes, dependencies, and milestones.",
-  defaultBufferHours = DEFAULT_BUFFER_HOURS,
-}: {
-  items: TimelineItemRecord[];
-  dependencies?: TimelineDependencyRecord[];
-  laneOrder?: string[];
-  showBufferControl?: boolean;
-  showConflictSummary?: boolean;
-  title?: string;
-  subtitle?: string;
-  defaultBufferHours?: number;
-}) {
-  const [bufferHours, setBufferHours] = useState(defaultBufferHours);
-  const timelineRef = useRef<HTMLDivElement>(null);
-  const [timelineWidth, setTimelineWidth] = useState(0);
-
-  const scheduledItems = useMemo(() => {
-    return items
-      .map((item) => {
-        const start = toTimestamp(item.startsAt);
-        if (!start) return null;
-        const end = ensureDuration(start, toTimestamp(item.endsAt));
-        return { item, start, end, lane: normaliseLane(item.lane) } satisfies ParsedItem;
-      })
-      .filter((entry): entry is ParsedItem => Boolean(entry));
-  }, [items]);
-
-  const unscheduledItems = useMemo(() => items.filter((item) => !item.startsAt), [items]);
-
-  const range = useMemo(() => {
-    if (scheduledItems.length === 0) {
-      const now = Date.now();
-      return { start: now - DAY_MS, end: now + 3 * DAY_MS };
-    }
-    let min = scheduledItems[0].start;
-    let max = scheduledItems[0].end;
-    for (const entry of scheduledItems) {
-      min = Math.min(min, entry.start);
-      max = Math.max(max, entry.end);
-    }
-    // add padding so edges have breathing room
-    const padding = Math.max((max - min) * 0.05, 12 * 60 * 60 * 1000);
-    return { start: min - padding, end: max + padding };
-  }, [scheduledItems]);
-
-  const totalDuration = Math.max(range.end - range.start, DAY_MS);
+  lanes,
+  viewMode,
+  startDate,
+  endDate,
+  zoom,
+  onZoomChange,
+  onSelectItem,
+  onToggleLaneCollapse,
+  onContextAction,
+  onAddItem,
+  realtimeLabel,
+}: TimelineStudioProps) {
+  const [localItems, setLocalItems] = useState<TimelineItemRecord[]>(items);
+  const [hoverState, setHoverState] = useState<HoverState | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [dragMessage, setDragMessage] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [viewportWidth, setViewportWidth] = useState(1200);
+  const dragRef = useRef<
+    | {
+        id: string;
+        mode: "move" | "resize-start" | "resize-end";
+        startMs: number;
+        endMs: number;
+        pointerStartX: number;
+      }
+    | null
+  >(null);
 
   useEffect(() => {
-    const handleResize = () => {
-      const width = timelineRef.current?.clientWidth ?? 0;
-      setTimelineWidth(width);
+    setLocalItems(items);
+  }, [items]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+
+    const handleScroll = () => {
+      setScrollLeft(node.scrollLeft);
     };
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [scheduledItems.length]);
 
-  const laneLayouts = useMemo(() => {
-    const lanePriority = laneOrder ?? DEFAULT_LANES;
-    const laneNames = new Set<string>(lanePriority);
-    for (const entry of scheduledItems) {
-      laneNames.add(entry.lane);
-    }
-
-    const orderedLanes = Array.from(laneNames).sort((a, b) => {
-      const ai = lanePriority.indexOf(a);
-      const bi = lanePriority.indexOf(b);
-      if (ai === -1 && bi === -1) return a.localeCompare(b);
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === node) {
+          setViewportWidth(entry.contentRect.width);
+        }
+      }
     });
 
-    const laneTopOffsets = new Map<string, number>();
-    let cumulativeTop = AXIS_HEIGHT;
+    handleScroll();
+    setViewportWidth(node.clientWidth);
+    node.addEventListener("scroll", handleScroll, { passive: true });
+    resizeObserver.observe(node);
 
+    return () => {
+      node.removeEventListener("scroll", handleScroll);
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const closeContextMenu = () => setContextMenu(null);
+    window.addEventListener("click", closeContextMenu);
+    window.addEventListener("contextmenu", closeContextMenu);
+    return () => {
+      window.removeEventListener("click", closeContextMenu);
+      window.removeEventListener("contextmenu", closeContextMenu);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const deltaX = event.clientX - drag.pointerStartX;
+      const deltaMs = deltaX / getPxPerMs(viewMode, zoom);
+      setLocalItems((previous) => {
+        return previous.map((item) => {
+          if (item.id !== drag.id) return item;
+          const originalStart = drag.startMs;
+          const originalEnd = drag.endMs;
+          let nextStart = originalStart;
+          let nextEnd = originalEnd;
+          if (drag.mode === "move") {
+            nextStart = originalStart + deltaMs;
+            nextEnd = originalEnd + deltaMs;
+          } else if (drag.mode === "resize-start") {
+            nextStart = Math.min(originalEnd - MINUTE_MS * 30, originalStart + deltaMs);
+          } else {
+            nextEnd = Math.max(originalStart + MINUTE_MS * 30, originalEnd + deltaMs);
+          }
+          return {
+            ...item,
+            startsAt: new Date(nextStart).toISOString(),
+            endsAt: new Date(nextEnd).toISOString(),
+          };
+        });
+      });
+    };
+
+    const handlePointerUp = () => {
+      if (!dragRef.current) return;
+      dragRef.current = null;
+      setDragMessage(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [viewMode, zoom]);
+
+  const { startMs, endMs } = useMemo(() => describeRange(viewMode, startDate, endDate), [
+    viewMode,
+    startDate,
+    endDate,
+  ]);
+  const pxPerMs = useMemo(() => getPxPerMs(viewMode, zoom), [viewMode, zoom]);
+  const timelineWidth = Math.max((endMs - startMs) * pxPerMs, viewportWidth);
+  const axisTicks = useMemo(() => getAxisTicks(viewMode, startMs, endMs), [viewMode, startMs, endMs]);
+  const gridlines = useMemo(() => getGridlines(startMs, endMs), [startMs, endMs]);
+  const today = Date.now();
+  const todayPosition = today >= startMs && today <= endMs ? (today - startMs) * pxPerMs : null;
+
+  const laneDefinitions: LaneState[] = useMemo(() => {
+    if (lanes && lanes.length) {
+      return lanes;
+    }
+    return (Object.keys(LANE_CONFIG) as TimelineLane[]).map((laneId) => ({
+      id: laneId,
+      label: LANE_CONFIG[laneId].label,
+      visible: true,
+      collapsed: false,
+    }));
+  }, [lanes]);
+  const positionedLayouts = useMemo<LaneLayout[]>(() => {
+    let offset = 0;
     const layouts: LaneLayout[] = [];
 
-    for (const laneName of orderedLanes) {
-      const laneEntries = scheduledItems.filter((entry) => entry.lane === laneName);
-      const rows: PositionedItem[][] = [];
-
-      laneEntries
-        .sort((a, b) => a.start - b.start)
-        .forEach((entry) => {
-          const leftRatio = Math.max(0, Math.min(1, (entry.start - range.start) / totalDuration));
-          const widthRatio = Math.max((entry.end - entry.start) / totalDuration, MIN_DURATION_MS / totalDuration);
-
-          let placedRow = 0;
-          for (; placedRow < rows.length; placedRow += 1) {
-            const rowItems = rows[placedRow];
-            const latest = rowItems[rowItems.length - 1];
-            if (!latest || latest.end <= entry.start) {
-              break;
-            }
-          }
-
-          if (!rows[placedRow]) {
-            rows[placedRow] = [];
-          }
-
-          const positioned: PositionedItem = {
-            ...entry,
-            leftRatio,
-            widthRatio,
-            rowIndex: placedRow,
-            top: 0,
-            height: ITEM_HEIGHT,
-          };
-          rows[placedRow].push(positioned);
+    for (const lane of laneDefinitions) {
+      if (!lane.visible) {
+        const height = lane.collapsed ? LANE_HEADER_HEIGHT : LANE_HEADER_HEIGHT;
+        layouts.push({
+          lane,
+          items: [],
+          height,
+          rowCount: 0,
+          offsetTop: offset,
         });
+        offset += height;
+        continue;
+      }
 
-      const rowCount = rows.length || 1;
-      const laneHeight = LANE_PADDING_TOP + LANE_PADDING_BOTTOM + rowCount * ITEM_HEIGHT + Math.max(0, rowCount - 1) * ROW_GAP;
+      const laneItems = localItems.filter((item) => item.lane === lane.id);
+      const sorted = laneItems
+        .map((item) => {
+          const start = toMs(item.startsAt) ?? toMs(item.dueAt);
+          const end = toMs(item.endsAt) ?? toMs(item.dueAt) ?? toMs(item.startsAt);
+          if (!start && !end) return null;
+          const startTime = start ?? end ?? startMs;
+          const endTime = end ?? startTime;
+          const duration = Math.max(endTime - startTime, 0);
+          const isPin = duration < MINUTE_MS * 45;
+          const safeEnd = isPin ? startTime + MINUTE_MS * 45 : Math.max(endTime, startTime + MINUTE_MS * 30);
+          return {
+            item,
+            startMs: startTime,
+            endMs: safeEnd,
+            isPin,
+          };
+        })
+        .filter((value): value is { item: TimelineItemRecord; startMs: number; endMs: number; isPin: boolean } => Boolean(value))
+        .sort((a, b) => a.startMs - b.startMs);
 
-      laneTopOffsets.set(laneName, cumulativeTop);
-      cumulativeTop += laneHeight;
+      const rowEndTimes: number[] = [];
+      const positioned: PositionedItem[] = sorted.map((entry) => {
+        let rowIndex = rowEndTimes.findIndex((endTime) => endTime <= entry.startMs - MINUTE_MS * 15);
+        if (rowIndex === -1) {
+          rowIndex = rowEndTimes.length;
+          rowEndTimes.push(entry.endMs);
+        } else {
+          rowEndTimes[rowIndex] = Math.max(rowEndTimes[rowIndex], entry.endMs);
+        }
+        const left = (entry.startMs - startMs) * pxPerMs;
+        const rawWidth = (entry.endMs - entry.startMs) * pxPerMs;
+        const width = entry.isPin ? Math.max(MIN_PIN_WIDTH, rawWidth) : Math.max(MIN_BAR_WIDTH, rawWidth);
+        const height = entry.isPin ? PIN_SIZE : ITEM_HEIGHT;
+        return {
+          item: entry.item,
+          laneId: entry.item.lane,
+          isPin: entry.isPin,
+          startMs: entry.startMs,
+          endMs: entry.endMs,
+          left,
+          width,
+          row: rowIndex,
+          height,
+          top: LANE_PADDING_Y + rowIndex * (ITEM_HEIGHT + ROW_GAP),
+        } satisfies PositionedItem;
+      });
 
-      const positionedItems = rows
-        .flat()
-        .map((item) => ({
-          ...item,
-          top:
-            (laneTopOffsets.get(laneName) ?? AXIS_HEIGHT) +
-            LANE_PADDING_TOP +
-            item.rowIndex * (ITEM_HEIGHT + ROW_GAP),
-        }));
+      const rowCount = lane.collapsed ? 0 : Math.max(1, rowEndTimes.length || (positioned.length ? 1 : 0));
+      const height = lane.collapsed
+        ? LANE_HEADER_HEIGHT
+        : LANE_PADDING_Y * 2 + rowCount * ITEM_HEIGHT + Math.max(0, rowCount - 1) * ROW_GAP;
 
       layouts.push({
-        name: laneName,
-        items: positionedItems,
-        height: laneHeight,
-        top: (laneTopOffsets.get(laneName) ?? AXIS_HEIGHT),
+        lane,
+        items: positioned,
+        height,
         rowCount,
+        offsetTop: offset,
       });
+      offset += height;
     }
 
-    return { layouts, totalHeight: cumulativeTop };
-  }, [scheduledItems, range.start, totalDuration]);
+    return layouts;
+  }, [laneDefinitions, localItems, pxPerMs, startMs]);
 
-  const { layouts, totalHeight } = laneLayouts;
+  const totalHeight = useMemo(() => {
+    if (!positionedLayouts.length) return laneDefinitions.length * LANE_HEADER_HEIGHT;
+    const last = positionedLayouts[positionedLayouts.length - 1];
+    return last.offsetTop + last.height;
+  }, [positionedLayouts, laneDefinitions.length]);
 
-  const edges = useMemo(() => {
-    if (!items.length) return [] as DependencyEdge[];
-    const byId = new Map(items.map((item) => [item.id, item]));
-    const result: DependencyEdge[] = [];
-    const seen = new Set<string>();
+  const conflictIndex = useMemo(() => {
+    const conflicts = detectTimelineConflicts(localItems, { bufferHours: 4 });
+    return buildConflictIndex(conflicts);
+  }, [localItems]);
 
-    for (const dependency of dependencies) {
-      if (!dependency.fromItemId || !dependency.toItemId) continue;
-      if (!byId.has(dependency.fromItemId) || !byId.has(dependency.toItemId)) continue;
-      const key = `${dependency.fromItemId}:${dependency.toItemId}:${dependency.kind}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.push({
-        fromId: dependency.fromItemId,
-        toId: dependency.toItemId,
-        kind: dependency.kind === "SS" ? "SS" : "FS",
-        note: dependency.note ?? undefined,
-      });
+  useEffect(() => {
+    const inConflict = Array.from(conflictIndex.keys());
+    if (inConflict.length > 0) {
+      setDragMessage("⚠ Conflicts detected. Check red outlined bars.");
+    } else {
+      setDragMessage((prev) => (prev?.includes("Conflicts") ? null : prev));
     }
+  }, [conflictIndex]);
 
-    for (const item of items) {
-      const deps = extractDependencies(item);
-      for (const dep of deps) {
-        if (!dep.itemId || !byId.has(dep.itemId)) continue;
-        const key = `${dep.itemId}:${item.id}:${dep.kind ?? "FS"}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        result.push({
-          fromId: dep.itemId,
-          toId: item.id,
-          kind: dep.kind === "SS" ? "SS" : "FS",
-          note: dep.note,
-        });
+  const virtualizedLayouts = useMemo<VirtualizedLaneLayout[]>(() => {
+    const minX = scrollLeft - VIRTUALIZATION_BUFFER;
+    const maxX = scrollLeft + viewportWidth + VIRTUALIZATION_BUFFER;
+    return positionedLayouts.map((layout) => {
+      if (!layout.lane.visible || layout.lane.collapsed) {
+        return { ...layout, visibleItems: [] };
       }
-    }
+      const visibleItems = layout.items.filter((item) => {
+        const left = item.left;
+        const width = item.width;
+        return left + width >= minX && left <= maxX;
+      });
+      return { ...layout, visibleItems };
+    });
+  }, [positionedLayouts, scrollLeft, viewportWidth]);
 
-    return result;
-  }, [dependencies, items]);
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>, item: TimelineItemRecord) => {
+      event.preventDefault();
+      setContextMenu({
+        item,
+        x: event.clientX,
+        y: event.clientY,
+      });
+    },
+    []
+  );
 
+  const handleDragStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, mode: "move" | "resize-start" | "resize-end", positioned: PositionedItem) => {
+      event.stopPropagation();
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
+      dragRef.current = {
+        id: positioned.item.id,
+        mode,
+        startMs: positioned.startMs,
+        endMs: positioned.endMs,
+        pointerStartX: event.clientX,
+      };
+      (event.target as HTMLElement).setPointerCapture(event.pointerId);
+      setDragMessage(mode === "move" ? "Drag to reschedule" : "Drag to resize");
+    },
+    []
+  );
+
+  const handleZoom = useCallback(
+    (delta: number) => {
+      if (!onZoomChange) return;
+      onZoomChange(clampZoom(zoom + delta));
+    },
+    [onZoomChange, zoom]
+  );
   const positionLookup = useMemo(() => {
-    const map = new Map<string, PositionedItem & { left: number; width: number }>();
-    for (const lane of layouts) {
-      for (const item of lane.items) {
-        const left = item.leftRatio * timelineWidth;
-        const width = Math.max(item.widthRatio * timelineWidth, 6);
-        map.set(item.item.id, { ...item, left, width });
+    const map = new Map<string, { x: number; y: number; width: number; height: number }>();
+    for (const layout of positionedLayouts) {
+      if (!layout.lane.visible || layout.lane.collapsed) continue;
+      for (const item of layout.items) {
+        map.set(item.item.id, {
+          x: item.left,
+          y: layout.offsetTop + item.top,
+          width: item.width,
+          height: item.height,
+        });
       }
     }
     return map;
-  }, [layouts, timelineWidth]);
+  }, [positionedLayouts]);
 
-  const conflicts = useMemo<TimelineConflict[]>(
-    () => (showConflictSummary ? detectTimelineConflicts(items, { bufferHours }) : []),
-    [items, bufferHours, showConflictSummary]
-  );
+  const dependencyEdges = useMemo(() => {
+    const edges: Array<{ from: string; to: string; kind: string }> = [];
+    for (const dependency of dependencies) {
+      if (!dependency.fromItemId || !dependency.toItemId) continue;
+      if (!positionLookup.has(dependency.fromItemId) || !positionLookup.has(dependency.toItemId)) continue;
+      edges.push({
+        from: dependency.fromItemId,
+        to: dependency.toItemId,
+        kind: dependency.kind ?? "FS",
+      });
+    }
+    return edges;
+  }, [dependencies, positionLookup]);
 
-  const conflictIndex = useMemo(() => buildConflictIndex(conflicts), [conflicts]);
+  const renderItem = useCallback(
+    (positioned: PositionedItem) => {
+      const { item } = positioned;
+      const typeStyle = TYPE_COLORS[item.type];
+      const statusDecoration = STATUS_DECORATION[item.status];
+      const priorityMeta = getPriorityMeta(item.priorityScore);
+      const conflicted = conflictIndex.has(item.id);
+      const overdue = isOverdue(item);
+      const attachments = hasAttachments(item);
+      const classes = [
+        "group absolute rounded-md border px-3 py-2 text-xs shadow transition-all duration-200",
+        typeStyle.base,
+        typeStyle.text,
+        typeStyle.border,
+        statusDecoration ?? "",
+        conflicted ? "ring-2 ring-offset-1 ring-offset-slate-900/60 ring-red-500" : "",
+        overdue ? "shadow-[0_0_12px_rgba(239,68,68,0.45)]" : "",
+        positioned.isPin ? "flex items-center justify-center" : "flex flex-col",
+      ]
+        .filter(Boolean)
+        .join(" ");
 
-  const conflictItemIds = useMemo(() => {
-    return new Set(Array.from(conflictIndex.keys()));
-  }, [conflictIndex]);
+      const style: CSSProperties = {
+        left: positioned.left,
+        top: positioned.top,
+        width: positioned.width,
+        height: positioned.height,
+      };
 
-  const timeScale = useMemo(() => buildTimeScale(range.start, range.end), [range.start, range.end]);
+      return (
+        <div
+          key={item.id}
+          className={classes}
+          style={style}
+          onMouseEnter={(event) => {
+            const rect = (event.currentTarget as HTMLDivElement).getBoundingClientRect();
+            setHoverState({ item, x: rect.left + rect.width / 2, y: rect.top });
+          }}
+          onMouseLeave={() => setHoverState(null)}
+          onClick={() => onSelectItem?.(item)}
+          onContextMenu={(event) => handleContextMenu(event, item)}
+        >
+          <div className="pointer-events-none absolute inset-y-1 left-1 w-1 rounded bg-gradient-to-b from-slate-50/80 to-slate-50/30" style={{ backgroundColor: undefined }} />
+          <div
+            className={`pointer-events-none absolute inset-y-1 left-1 w-1 rounded ${priorityMeta.color}`}
+            aria-hidden
+          />
+          {positioned.isPin ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[0.65rem] uppercase tracking-wide">{item.type.replace(/_/g, " ")}</span>
+              <span className="font-semibold text-sm">{item.title}</span>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 text-[0.65rem] uppercase tracking-wide">
+                <span>{item.type.replace(/_/g, " ")}</span>
+                <span className="font-semibold">{priorityMeta.label}</span>
+              </div>
+              <p className="mt-1 truncate text-sm font-semibold leading-tight">{item.title}</p>
+              <p className="mt-1 text-[0.65rem] text-slate-200/80">{formatTimeRange(item)}</p>
+              <div className="mt-1 flex items-center gap-2 text-[0.65rem] text-slate-100/80">
+                {item.labels?.city ? <span>{item.labels.city}</span> : null}
+                {item.labels?.territory ? <span>{item.labels.territory}</span> : null}
+                {attachments ? <span className="flex items-center gap-1">📎<span>files</span></span> : null}
+                {item.status === "tentative" ? <span>tentative</span> : null}
+                {item.status === "done" ? <span>done</span> : null}
+              </div>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1 rounded-b-md bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 transition group-hover:opacity-100" />
+            </>
+          )}
 
-  return (
-    <div className="space-y-5">
-      <div className="rounded-xl border border-slate-200 bg-white/95 p-6 shadow-lg backdrop-blur">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-            <p className="text-sm text-slate-500">{subtitle}</p>
-          </div>
-          {showBufferControl ? (
-            <label className="flex items-center gap-3 text-sm text-slate-600">
-              Travel buffer
-              <input
-                type="range"
-                min={0}
-                max={24}
-                step={1}
-                value={bufferHours}
-                onChange={(event) => setBufferHours(Number(event.target.value))}
-              />
-              <span className="w-8 text-right font-semibold text-slate-900">{bufferHours}h</span>
-            </label>
+          {!positioned.isPin ? (
+            <div className="absolute inset-x-0 bottom-0 flex justify-between px-1 text-[0.65rem]">
+              <div
+                className="cursor-ew-resize rounded px-1 py-0.5 text-slate-100/80"
+                onPointerDown={(event) => handleDragStart(event, "resize-start", positioned)}
+              >
+                ⇠
+              </div>
+              <div
+                className="cursor-grab rounded px-1 py-0.5 text-slate-100/80"
+                onPointerDown={(event) => handleDragStart(event, "move", positioned)}
+              >
+                ↔
+              </div>
+              <div
+                className="cursor-ew-resize rounded px-1 py-0.5 text-slate-100/80"
+                onPointerDown={(event) => handleDragStart(event, "resize-end", positioned)}
+              >
+                ⇢
+              </div>
+            </div>
           ) : null}
         </div>
+      );
+    },
+    [conflictIndex, handleContextMenu, handleDragStart, onSelectItem]
+  );
+  return (
+    <div className="relative flex h-full min-h-[28rem] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/80 text-slate-100 shadow-2xl">
+      <div className="flex items-center justify-between border-b border-slate-800 px-6 py-3">
+        <div>
+          <h3 className="text-lg font-semibold text-white">Operational timeline</h3>
+          <p className="text-xs uppercase tracking-wider text-slate-400">
+            {realtimeLabel ?? "Synced live • drag, zoom, filter"}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => handleZoom(-0.15)}
+            className="h-9 w-9 rounded-full border border-slate-700 bg-slate-900 text-lg font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white"
+            aria-label="Zoom out"
+          >
+            –
+          </button>
+          <button
+            type="button"
+            onClick={() => handleZoom(0.15)}
+            className="h-9 w-9 rounded-full border border-slate-700 bg-slate-900 text-lg font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white"
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+        </div>
+      </div>
 
-        <div className="mt-6 overflow-x-auto">
-          <div className="min-w-[720px]">
-            <div className="grid grid-cols-[160px_1fr] gap-x-4">
-              <div style={{ height: AXIS_HEIGHT }} />
-              <div className="relative" style={{ height: totalHeight - AXIS_HEIGHT }}>
-                <div className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/80 backdrop-blur">
-                  <div className="relative" style={{ height: AXIS_HEIGHT }} ref={timelineRef}>
-                    <div className="absolute inset-x-0 bottom-0 h-full">
-                      {timeScale.map((tick) => (
-                        <div
-                          key={tick.label + tick.leftRatio}
-                          className="absolute flex translate-x-[-50%] flex-col items-center text-xs text-gray-500"
-                          style={{ left: `${tick.leftRatio * 100}%` }}
-                        >
-                          <span className="rounded bg-white px-2 py-0.5 shadow">{tick.label}</span>
-                          <span className="mt-1 h-8 w-px bg-gray-200" />
-                        </div>
-                      ))}
-                    </div>
+      <div className="grid flex-1 grid-cols-[220px_1fr] overflow-hidden">
+        <div className="relative border-r border-slate-800 bg-slate-950/60">
+          <div className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 px-4 py-3 text-xs uppercase tracking-wide text-slate-400">
+            Lanes
+          </div>
+          <div className="relative" style={{ height: totalHeight }}>
+            {positionedLayouts.map((layout) => {
+              const config = LANE_CONFIG[layout.lane.id];
+              return (
+                <div
+                  key={layout.lane.id}
+                  className="flex items-start justify-between border-b border-slate-900/60 px-4"
+                  style={{ height: layout.height }}
+                >
+                  <div className="py-4">
+                    <p className="text-sm font-semibold text-white">{config.label}</p>
+                    <p className="text-xs text-slate-400">
+                      {layout.rowCount > 0 ? `${layout.items.length} scheduled` : "Collapsed"}
+                    </p>
                   </div>
-                </div>
-
-                <div className="absolute inset-x-0" style={{ top: AXIS_HEIGHT, height: totalHeight - AXIS_HEIGHT }}>
-                  {layouts.map((lane) => (
-                    <div key={lane.name} className="absolute inset-x-0 border-b border-gray-100" style={{ top: lane.top - AXIS_HEIGHT, height: lane.height }}>
-                      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
-                      <div className="relative h-full">
-                        {lane.items.map((positioned) => {
-                          const cardLeft = `${positioned.leftRatio * 100}%`;
-                          const cardWidth = `${Math.min(100, positioned.widthRatio * 100)}%`;
-                          const isConflicted = conflictItemIds.has(positioned.item.id);
-                          const dependencies = extractDependencies(positioned.item);
-                          return (
-                            <div
-                              key={positioned.item.id}
-                              className={`absolute rounded border px-3 py-2 text-xs shadow-sm transition hover:shadow-md ${getTypeStyles(positioned.item.type)} ${
-                                isConflicted ? "ring-2 ring-red-500" : ""
-                              }`}
-                              style={{
-                                left: cardLeft,
-                                top: positioned.top - lane.top,
-                                width: cardWidth,
-                                minWidth: "120px",
-                                height: ITEM_HEIGHT - 8,
-                              }}
-                            >
-                              <div className="flex items-center justify-between gap-2 text-[0.7rem] uppercase tracking-wide text-gray-500">
-                                <span>{positioned.item.type}</span>
-                                <span className="font-semibold text-gray-700">p{positioned.item.priority ?? 0}</span>
-                              </div>
-                              <p className="mt-1 text-sm font-semibold text-gray-900">{positioned.item.title}</p>
-                              <p className="mt-1 text-[0.7rem] text-gray-600">
-                                {new Date(positioned.item.startsAt ?? "").toLocaleString()} → {new Date(positioned.item.endsAt ?? positioned.item.startsAt ?? "").toLocaleString()}
-                              </p>
-                              <div className="mt-1 flex flex-wrap gap-2 text-[0.65rem] text-gray-600">
-                                <span>{positioned.item.territory ?? "No territory"}</span>
-                                {dependencies.length ? <span className="rounded bg-white/70 px-2 py-0.5">{dependencies.length} deps</span> : null}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-
-                  <svg
-                    className="pointer-events-none absolute left-0 top-0 h-full w-full"
-                    viewBox={`0 0 ${Math.max(timelineWidth, 1)} ${Math.max(totalHeight - AXIS_HEIGHT, 1)}`}
-                    preserveAspectRatio="none"
+                  <button
+                    type="button"
+                    onClick={() => onToggleLaneCollapse?.(layout.lane.id)}
+                    className="mt-4 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
                   >
-                    <defs>
-                      <marker id="timeline-arrow" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto">
-                        <path d="M0,0 L8,4 L0,8 z" className="fill-slate-400" />
-                      </marker>
-                    </defs>
-                    {edges.map((edge) => {
-                      const source = positionLookup.get(edge.fromId);
-                      const target = positionLookup.get(edge.toId);
-                      if (!source || !target) return null;
-                      const sourceY = source.top + (source.height / 2) - AXIS_HEIGHT;
-                      const targetY = target.top + (target.height / 2) - AXIS_HEIGHT;
-                      const sourceX = edge.kind === "SS" ? source.left : source.left + source.width;
-                      const targetX = target.left;
-                      const deltaX = Math.max(32, Math.abs(targetX - sourceX) * 0.5);
-                      const path = `M${sourceX},${sourceY} C${sourceX + deltaX},${sourceY} ${targetX - deltaX},${targetY} ${targetX},${targetY}`;
-                      return <path key={`${edge.fromId}->${edge.toId}`} d={path} className="fill-none stroke-slate-400" strokeWidth={1.5} markerEnd="url(#timeline-arrow)" />;
+                    {layout.lane.collapsed ? "Expand" : "Collapse"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="relative">
+          <div ref={scrollRef} className="h-full overflow-x-auto overflow-y-hidden">
+            <div className="relative" style={{ width: timelineWidth }}>
+              <div className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/90">
+                <div className="relative h-14">
+                  <div className="absolute inset-x-0 bottom-0 h-10">
+                    {axisTicks.map((tick) => {
+                      const left = (tick.position - startMs) * pxPerMs;
+                      return (
+                        <div
+                          key={tick.position}
+                          className="absolute flex -translate-x-1/2 flex-col items-center text-xs text-slate-300"
+                          style={{ left }}
+                        >
+                          <span className="rounded bg-slate-900/80 px-2 py-0.5 text-slate-200 shadow">{tick.label}</span>
+                          <span className="mt-2 h-6 w-px bg-slate-700/60" />
+                        </div>
+                      );
                     })}
-                  </svg>
+                  </div>
                 </div>
               </div>
 
-              <div className="relative">
-                <div className="sticky top-0 bg-gray-50/80 backdrop-blur" style={{ height: AXIS_HEIGHT }} />
-                {layouts.map((lane) => (
-                  <div key={lane.name} className="border-b border-gray-100" style={{ height: lane.height }}>
-                    <div className="flex h-full items-start">
-                      <div className="mt-3 text-sm font-semibold text-gray-700">{lane.name}</div>
+              <div className="relative" style={{ height: totalHeight }}>
+                <div className="pointer-events-none absolute inset-0">
+                  {gridlines.map((line) => {
+                    const left = (line - startMs) * pxPerMs;
+                    return (
+                      <div
+                        key={line}
+                        className="absolute inset-y-0 w-px bg-slate-800/60"
+                        style={{ left }}
+                      />
+                    );
+                  })}
+                  {todayPosition != null ? (
+                    <div
+                      className="absolute inset-y-0 w-px bg-red-400"
+                      style={{ left: todayPosition }}
+                    />
+                  ) : null}
+                </div>
+
+                {positionedLayouts.map((layout) => {
+                  const config = LANE_CONFIG[layout.lane.id];
+                  return (
+                    <div
+                      key={layout.lane.id}
+                      className={`absolute inset-x-0 ${config.tint}`}
+                      style={{ top: layout.offsetTop, height: layout.height }}
+                    >
+                      <div
+                        className={`pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${config.accent}`}
+                        aria-hidden
+                      />
+                      <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-px ${config.border}`} />
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
+
+                {virtualizedLayouts.map((layout) => {
+                  const config = LANE_CONFIG[layout.lane.id];
+                  if (!layout.visibleItems || layout.visibleItems.length === 0) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={layout.lane.id}
+                      className="absolute"
+                      style={{ top: layout.offsetTop, height: layout.height, insetInline: 0 }}
+                    >
+                      {layout.visibleItems.map((positioned) => renderItem(positioned))}
+                    </div>
+                  );
+                })}
+
+                <svg
+                  className="pointer-events-none absolute left-0 top-0 h-full w-full"
+                  viewBox={`0 0 ${Math.max(timelineWidth, 1)} ${Math.max(totalHeight, 1)}`}
+                  preserveAspectRatio="none"
+                >
+                  <defs>
+                    <marker
+                      id="timeline-arrow"
+                      viewBox="0 0 8 8"
+                      refX="8"
+                      refY="4"
+                      markerWidth="8"
+                      markerHeight="8"
+                      orient="auto"
+                    >
+                      <path d="M0,0 L8,4 L0,8 z" className="fill-slate-500" />
+                    </marker>
+                  </defs>
+                  {dependencyEdges.map((edge) => {
+                    const from = positionLookup.get(edge.from);
+                    const to = positionLookup.get(edge.to);
+                    if (!from || !to) return null;
+                    const startX = edge.kind === "SS" ? from.x : from.x + from.width;
+                    const startY = from.y + from.height / 2;
+                    const endX = to.x;
+                    const endY = to.y + to.height / 2;
+                    const deltaX = Math.max(48, Math.abs(endX - startX) * 0.4);
+                    const path = `M${startX},${startY} C${startX + deltaX},${startY} ${endX - deltaX},${endY} ${endX},${endY}`;
+                    return <path key={`${edge.from}->${edge.to}`} d={path} className="fill-none stroke-slate-500/70" strokeWidth={1.5} markerEnd="url(#timeline-arrow)" />;
+                  })}
+                </svg>
               </div>
             </div>
           </div>
         </div>
-
-        {showConflictSummary && conflicts.length ? (
-          <div className="mt-5 space-y-2">
-            <h4 className="text-sm font-semibold text-gray-900">Detected conflicts</h4>
-            <ul className="space-y-2">
-              {conflicts.map((conflict) => (
-                <li
-                  key={conflict.id}
-                  className={`rounded border px-3 py-2 text-sm ${
-                    conflict.severity === "error" ? "border-red-300 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-700"
-                  }`}
-                >
-                  {conflict.message}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : showConflictSummary ? (
-          <p className="mt-5 rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-700">No conflicts detected with the current buffer.</p>
-        ) : null}
       </div>
 
-      {unscheduledItems.length ? (
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-          <h4 className="text-sm font-semibold text-gray-900">Unscheduled items</h4>
-          <ul className="mt-3 space-y-2 text-sm text-gray-600">
-            {unscheduledItems.map((item) => (
-              <li key={item.id} className="rounded border border-dashed border-gray-300 px-3 py-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-gray-900">{item.title}</span>
-                  <span className="text-xs uppercase text-gray-500">{item.type}</span>
-                </div>
-                <p className="text-xs text-gray-500">Assign a start to place this on the lanes.</p>
-              </li>
-            ))}
-          </ul>
+      <button
+        type="button"
+        onClick={onAddItem}
+        className="group absolute bottom-6 right-6 flex h-12 items-center gap-2 rounded-full bg-indigo-500 px-5 text-sm font-semibold text-white shadow-lg transition hover:bg-indigo-400"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-lg">+</span>
+        Add item
+      </button>
+
+      {dragMessage ? (
+        <div className="pointer-events-none absolute bottom-4 left-6 rounded-lg border border-slate-700 bg-slate-900/90 px-4 py-2 text-xs text-slate-200 shadow-lg">
+          {dragMessage}
+        </div>
+      ) : null}
+
+      {hoverState ? (
+        <div
+          className="pointer-events-none fixed z-40 max-w-xs rounded-lg border border-slate-700 bg-slate-900/95 px-4 py-3 text-xs text-slate-100 shadow-xl"
+          style={{
+            left: hoverState.x,
+            top: Math.max(hoverState.y - 12, 80),
+            transform: "translate(-50%, -100%)",
+          }}
+        >
+          <p className="text-sm font-semibold text-white">{hoverState.item.title}</p>
+          <p className="mt-1 text-[0.65rem] uppercase text-slate-400">{hoverState.item.type.replace(/_/g, " ")}</p>
+          <p className="mt-2 text-xs text-slate-200">{formatTimeRange(hoverState.item)}</p>
+          {hoverState.item.labels?.city ? (
+            <p className="mt-1 text-xs text-slate-400">{hoverState.item.labels.city}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {contextMenu ? (
+        <div
+          className="fixed z-50 w-48 rounded-lg border border-slate-700 bg-slate-900/95 py-2 text-sm text-slate-100 shadow-2xl"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          {["edit", "attach", "convert"].map((action) => (
+            <button
+              key={action}
+              type="button"
+              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-slate-800"
+              onClick={() => onContextAction?.(action as ContextAction, contextMenu.item)}
+            >
+              {action === "edit" ? "✏️" : action === "attach" ? "📎" : "🔁"}
+              <span className="capitalize">{action}</span>
+            </button>
+          ))}
         </div>
       ) : null}
     </div>
