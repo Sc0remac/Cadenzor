@@ -23,7 +23,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@cadenzor/shared": resolve(rootDir, "shared/src"),
+      "@kazador/shared": resolve(rootDir, "shared/src"),
       react: resolve(rootDir, "node_modules/react"),
       "react/jsx-runtime": resolve(rootDir, "node_modules/react/jsx-runtime"),
       "react-dom": resolve(rootDir, "node_modules/react-dom"),

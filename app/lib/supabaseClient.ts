@@ -19,7 +19,7 @@ import type {
   DigestPayload,
   UserPreferenceRecord,
   DigestRecord,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
 

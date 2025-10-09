@@ -3,7 +3,7 @@ import {
   normaliseLabel,
   normaliseLabels,
   ensureDefaultLabelCoverage,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 
 export const runtime = "nodejs";

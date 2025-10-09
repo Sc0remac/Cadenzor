@@ -73,7 +73,7 @@ export async function GET(request: Request) {
     });
 
     const script = redirectTo
-      ? `window.opener?.postMessage({ source: 'cadenzor-drive', status: 'error', message: '${errorParam}' }, '*'); window.close();`
+      ? `window.opener?.postMessage({ source: 'kazador-drive', status: 'error', message: '${errorParam}' }, '*'); window.close();`
       : "window.close();";
     return renderMessage(script, "Google Drive access was denied.");
   }
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
     tokenResponse = await oauthClient.getToken(code);
   } catch (err: any) {
     const script = redirectTo
-      ? `window.opener?.postMessage({ source: 'cadenzor-drive', status: 'error', message: 'Token exchange failed' }, '*'); window.close();`
+      ? `window.opener?.postMessage({ source: 'kazador-drive', status: 'error', message: 'Token exchange failed' }, '*'); window.close();`
       : "window.close();";
     return renderMessage(script, "Failed to exchange authorization code.");
   }
@@ -109,7 +109,7 @@ export async function GET(request: Request) {
 
   if (fetchAccountError) {
     const script = redirectTo
-      ? `window.opener?.postMessage({ source: 'cadenzor-drive', status: 'error', message: 'Failed to load Drive account' }, '*'); window.close();`
+      ? `window.opener?.postMessage({ source: 'kazador-drive', status: 'error', message: 'Failed to load Drive account' }, '*'); window.close();`
       : "window.close();";
     return renderMessage(script, "Failed to load existing Drive account state.");
   }
@@ -120,7 +120,7 @@ export async function GET(request: Request) {
 
   if (!tokens.refresh_token) {
     const script = redirectTo
-      ? `window.opener?.postMessage({ source: 'cadenzor-drive', status: 'error', message: 'Missing refresh token' }, '*'); window.close();`
+      ? `window.opener?.postMessage({ source: 'kazador-drive', status: 'error', message: 'Missing refresh token' }, '*'); window.close();`
       : "window.close();";
     return renderMessage(script, "Google did not return a refresh token. Ensure you allow offline access and try again.");
   }
@@ -158,7 +158,7 @@ export async function GET(request: Request) {
 
   if (!accountEmail) {
     const script = redirectTo
-      ? `window.opener?.postMessage({ source: 'cadenzor-drive', status: 'error', message: 'Unable to determine account email' }, '*'); window.close();`
+      ? `window.opener?.postMessage({ source: 'kazador-drive', status: 'error', message: 'Unable to determine account email' }, '*'); window.close();`
       : "window.close();";
     return renderMessage(script, "Unable to determine the Google account email.");
   }
@@ -188,7 +188,7 @@ export async function GET(request: Request) {
 
   if (upsertError) {
     const script = redirectTo
-      ? `window.opener?.postMessage({ source: 'cadenzor-drive', status: 'error', message: 'Failed to persist Drive account' }, '*'); window.close();`
+      ? `window.opener?.postMessage({ source: 'kazador-drive', status: 'error', message: 'Failed to persist Drive account' }, '*'); window.close();`
       : "window.close();";
     return renderMessage(script, "Failed to save Google Drive credentials.");
   }
@@ -206,7 +206,7 @@ export async function GET(request: Request) {
   });
 
   const payload = {
-    source: "cadenzor-drive",
+    source: "kazador-drive",
     status: "success",
     accountEmail,
     scopes,

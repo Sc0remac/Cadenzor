@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { drive_v3 } from "googleapis";
-import type { DerivedLabelSuggestion } from "@cadenzor/shared";
+import type { DerivedLabelSuggestion } from "@kazador/shared";
 import {
   listFolderTree,
   toAssetInsertPayload,

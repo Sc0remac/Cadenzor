@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapApprovalRow } from "./projectMappers";
-import { getTimelineLaneForType, normaliseTimelineItemStatus, normaliseTimelineItemType } from "@cadenzor/shared";
-import type { ApprovalRecord, TimelineItemRecord } from "@cadenzor/shared";
+import { getTimelineLaneForType, normaliseTimelineItemStatus, normaliseTimelineItemType } from "@kazador/shared";
+import type { ApprovalRecord, TimelineItemRecord } from "@kazador/shared";
 
 export type ApprovalAction = "approve" | "decline";
 
@@ -107,8 +107,6 @@ function buildProjectItemInsert(
     links,
     created_by: actorId,
   } satisfies Record<string, unknown>;
-}
-
 }
 
 function assertString(value: unknown, field: string): string {

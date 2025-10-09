@@ -5,7 +5,7 @@ import type {
   AssetRecord,
   DerivedLabelSuggestion,
   AssetCanonicalCategory,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import { createOAuthClient } from "./googleOAuth";
 
 const TOKEN_EXPIRY_BUFFER_MS = 60_000;

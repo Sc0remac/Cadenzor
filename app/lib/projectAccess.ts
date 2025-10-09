@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ProjectMemberRole } from "@cadenzor/shared";
+import type { ProjectMemberRole } from "@kazador/shared";
 
 export type ProjectRoleRequirement = "viewer" | "editor" | "owner";
 

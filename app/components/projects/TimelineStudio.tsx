@@ -13,8 +13,8 @@ import type {
   TimelineItemRecord,
   TimelineItemStatus,
   TimelineLane,
-} from "@cadenzor/shared";
-import { buildConflictIndex, detectTimelineConflicts } from "@cadenzor/shared";
+} from "@kazador/shared";
+import { buildConflictIndex, detectTimelineConflicts } from "@kazador/shared";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;

@@ -1,13 +1,13 @@
-# Cadenzor
+# Kazador
 
-Cadenzor is an early prototype of an artist‑management tool derived from the “Aura” vision.  This v1 focuses on the **email triage / classifier** portion of the platform.  The system connects to Gmail, classifies unread messages using the detailed LEGAL/… — FINANCE/… — LOGISTICS/… taxonomy, and writes the results into a Supabase database.  A lightweight web interface built with Next.js displays aggregated counts of unread emails by category.  Contact information is also stored so that future features can enrich and de‑duplicate artist relationships.
+Kazador is an early prototype of an artist‑management tool derived from the “Aura” vision.  This v1 focuses on the **email triage / classifier** portion of the platform.  The system connects to Gmail, classifies unread messages using the detailed LEGAL/… — FINANCE/… — LOGISTICS/… taxonomy, and writes the results into a Supabase database.  A lightweight web interface built with Next.js displays aggregated counts of unread emails by category.  Contact information is also stored so that future features can enrich and de‑duplicate artist relationships.
 
 > **Note:** This project scaffolding is intentionally minimal—there is no authentication or production‑ready error handling.  It is designed as a starting point that you can expand upon.  You will need to provision your own Supabase project, obtain Google OAuth credentials and a Gmail refresh token, and configure environment variables as described below.
 
 ## Directory structure
 
 ```
-cadenzor/
+kazador/
 ├── app/               # Next.js 14 dashboard (frontend)
 │   ├── app/           # App Router pages and API routes
 │   ├── components/    # React components
@@ -71,7 +71,7 @@ create index emails_category_idx on emails(category);
 create index emails_is_read_idx on emails(is_read);
 ```
 
-You can modify these schemas as you extend Cadenzor.  For example, you may add columns for thread IDs, snippets, attachments, or linking to timeline entries.
+You can modify these schemas as you extend Kazador.  For example, you may add columns for thread IDs, snippets, attachments, or linking to timeline entries.
 
 ## Running the worker
 
@@ -114,15 +114,15 @@ The project hub now includes a timeline workspace that mirrors the specification
 
 ## Gmail labels in your inbox
 
-Cadenzor now applies Gmail labels to messages it classifies so you can see them directly in your inbox:
+Kazador now applies Gmail labels to messages it classifies so you can see them directly in your inbox:
 
-- Labels are created under a parent label `Cadenzor`, e.g. `Cadenzor/LEGAL/Contract_Draft` or `Cadenzor/FINANCE/Settlement` plus any cross-tag metadata such as `Cadenzor/artist/Barry_Cant_Swim`.
+- Labels are created under a parent label `Kazador`, e.g. `Kazador/LEGAL/Contract_Draft` or `Kazador/FINANCE/Settlement` plus any cross-tag metadata such as `Kazador/artist/Barry_Cant_Swim`.
 - If a label does not exist yet, it is created automatically.
 - Ensure the refresh token was granted the `https://www.googleapis.com/auth/gmail.modify` scope so labels can be added.
 
 ## Email taxonomy
 
-Cadenzor’s classifier now aligns with the detailed taxonomy supplied by the artist management team. Primary labels (one is required per email) are:
+Kazador’s classifier now aligns with the detailed taxonomy supplied by the artist management team. Primary labels (one is required per email) are:
 
 - LEGAL/Contract_Draft — Draft agreements, redlines, tracked changes.
 - LEGAL/Contract_Executed — Fully signed contracts and addenda.
@@ -168,9 +168,9 @@ Cross-tag prefixes (optional and applied alongside primary labels) include: `art
 
 Existing email classifications are reset to `MISC/Uncategorized` by the accompanying migration so you can re-run the classifier with the new taxonomy.
 
-## Extending Cadenzor
+## Extending Kazador
 
-This project only scratches the surface of the larger Cadenzor vision.  Next steps might include:
+This project only scratches the surface of the larger Kazador vision.  Next steps might include:
 
 * Authenticating users and scoping data per artist/manager.
 * Surfacing individual email details and enabling actions (snooze, reply drafts, timeline creation).
@@ -192,4 +192,4 @@ npm --prefix worker run digest
 
 The job stores results in the new `user_preferences`, `digests`, and `action_logs` tables. Preferences default to a daily cadence and record delivery channels (`web`, `email`, or `slack`). The Supabase migration at `supabase/migrations/20251101120000_priority_digest.sql` must be applied before running the worker.
 
-Pull requests are welcome—enjoy hacking on Cadenzor!
+Pull requests are welcome—enjoy hacking on Kazador!

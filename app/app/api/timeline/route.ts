@@ -11,7 +11,7 @@ import type {
   TimelineItemType,
   TimelineLane,
   TimelineItemStatus,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 function parseCsv(value: string | null): string[] {
   if (!value) return [];

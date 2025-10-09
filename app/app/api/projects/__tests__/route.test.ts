@@ -140,7 +140,7 @@ describe("/api/projects route", () => {
   it("returns auth error responses", async () => {
     requireAuthenticatedUserSpy.mockResolvedValue({ ok: false, status: 403, error: "forbidden" } as any);
 
-    const response = await GET(createRequest("https://cadenzor.test/api/projects"));
+    const response = await GET(createRequest("https://kazador.test/api/projects"));
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ error: "forbidden" });
@@ -160,7 +160,7 @@ describe("/api/projects route", () => {
       user: { id: "user-1" },
     } as any);
 
-    const response = await GET(createRequest("https://cadenzor.test/api/projects"));
+    const response = await GET(createRequest("https://kazador.test/api/projects"));
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: "fail" });
@@ -179,7 +179,7 @@ describe("/api/projects route", () => {
       user: { id: "user-1" },
     } as any);
 
-    const response = await GET(createRequest("https://cadenzor.test/api/projects"));
+    const response = await GET(createRequest("https://kazador.test/api/projects"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ projects: [] });
@@ -212,7 +212,7 @@ describe("/api/projects route", () => {
     } as any);
 
     const response = await GET(
-      createRequest("https://cadenzor.test/api/projects?status=paused&q=Launch")
+      createRequest("https://kazador.test/api/projects?status=paused&q=Launch")
     );
 
     expect(response.status).toBe(200);
@@ -246,7 +246,7 @@ describe("/api/projects route", () => {
     } as any);
 
     const response = await POST(
-      createRequest("https://cadenzor.test/api/projects", {
+      createRequest("https://kazador.test/api/projects", {
         method: "POST",
         body: "{ invalid",
         headers: { "Content-Type": "application/json" },
@@ -265,7 +265,7 @@ describe("/api/projects route", () => {
     } as any);
 
     const response = await POST(
-      createRequest("https://cadenzor.test/api/projects", {
+      createRequest("https://kazador.test/api/projects", {
         method: "POST",
         body: JSON.stringify({ description: "No name" }),
       })
@@ -290,7 +290,7 @@ describe("/api/projects route", () => {
     } as any);
 
     const response = await POST(
-      createRequest("https://cadenzor.test/api/projects", {
+      createRequest("https://kazador.test/api/projects", {
         method: "POST",
         body: JSON.stringify({ name: "New project" }),
       })
@@ -349,7 +349,7 @@ describe("/api/projects route", () => {
     } as any);
 
     const response = await POST(
-      createRequest("https://cadenzor.test/api/projects", {
+      createRequest("https://kazador.test/api/projects", {
         method: "POST",
         body: JSON.stringify({
           name: "Seeded",

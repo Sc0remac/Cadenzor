@@ -7,7 +7,7 @@ import type {
   AssetLinkRecord,
   ProjectRecord,
   ProjectSourceRecord,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import {
   fetchDriveAccountStatus,
   browseDriveItems,
@@ -22,7 +22,7 @@ import {
   unlinkAssetLink,
   markAssetCanonical,
 } from "../../lib/supabaseClient";
-import type { AssetCanonicalCategory } from "@cadenzor/shared";
+import type { AssetCanonicalCategory } from "@kazador/shared";
 
 interface ProjectFilesTabProps {
   project: ProjectRecord;
@@ -235,7 +235,7 @@ export default function ProjectFilesTab(props: ProjectFilesTabProps) {
   useEffect(() => {
     function handleOAuthMessage(event: MessageEvent) {
       if (!event?.data || typeof event.data !== "object") return;
-      if (event.data.source !== "cadenzor-drive") return;
+      if (event.data.source !== "kazador-drive") return;
 
       if (event.data.status === "success") {
         setDriveAccount({

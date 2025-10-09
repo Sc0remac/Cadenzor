@@ -1,6 +1,6 @@
-# Cadenzor Agent Guide
+# Kazador Agent Guide
 
-This document captures the complete shape of the Cadenzor monorepo so future contributors (human or AI) can quickly understand what exists today. It summarises every major directory, feature, integration, and supporting asset in the repository.
+This document captures the complete shape of the Kazador monorepo so future contributors (human or AI) can quickly understand what exists today. It summarises every major directory, feature, integration, and supporting asset in the repository.
 
 ## Table of contents
 - [1. Repository overview](#1-repository-overview)
@@ -18,7 +18,7 @@ This document captures the complete shape of the Cadenzor monorepo so future con
 - [9. Reference documents](#9-reference-documents)
 
 ## 1. Repository overview
-Cadenzor is organised as a TypeScript monorepo using npm workspaces. There are three first-class packages:
+Kazador is organised as a TypeScript monorepo using npm workspaces. There are three first-class packages:
 
 | Package | Role |
 | --- | --- |
@@ -32,7 +32,7 @@ The root `package.json` wires workspace build/test scripts and pins Node 20+. `n
 - `.gitignore`, `.nvmrc` – standard tooling defaults.
 - `README.md` – high-level product introduction, setup guides, Supabase schema summary, and worker/dashboard run instructions.
 - `schema_final.sql` – comprehensive Supabase schema (auth, storage, realtime, application tables for projects, tasks, emails, digests, approvals, assets, etc.). Use it as the canonical migration reference.
-- `Project Overview.txt`, `Project Roadmap.txt`, `Contact Enrichment.txt`, `Oran Responses.txt` – narrative design and planning notes that expand on the Cadenzor vision.
+- `Project Overview.txt`, `Project Roadmap.txt`, `Contact Enrichment.txt`, `Oran Responses.txt` – narrative design and planning notes that expand on the Kazador vision.
 - Root npm scripts (`build`, `dev`, `test`, etc.) orchestrate package-level scripts via `npm --prefix`.
 
 ## 3. Application package (`app/`)
@@ -50,7 +50,7 @@ Next.js 14 App Router project with Tailwind CSS styling. Uses Supabase auth on t
 - `(protected)/admin/page.tsx` – Admin console with panels for workspace data, projects, users.
 - `(protected)/logout/page.tsx` – Sign-out helper (leverages auth context).
 - API routes under `app/app/api/` (all `GET`/`POST` handlers run in the Edge Node runtime and require bearer auth):
-  - `email-stats` – Aggregates counts of unread/all emails per Cadenzor label using Supabase, ensuring default taxonomy coverage.
+  - `email-stats` – Aggregates counts of unread/all emails per Kazador label using Supabase, ensuring default taxonomy coverage.
   - `emails` – Paginates email records with optional label/source filters and returns metadata & attachments.
   - `classify-emails` – Triggers the worker classification endpoint for manual reruns.
   - `projects` – Lists projects with joined membership/roles and supports text/status filters.
@@ -96,7 +96,7 @@ Pure TypeScript library compiled for consumption across packages.
 - `timelineConflicts.ts` – detects schedule conflicts given territory jumps, travel buffers, overlapping items.
 - `projectSuggestions.ts` – heuristics to attach incoming emails to existing projects or suggest new ones.
 - `projectPriority`, `analyzeEmail`, `heuristicLabels` all have Vitest unit suites under `__tests__/`.
-- `index.ts` re-exports all modules for convenient `@cadenzor/shared` imports.
+- `index.ts` re-exports all modules for convenient `@kazador/shared` imports.
 
 ## 5. Worker package (`worker/`)
 Node-based background services that operate against Gmail and Supabase.
@@ -104,7 +104,7 @@ Node-based background services that operate against Gmail and Supabase.
   - Authenticates via OAuth refresh token.
   - Lists unread messages (configurable `MAX_EMAILS_TO_PROCESS`).
   - Fetches bodies, decodes MIME parts, extracts headers.
-  - Reads cached summaries/labels from Supabase, calls `classifyEmail` (using shared AI + heuristics), writes contacts/emails back to Supabase, applies Gmail labels (`Cadenzor/...`).
+  - Reads cached summaries/labels from Supabase, calls `classifyEmail` (using shared AI + heuristics), writes contacts/emails back to Supabase, applies Gmail labels (`Kazador/...`).
 - `classifyEmail.ts` – orchestrates summary/label reuse, AI calls, heuristic fallback, coverage enforcement; returns metadata on caching vs AI usage.
 - `digestJob.ts` – builds the "Today" digest:
   - Pulls projects, tasks, project items via `timeline_entries`, approvals, emails.

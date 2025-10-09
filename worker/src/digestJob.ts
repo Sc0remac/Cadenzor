@@ -18,7 +18,7 @@ import {
   type EmailRecord,
   type UserPreferenceRecord,
   type ProjectDigestMetrics,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 type ServiceClient = SupabaseClient<any, any, any>;
 

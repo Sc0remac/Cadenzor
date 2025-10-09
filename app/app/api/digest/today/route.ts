@@ -16,7 +16,7 @@ import {
   type UserPreferenceRecord,
   type ProjectDigestMetrics,
   type EmailRecord,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 function formatError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });

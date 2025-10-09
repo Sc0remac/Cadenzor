@@ -3,7 +3,7 @@ import {
   normaliseLabels,
   normaliseLabel,
   ensureDefaultLabelCoverage,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 let GET: typeof import("../route").GET;
 let serverAuthModule: typeof import("../../../lib/serverAuth");
@@ -79,7 +79,7 @@ describe("GET /api/email-stats", () => {
       error: "No session",
     } as any);
 
-    const response = await GET(new Request("https://cadenzor.test/api/email-stats"));
+    const response = await GET(new Request("https://kazador.test/api/email-stats"));
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "No session" });
@@ -100,7 +100,7 @@ describe("GET /api/email-stats", () => {
       supabase: stub.supabase,
     } as any);
 
-    const response = await GET(new Request("https://cadenzor.test/api/email-stats"));
+    const response = await GET(new Request("https://kazador.test/api/email-stats"));
 
     expect(response.status).toBe(200);
     const payload = await response.json();
@@ -121,7 +121,7 @@ describe("GET /api/email-stats", () => {
     } as any);
 
     const response = await GET(
-      new Request("https://cadenzor.test/api/email-stats?scope=all&source=seeded")
+      new Request("https://kazador.test/api/email-stats?scope=all&source=seeded")
     );
 
     expect(stub.eqMock).not.toHaveBeenCalled();

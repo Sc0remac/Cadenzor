@@ -62,7 +62,7 @@ function buildSupabase(config: SupabaseBuilderConfig) {
           return { select: approvalsSelect, update: approvalsUpdate };
         case "project_email_links":
           return { upsert: projectEmailLinkUpsert };
-        case "timeline_items":
+        case "project_items":
           return { insert: timelineInsert };
         case "timeline_dependencies":
           return { insert: timelineDependencyInsert };
@@ -159,16 +159,25 @@ describe("applyApprovalAction", () => {
     expect(timelineInsert).toHaveBeenCalledTimes(1);
     expect(timelineInsert).toHaveBeenCalledWith({
       project_id: "proj-1",
+      type: "PROMO_SLOT",
+      kind: null,
       title: "Kickoff",
-      type: "milestone",
-      starts_at: "2023-01-01T00:00:00.000Z",
-      ends_at: "2023-01-02T00:00:00.000Z",
-      lane: "A",
-      territory: null,
-      priority: 50,
-      metadata: { foo: "bar" },
-      ref_table: "emails",
-      ref_id: "email-1",
+      description: null,
+      start_at: "2023-01-01T00:00:00.000Z",
+      end_at: "2023-01-02T00:00:00.000Z",
+      due_at: null,
+      tz: null,
+      status: "planned",
+      priority_score: 50,
+      priority_components: {},
+      labels: { lane: "A" },
+      links: {
+        emailId: "email-1",
+        metadata: { foo: "bar" },
+        refId: "email-1",
+        refTable: "emails",
+        source: "email_seed",
+      },
       created_by: "actor-1",
     });
     expect(timelineInsertMaybeSingle).toHaveBeenCalled();

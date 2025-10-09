@@ -8,7 +8,7 @@ import type {
   DigestProjectSnapshot,
   UserPreferenceRecord,
   EmailRecord,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import { useAuth } from "../AuthProvider";
 import {
   fetchTodayDigest,
@@ -342,7 +342,7 @@ function CalendarPlaceholder() {
         </div>
         <div className="flex items-center gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2">
           <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
-          <span>Link agency itineraries to blend external invites alongside Cadenzor deadlines.</span>
+          <span>Link agency itineraries to blend external invites alongside Kazador deadlines.</span>
         </div>
       </div>
     </div>

@@ -7,8 +7,8 @@ import type {
   TimelineItemRecord,
   TimelineItemStatus,
   TimelineLane,
-} from "@cadenzor/shared";
-import { detectTimelineConflicts } from "@cadenzor/shared";
+} from "@kazador/shared";
+import { detectTimelineConflicts } from "@kazador/shared";
 import { useAuth } from "../../../components/AuthProvider";
 import { TimelineStudio } from "../../../components/projects/TimelineStudio";
 import { fetchProjects, fetchTimelineExplorer, type ProjectListItem } from "../../../lib/supabaseClient";

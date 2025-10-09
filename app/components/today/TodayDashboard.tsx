@@ -8,7 +8,7 @@ import type {
   ProjectDigestMetrics,
   DigestProjectSnapshot,
   UserPreferenceRecord,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import { useAuth } from "../AuthProvider";
 import {
   fetchTodayDigest,

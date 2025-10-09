@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../../../lib/serverAuth";
 import { assertProjectRole } from "../../../../../lib/projectAccess";
 import { mapProjectMemberRow } from "../../../../../lib/projectMappers";
-import type { ProjectMemberRole } from "@cadenzor/shared";
+import type { ProjectMemberRole } from "@kazador/shared";
 
 interface Params {
   params: {

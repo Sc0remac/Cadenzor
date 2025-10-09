@@ -66,7 +66,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <header className="bg-white shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
           <div className="flex items-center gap-8">
-            <span className="text-xl font-semibold text-gray-900">Cadenzor</span>
+            <span className="text-xl font-semibold text-gray-900">Kazador</span>
             <nav className="flex items-center gap-4">
               {navLinks.map((link) => {
                 const active = isActive(pathname, link.href);

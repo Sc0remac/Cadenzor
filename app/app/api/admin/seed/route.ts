@@ -3,10 +3,10 @@ import { requireAdminUser } from "../../../../lib/adminAuth";
 
 const DEMO_SENDERS = [
   { name: "Oran Demo", email: "oran.demo@example.com" },
-  { name: "Cadenzor Bot", email: "bot@cadenzor.io" },
-  { name: "Logistics Team", email: "routing@cadenzor.io" },
-  { name: "Finance Ops", email: "settlements@cadenzor.io" },
-  { name: "Promo Desk", email: "promo@cadenzor.io" },
+  { name: "Kazador Bot", email: "bot@kazador.io" },
+  { name: "Logistics Team", email: "routing@kazador.io" },
+  { name: "Finance Ops", email: "settlements@kazador.io" },
+  { name: "Promo Desk", email: "promo@kazador.io" },
 ];
 
 const DEMO_SUBJECTS = [

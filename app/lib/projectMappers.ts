@@ -14,9 +14,9 @@ import type {
   AssetLinkRecord,
   OAuthAccountRecord,
   EmailAttachmentRecord,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
-import { getTimelineLaneForType } from "@cadenzor/shared";
+import { getTimelineLaneForType } from "@kazador/shared";
 
 function parseDateTime(value: any): string | null {
   if (!value) {

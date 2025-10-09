@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMAIL_FALLBACK_LABEL, ensureDefaultLabelCoverage, normaliseLabels, selectPrimaryCategory } from "@cadenzor/shared";
+import { EMAIL_FALLBACK_LABEL, ensureDefaultLabelCoverage, normaliseLabels, selectPrimaryCategory } from "@kazador/shared";
 import { classifyEmail } from "../classifyEmail";
 
 describe("classifyEmail", () => {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/serverAuth";
-import type { DigestRecord, DigestPayload } from "@cadenzor/shared";
+import type { DigestRecord, DigestPayload } from "@kazador/shared";
 
 function formatError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });

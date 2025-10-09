@@ -9,7 +9,7 @@ import {
   normaliseLabel,
   type EmailRecord,
   type ProjectRecord,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 type ServiceSupabase = SupabaseClient<any, any, any>;
 

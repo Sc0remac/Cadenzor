@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../../../lib/serverAuth";
 import { mapProjectRow } from "../../../../../lib/projectMappers";
-import { suggestProjectsForEmail } from "@cadenzor/shared";
+import { suggestProjectsForEmail } from "@kazador/shared";
 
 interface SuggestProjectPayload {
   emailId: string;

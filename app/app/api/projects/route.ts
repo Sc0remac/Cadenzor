@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 import { mapProjectRow } from "../../../lib/projectMappers";
-import type { ProjectRecord } from "@cadenzor/shared";
+import type { ProjectRecord } from "@kazador/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface CreateProjectPayload {

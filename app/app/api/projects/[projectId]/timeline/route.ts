@@ -8,7 +8,7 @@ import {
   normaliseTimelineItemType,
   type TimelineItemType,
   type TimelineItemRecord,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 interface Params {
   params: {

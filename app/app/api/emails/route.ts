@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import type { EmailRecord } from "@cadenzor/shared";
+import type { EmailRecord } from "@kazador/shared";
 import {
   normaliseLabel,
   normaliseLabels,
   ensureDefaultLabelCoverage,
   EMAIL_FALLBACK_LABEL,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 
 export const runtime = "nodejs";

@@ -6,7 +6,7 @@ import type {
   ProjectTemplateRecord,
   ProjectTemplateItemRecord,
   ProjectStatus,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import {
   createProject,
   fetchProjectTemplates,

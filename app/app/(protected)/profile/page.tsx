@@ -5,7 +5,7 @@ import ProfileDriveIntegration from "../../../components/ProfileDriveIntegration
 const G_SUITE_INTEGRATIONS = [
   {
     name: "Gmail",
-    description: "Bring your Gmail inbox into Cadenzor for faster triage.",
+    description: "Bring your Gmail inbox into Kazador for faster triage.",
   },
 ];
 

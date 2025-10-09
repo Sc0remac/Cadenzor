@@ -222,7 +222,7 @@ export default function ProfileForm() {
             onChange={handleChange}
             disabled={isDisabled}
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 disabled:cursor-not-allowed disabled:bg-gray-100"
-            placeholder="Cadenzor"
+            placeholder="Kazador"
           />
         </div>
 

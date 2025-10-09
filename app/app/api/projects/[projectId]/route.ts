@@ -14,14 +14,14 @@ import {
   mapTimelineDependencyRow,
   mapApprovalRow,
 } from "../../../../lib/projectMappers";
-import type { ProjectRecord, EmailRecord } from "@cadenzor/shared";
+import type { ProjectRecord, EmailRecord } from "@kazador/shared";
 import {
   ensureDefaultLabelCoverage,
   normaliseLabel,
   normaliseLabels,
   detectTimelineConflicts,
   computeTopActions,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 interface Params {
   params: {

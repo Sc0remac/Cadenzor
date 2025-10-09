@@ -1,5 +1,5 @@
 {
-  "name": "@cadenzor/worker",
+  "name": "@kazador/worker",
   "version": "0.1.0",
   "main": "dist/index.js",
   "type": "module",
@@ -14,7 +14,7 @@
     "@supabase/supabase-js": "^2.39.1",
     "googleapis": "^128.0.0",
     "dotenv": "^16.0.3",
-    "@cadenzor/shared": "file:../shared"
+    "@kazador/shared": "file:../shared"
   },
   "devDependencies": {
     "typescript": "^5.2.2"

@@ -1,16 +1,16 @@
-# Cadenzor – AI Artist Management Platform
+# Kazador – AI Artist Management Platform
 
 ## Overview
 
-**Cadenzor** is an AI-powered operational platform for artist management that transforms unstructured communications (email, meetings, voice notes) into a structured, timeline-first workspace. It automates email triage, surfaces critical actions through a Priority Engine, and enables managers to orchestrate complex touring, promotion, legal, and finance workflows with human-in-the-loop approval guardrails.
+**Kazador** is an AI-powered operational platform for artist management that transforms unstructured communications (email, meetings, voice notes) into a structured, timeline-first workspace. It automates email triage, surfaces critical actions through a Priority Engine, and enables managers to orchestrate complex touring, promotion, legal, and finance workflows with human-in-the-loop approval guardrails.
 
-Built for artist managers like Oran who juggle dozens of shows, contracts, promo requests, and logistics across multiple artists and territories, Cadenzor replaces spreadsheet chaos with an intelligent, collaborative hub.
+Built for artist managers like Oran who juggle dozens of shows, contracts, promo requests, and logistics across multiple artists and territories, Kazador replaces spreadsheet chaos with an intelligent, collaborative hub.
 
 ---
 
 ## Product Vision
 
-Cadenzor turns the flood of emails, attachments, and meetings into a single source of truth:
+Kazador turns the flood of emails, attachments, and meetings into a single source of truth:
 
 - **Timeline Studio** – Multi-lane visual workspace showing Live, Promo, Writing, Brand, and Release operations with dependencies, conflicts, and travel buffers.
 - **Priority Engine** – Scores tasks, emails, and timeline items by urgency, impact, dependencies, and proximity to events—no more rigid T-7/T-2 rules.
@@ -29,7 +29,7 @@ Cadenzor turns the flood of emails, attachments, and meetings into a single sour
 **What it does:**
 - Connects to Gmail and classifies unread messages using a detailed taxonomy covering legal, finance, logistics, booking, promo, assets, and fan mail.
 - Extracts entities (artist, venue, city, dates, fees) and enriches contact records.
-- Applies Gmail labels (e.g., `Cadenzor/LEGAL/Contract_Draft`, `Cadenzor/artist/Barry_Cant_Swim`) for in-inbox visibility.
+- Applies Gmail labels (e.g., `Kazador/LEGAL/Contract_Draft`, `Kazador/artist/Barry_Cant_Swim`) for in-inbox visibility.
 - Stores summaries, labels, and priority scores in Supabase.
 
 **Primary labels** (one required per email):
@@ -248,7 +248,7 @@ Deterministic automation recipes with clear inputs/outputs and an autopilot poli
 ### Monorepo Structure
 
 ```
-cadenzor/
+kazador/
 ├── app/               # Next.js 14 dashboard (frontend)
 │   ├── app/           # App Router pages and API routes
 │   ├── components/    # React components
@@ -358,7 +358,7 @@ cadenzor/
 ### 1. Clone the repository
 ```bash
 git clone <repo-url>
-cd cadenzor
+cd kazador
 ```
 
 ### 2. Install dependencies
@@ -555,7 +555,7 @@ npm test
 - **Testing:** Add tests for new features; run `npm test` before committing
 - **Documentation:** Update this file and `AGENTS.md` when adding major features
 
-**Pull requests are welcome!** Enjoy hacking on Cadenzor.
+**Pull requests are welcome!** Enjoy hacking on Kazador.
 
 ---
 
@@ -573,4 +573,4 @@ Private / proprietary (assumed; specify if open-source)
 
 ---
 
-**Cadenzor** – From inbox chaos to timeline clarity. Manage artists like a pro.
+**Kazador** – From inbox chaos to timeline clarity. Manage artists like a pro.

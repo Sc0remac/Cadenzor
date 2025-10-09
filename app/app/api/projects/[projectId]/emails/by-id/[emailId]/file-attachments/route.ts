@@ -14,7 +14,7 @@ import {
 import { queueDerivedLabelApprovals } from "@/lib/driveIndexer";
 import { mapAssetRow, mapProjectSourceRow } from "@/lib/projectMappers";
 import { recordAuditLog } from "@/lib/auditLog";
-import type { DerivedLabelSuggestion } from "@cadenzor/shared";
+import type { DerivedLabelSuggestion } from "@kazador/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

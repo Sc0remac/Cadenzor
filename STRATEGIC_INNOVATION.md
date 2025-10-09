@@ -1,4 +1,4 @@
-# Cadenzor – Strategic Innovation & Maturity Assessment
+# Kazador – Strategic Innovation & Maturity Assessment
 
 **Document Version:** 1.0
 **Date:** October 2025
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-Cadenzor has achieved **Phase 1 (MVP) completion** with a solid foundation for email triage, project management, and timeline visualization. The codebase demonstrates good architectural patterns (monorepo, shared types, modular design) and has **foundational testing coverage**.
+Kazador has achieved **Phase 1 (MVP) completion** with a solid foundation for email triage, project management, and timeline visualization. The codebase demonstrates good architectural patterns (monorepo, shared types, modular design) and has **foundational testing coverage**.
 
 **Current Maturity: 40-50%** towards production-ready AI assistant for music management.
 
@@ -477,7 +477,7 @@ CREATE TABLE project_email_links (
 - Mentioned in 7 places in docs but completely absent in code
 
 **Why it's critical:**
-- Managers live in their calendar – if Cadenzor doesn't sync, they won't use it
+- Managers live in their calendar – if Kazador doesn't sync, they won't use it
 - Conflict detection useless if external calendar events not imported
 - Hold management requires calendar blocking
 
@@ -492,7 +492,7 @@ CREATE TABLE project_email_links (
 4. UI: Calendar tab in Project Hub showing synced events
 
 **Effort:** 2-3 weeks
-**ROI:** HIGH – Makes Cadenzor indispensable
+**ROI:** HIGH – Makes Kazador indispensable
 
 ---
 
@@ -524,7 +524,7 @@ Use a **lightweight sentiment/urgency model**:
 **Option C: MCP Server for Sentiment (best)**
 - Create MCP server wrapping HuggingFace Transformers
 - Host on Banana/Modal/Replicate
-- Cadenzor calls MCP tool `analyze_sentiment(text) → {sentiment, urgency, tone}`
+- Kazador calls MCP tool `analyze_sentiment(text) → {sentiment, urgency, tone}`
 - Costs: ~$0.0001/email, fast, reusable
 
 **Implementation:**
@@ -809,7 +809,7 @@ CREATE INDEX idx_project_item_links_timeline ON project_item_links (ref_id) WHER
 
 ### Phase 1: Production Hardening (4-6 weeks)
 
-**Goal:** Make Cadenzor reliable, robust, and user-friendly for daily use.
+**Goal:** Make Kazador reliable, robust, and user-friendly for daily use.
 
 **Priorities:**
 1. ✅ **Fix relational integrity** (1 week)
@@ -1094,7 +1094,7 @@ const listRes = await gmail.users.history.list({
 
 ## Conclusion
 
-**Cadenzor is 40-50% production-ready.** The foundation is solid (auth, schema, email pipeline), but critical gaps block daily use:
+**Kazador is 40-50% production-ready.** The foundation is solid (auth, schema, email pipeline), but critical gaps block daily use:
 
 1. ❌ No calendar sync → managers won't trust it
 2. ❌ Priority config hardcoded → Oran blocked on dev
@@ -1114,7 +1114,7 @@ const listRes = await gmail.users.history.list({
 3. Implement calendar sync (Week 3)
 4. Ship first playbook (Week 4)
 
-**If you focus on these 4 items, Cadenzor becomes usable for Oran by end of Month 1.**
+**If you focus on these 4 items, Kazador becomes usable for Oran by end of Month 1.**
 
 The vision is clear. The architecture is sound. Now it's about **execution, iteration, and empowering Oran to self-serve.**
 

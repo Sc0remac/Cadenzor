@@ -9,8 +9,8 @@ import {
   selectPrimaryCategory,
   heuristicLabels,
   EMAIL_FALLBACK_LABEL,
-} from "@cadenzor/shared";
-import type { EmailLabel } from "@cadenzor/shared";
+} from "@kazador/shared";
+import type { EmailLabel } from "@kazador/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -183,8 +183,8 @@ export async function POST(request: Request) {
       return id;
     };
 
-    const ensureCadenzorLabelIds = async (labels: EmailLabel[]): Promise<string[]> => {
-      const base = "Cadenzor";
+    const ensureKazadorLabelIds = async (labels: EmailLabel[]): Promise<string[]> => {
+      const base = "Kazador";
 
       try {
         await ensureLabelId(base);
@@ -329,7 +329,7 @@ export async function POST(request: Request) {
 
         // Apply labels back to Gmail
         try {
-          const addLabelIds = await ensureCadenzorLabelIds(labels);
+          const addLabelIds = await ensureKazadorLabelIds(labels);
           if (addLabelIds.length > 0) {
             await gmail.users.messages.modify({
               userId: "me",

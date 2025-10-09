@@ -13,7 +13,7 @@ import type {
   ProjectTopAction,
   ProjectMemberRecord,
   ProjectMemberRole,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import {
   createProjectTask,
   createTimelineItem,

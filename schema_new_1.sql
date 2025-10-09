@@ -2328,7 +2328,7 @@ CREATE TABLE public.profiles (
 -- Name: TABLE profiles; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.profiles IS 'Stores additional profile information for Cadenzor users';
+COMMENT ON TABLE public.profiles IS 'Stores additional profile information for Kazador users';
 
 
 --

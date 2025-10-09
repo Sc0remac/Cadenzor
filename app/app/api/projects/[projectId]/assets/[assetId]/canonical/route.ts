@@ -3,7 +3,7 @@ import { requireAuthenticatedUser } from "@/lib/serverAuth";
 import { assertProjectRole } from "@/lib/projectAccess";
 import { mapAssetRow } from "@/lib/projectMappers";
 import { recordAuditLog } from "@/lib/auditLog";
-import type { AssetCanonicalCategory } from "@cadenzor/shared";
+import type { AssetCanonicalCategory } from "@kazador/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

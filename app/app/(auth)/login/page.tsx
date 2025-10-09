@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import LoginForm from "../../../components/LoginForm";
 
 export const metadata: Metadata = {
-  title: "Cadenzor | Sign in",
+  title: "Kazador | Sign in",
 };
 
 interface Props {

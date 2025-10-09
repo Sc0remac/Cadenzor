@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EmailLabel, EmailRecord } from "@cadenzor/shared";
+import type { EmailLabel, EmailRecord } from "@kazador/shared";
 import { useAuth } from "./AuthProvider";
-import { DEFAULT_EMAIL_LABELS } from "@cadenzor/shared";
+import { DEFAULT_EMAIL_LABELS } from "@kazador/shared";
 import {
   DEFAULT_EMAILS_PER_PAGE,
   fetchEmailStats,

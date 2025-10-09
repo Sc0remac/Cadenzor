@@ -11,7 +11,7 @@ import {
   selectPrimaryCategory,
   heuristicLabels,
   EMAIL_FALLBACK_LABEL,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 import { classifyEmail } from "./classifyEmail.js";
 
 function decodeBase64Url(data: string): string {
@@ -156,8 +156,8 @@ async function main() {
       return id;
     }
 
-    async function ensureCadenzorLabelIds(labels: EmailLabel[]): Promise<string[]> {
-      const base = "Cadenzor";
+    async function ensureKazadorLabelIds(labels: EmailLabel[]): Promise<string[]> {
+      const base = "Kazador";
 
       try {
         await ensureLabelId(base);
@@ -278,7 +278,7 @@ async function main() {
 
       // Apply labels back to Gmail so they are visible in the user's inbox
       try {
-        const addLabelIds = await ensureCadenzorLabelIds(labels);
+        const addLabelIds = await ensureKazadorLabelIds(labels);
         if (addLabelIds.length > 0) {
           await gmail.users.messages.modify({
             userId: "me",

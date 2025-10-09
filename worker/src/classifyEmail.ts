@@ -3,7 +3,7 @@ import {
   type EmailAnalysisInput,
   type EmailAnalysisResult,
   type EmailLabel,
-} from "@cadenzor/shared";
+} from "@kazador/shared";
 
 export interface ClassificationInput {
   subject: string;

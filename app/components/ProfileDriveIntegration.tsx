@@ -58,7 +58,7 @@ export default function ProfileDriveIntegration() {
   useEffect(() => {
     function handleOAuthMessage(event: MessageEvent) {
       if (!event?.data || typeof event.data !== "object") return;
-      if ((event.data as Record<string, unknown>).source !== "cadenzor-drive") return;
+      if ((event.data as Record<string, unknown>).source !== "kazador-drive") return;
 
       if (event.data.status === "success") {
         setDriveError(null);
@@ -93,7 +93,7 @@ export default function ProfileDriveIntegration() {
     try {
       const redirectTo = typeof window !== "undefined" ? window.location.pathname : "/profile";
       const { authUrl } = await startDriveOAuth({ redirectTo }, accessToken);
-      window.open(authUrl, "cadenzor-drive-oauth", "width=480,height=640");
+      window.open(authUrl, "kazador-drive-oauth", "width=480,height=640");
     } catch (err: any) {
       setDriveError(err?.message || "Failed to start Drive connection");
     } finally {
@@ -120,7 +120,7 @@ export default function ProfileDriveIntegration() {
       <header className="mb-3 space-y-1">
         <h2 className="text-lg font-semibold text-gray-900">Google Drive</h2>
         <p className="text-sm text-gray-600">
-          Authorise Cadenzor to access Drive so you can attach folders and files across all of your projects.
+          Authorise Kazador to access Drive so you can attach folders and files across all of your projects.
         </p>
       </header>
 
@@ -139,7 +139,7 @@ export default function ProfileDriveIntegration() {
             <p>No Google Drive account is connected yet.</p>
           )}
           <p className="mt-2 text-xs text-gray-500">
-            Cadenzor requests read access so you can index folders and select files without leaving the workspace.
+            Kazador requests read access so you can index folders and select files without leaving the workspace.
           </p>
           {driveError ? <p className="mt-2 text-sm text-red-600">{driveError}</p> : null}
         </div>

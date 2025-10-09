@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ProjectRecord } from "@cadenzor/shared";
+import type { ProjectRecord } from "@kazador/shared";
 
 interface ProjectCardProps {
   project: ProjectRecord;

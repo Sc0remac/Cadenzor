@@ -3,7 +3,7 @@ import { ReactNode } from "react";
 import { AuthProvider } from "../components/AuthProvider";
 
 export const metadata = {
-  title: "Cadenzor",
+  title: "Kazador",
   description: "Email triage dashboard for artist management",
 };
 
