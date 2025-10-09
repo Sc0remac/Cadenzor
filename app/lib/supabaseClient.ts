@@ -181,17 +181,18 @@ export interface ProjectListItem {
 }
 
 export interface TimelineExplorerResponse {
-  projects: ProjectRecord[];
+  project: ProjectRecord | null;
   items: TimelineItemRecord[];
   dependencies: TimelineDependencyRecord[];
 }
 
 export interface FetchTimelineExplorerOptions {
   accessToken?: string;
-  projectIds?: string[];
-  status?: string | null;
+  projectId: string;
+  entryTypes?: string[];
   rangeStart?: string | null;
   rangeEnd?: string | null;
+  signal?: AbortSignal;
 }
 
 export async function fetchProjects(options: {
@@ -296,17 +297,17 @@ export async function fetchProjectHub(
   return payload as ProjectHubResponse;
 }
 
-export async function fetchTimelineExplorer(
-  options: FetchTimelineExplorerOptions = {}
-): Promise<TimelineExplorerResponse> {
-  const { accessToken, projectIds, status, rangeStart, rangeEnd } = options;
+export async function fetchTimelineExplorer(options: FetchTimelineExplorerOptions): Promise<TimelineExplorerResponse> {
+  const { accessToken, projectId, entryTypes, rangeStart, rangeEnd, signal } = options;
+
+  if (!projectId) {
+    throw new Error("A projectId is required to load the timeline.");
+  }
 
   const searchParams = new URLSearchParams();
-  if (projectIds && projectIds.length > 0) {
-    searchParams.set("projects", projectIds.join(","));
-  }
-  if (status && status !== "all") {
-    searchParams.set("status", status);
+  searchParams.set("projectId", projectId);
+  if (entryTypes && entryTypes.length > 0) {
+    searchParams.set("entryTypes", entryTypes.join(","));
   }
   if (rangeStart) {
     searchParams.set("rangeStart", rangeStart);
@@ -315,12 +316,13 @@ export async function fetchTimelineExplorer(
     searchParams.set("rangeEnd", rangeEnd);
   }
 
-  const endpoint = searchParams.size > 0 ? `/api/timeline?${searchParams.toString()}` : "/api/timeline";
+  const endpoint = `/api/timeline?${searchParams.toString()}`;
 
   const response = await fetch(endpoint, {
     method: "GET",
     headers: buildHeaders(accessToken),
     cache: "no-store",
+    signal,
   });
 
   const payload = await response.json();
@@ -329,13 +331,13 @@ export async function fetchTimelineExplorer(
     throw new Error(payload?.error || "Failed to fetch timeline view");
   }
 
-  const projects = Array.isArray(payload?.projects) ? (payload.projects as ProjectRecord[]) : [];
+  const project = payload?.project ? (payload.project as ProjectRecord) : null;
   const items = Array.isArray(payload?.items) ? (payload.items as TimelineItemRecord[]) : [];
   const dependencies = Array.isArray(payload?.dependencies)
     ? (payload.dependencies as TimelineDependencyRecord[])
     : [];
 
-  return { projects, items, dependencies };
+  return { project, items, dependencies };
 }
 
 export async function searchProfiles(options: {

@@ -142,3 +142,8 @@ Keep the supporting strategy docs in mind when extending functionality:
 - `Oran Responses.txt` – stakeholder Q&A guiding UX & automation decisions.
 
 With this guide, contributors should be able to navigate the codebase, identify the right package for their change, and understand how frontend, worker, and shared utilities collaborate.
+
+## Update log
+
+- **2025-10-09T00:33:37Z** – Documented the newly added workspace Timeline Studio feature set: navigation entry, `/api/timeline` aggregation endpoint, Supabase client helpers, and the protected Timeline Studio page with advanced filtering controls.
+- **2025-10-09T02:15:00Z** – Reworked the dedicated Timeline Studio into a project-focused, full-screen experience with simplified top filters, entry-type classification, refined API contract, and documented third-party timeline research options.

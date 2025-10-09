@@ -4,7 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TimelineItemRecord, TimelineDependencyRecord } from "@cadenzor/shared";
 import { detectTimelineConflicts, buildConflictIndex, type TimelineConflict } from "@cadenzor/shared";
 
-const DEFAULT_LANES = ["Live", "Promo", "Writing", "Brand", "Release", "General"];
+const DEFAULT_LANES = [
+  "Live",
+  "Promo",
+  "Writing",
+  "Brand",
+  "Release",
+  "General",
+];
 const MIN_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LANE_PADDING_TOP = 12;
@@ -12,6 +19,7 @@ const LANE_PADDING_BOTTOM = 16;
 const ITEM_HEIGHT = 52;
 const ROW_GAP = 10;
 const AXIS_HEIGHT = 44;
+const DEFAULT_BUFFER_HOURS = 4;
 
 export type DependencyKind = "FS" | "SS";
 
@@ -150,11 +158,23 @@ function getTypeStyles(type: TimelineItemRecord["type"]): string {
 export function TimelineStudio({
   items,
   dependencies = [],
+  laneOrder,
+  showBufferControl = false,
+  showConflictSummary = true,
+  title = "Timeline Studio",
+  subtitle = "Visualise items across lanes, dependencies, and milestones.",
+  defaultBufferHours = DEFAULT_BUFFER_HOURS,
 }: {
   items: TimelineItemRecord[];
   dependencies?: TimelineDependencyRecord[];
+  laneOrder?: string[];
+  showBufferControl?: boolean;
+  showConflictSummary?: boolean;
+  title?: string;
+  subtitle?: string;
+  defaultBufferHours?: number;
 }) {
-  const [bufferHours, setBufferHours] = useState(4);
+  const [bufferHours, setBufferHours] = useState(defaultBufferHours);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [timelineWidth, setTimelineWidth] = useState(0);
 
@@ -200,14 +220,15 @@ export function TimelineStudio({
   }, [scheduledItems.length]);
 
   const laneLayouts = useMemo(() => {
-    const laneNames = new Set<string>(DEFAULT_LANES);
+    const lanePriority = laneOrder ?? DEFAULT_LANES;
+    const laneNames = new Set<string>(lanePriority);
     for (const entry of scheduledItems) {
       laneNames.add(entry.lane);
     }
 
     const orderedLanes = Array.from(laneNames).sort((a, b) => {
-      const ai = DEFAULT_LANES.indexOf(a);
-      const bi = DEFAULT_LANES.indexOf(b);
+      const ai = lanePriority.indexOf(a);
+      const bi = lanePriority.indexOf(b);
       if (ai === -1 && bi === -1) return a.localeCompare(b);
       if (ai === -1) return 1;
       if (bi === -1) return -1;
@@ -335,8 +356,8 @@ export function TimelineStudio({
   }, [layouts, timelineWidth]);
 
   const conflicts = useMemo<TimelineConflict[]>(
-    () => detectTimelineConflicts(items, { bufferHours }),
-    [items, bufferHours]
+    () => (showConflictSummary ? detectTimelineConflicts(items, { bufferHours }) : []),
+    [items, bufferHours, showConflictSummary]
   );
 
   const conflictIndex = useMemo(() => buildConflictIndex(conflicts), [conflicts]);
@@ -349,27 +370,29 @@ export function TimelineStudio({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white/95 p-6 shadow-lg backdrop-blur">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Timeline Studio</h3>
-            <p className="text-sm text-gray-500">Visualise items across lanes, dependencies, and buffers.</p>
+            <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+            <p className="text-sm text-slate-500">{subtitle}</p>
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            Travel buffer
-            <input
-              type="range"
-              min={0}
-              max={24}
-              step={1}
-              value={bufferHours}
-              onChange={(event) => setBufferHours(Number(event.target.value))}
-            />
-            <span className="w-8 text-right font-medium text-gray-900">{bufferHours}h</span>
-          </label>
+          {showBufferControl ? (
+            <label className="flex items-center gap-3 text-sm text-slate-600">
+              Travel buffer
+              <input
+                type="range"
+                min={0}
+                max={24}
+                step={1}
+                value={bufferHours}
+                onChange={(event) => setBufferHours(Number(event.target.value))}
+              />
+              <span className="w-8 text-right font-semibold text-slate-900">{bufferHours}h</span>
+            </label>
+          ) : null}
         </div>
 
-        <div className="mt-5 overflow-x-auto">
+        <div className="mt-6 overflow-x-auto">
           <div className="min-w-[720px]">
             <div className="grid grid-cols-[160px_1fr] gap-x-4">
               <div style={{ height: AXIS_HEIGHT }} />
@@ -474,7 +497,7 @@ export function TimelineStudio({
           </div>
         </div>
 
-        {conflicts.length ? (
+        {showConflictSummary && conflicts.length ? (
           <div className="mt-5 space-y-2">
             <h4 className="text-sm font-semibold text-gray-900">Detected conflicts</h4>
             <ul className="space-y-2">
@@ -490,9 +513,9 @@ export function TimelineStudio({
               ))}
             </ul>
           </div>
-        ) : (
+        ) : showConflictSummary ? (
           <p className="mt-5 rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-700">No conflicts detected with the current buffer.</p>
-        )}
+        ) : null}
       </div>
 
       {unscheduledItems.length ? (
