@@ -75,8 +75,6 @@ export interface PriorityConfig {
   health: PriorityHealthConfig;
 }
 
-<<<<<<< ours
-=======
 export type PriorityConfigInput = {
   time?: Partial<PriorityTimeConfig> | null;
   email?: {
@@ -146,7 +144,6 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
->>>>>>> theirs
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -297,14 +294,6 @@ deepFreeze(PRIORITY_CONFIG_DATA);
 
 export const DEFAULT_PRIORITY_CONFIG: PriorityConfig = PRIORITY_CONFIG_DATA;
 
-<<<<<<< ours
-export function getPriorityConfig(_userId?: string): PriorityConfig {
-  return DEFAULT_PRIORITY_CONFIG;
-}
-
-export function clonePriorityConfig(): PriorityConfig {
-  return JSON.parse(JSON.stringify(DEFAULT_PRIORITY_CONFIG)) as PriorityConfig;
-=======
 function sanitizeCategoryWeights(
   overrides: Record<string, unknown> | null | undefined,
   base: Record<string, number>
@@ -624,5 +613,4 @@ export function getPriorityConfig(input?: PriorityConfigInput | null): PriorityC
     return DEFAULT_PRIORITY_CONFIG;
   }
   return normalizePriorityConfigInput(input);
->>>>>>> theirs
 }
