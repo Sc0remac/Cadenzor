@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 4TfUasalx6KW4fWGJO4bncfQ3KbtDsUUmcRUebmwQlFQJlBq4yKhxrP6vxiR6AQ
+\restrict mocHRcuzcanKP6hxshk0cbsVcsouC3DD9vev2dSzuxT84kSaiiezzdbuzaNZWOV
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -659,7 +659,7 @@ CREATE FUNCTION public.set_updated_at() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-  NEW.updated_at = now();
+  NEW.updated_at = timezone('utc', now());
   RETURN NEW;
 END;
 $$;
@@ -2199,6 +2199,40 @@ CREATE TABLE public.audit_logs (
 
 
 --
+-- Name: automation_rule_executions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.automation_rule_executions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    rule_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    status text DEFAULT 'queued'::text NOT NULL,
+    error text,
+    payload jsonb,
+    executed_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
+-- Name: automation_rules; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.automation_rules (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    name text NOT NULL,
+    description text,
+    is_enabled boolean DEFAULT true NOT NULL,
+    trigger_type text NOT NULL,
+    trigger_config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    condition_group jsonb DEFAULT '{}'::jsonb NOT NULL,
+    actions jsonb DEFAULT '[]'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
 -- Name: contacts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2328,7 +2362,7 @@ CREATE TABLE public.profiles (
 -- Name: TABLE profiles; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.profiles IS 'Stores additional profile information for Kazador users';
+COMMENT ON TABLE public.profiles IS 'Stores additional profile information for Cadenzor users';
 
 
 --
@@ -2610,6 +2644,8 @@ CREATE TABLE public.user_preferences (
     quiet_hours jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    priority_config jsonb,
+    priority_config_updated_at timestamp with time zone,
     CONSTRAINT user_preferences_frequency_check CHECK ((digest_frequency = ANY (ARRAY['daily'::text, 'weekly'::text, 'off'::text])))
 );
 
@@ -3051,6 +3087,22 @@ ALTER TABLE ONLY public.assets
 
 ALTER TABLE ONLY public.audit_logs
     ADD CONSTRAINT audit_logs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: automation_rule_executions automation_rule_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.automation_rule_executions
+    ADD CONSTRAINT automation_rule_executions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: automation_rules automation_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.automation_rules
+    ADD CONSTRAINT automation_rules_pkey PRIMARY KEY (id);
 
 
 --
@@ -3728,6 +3780,27 @@ CREATE INDEX audit_logs_project_created_idx ON public.audit_logs USING btree (pr
 
 
 --
+-- Name: automation_rule_executions_rule_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX automation_rule_executions_rule_idx ON public.automation_rule_executions USING btree (rule_id, executed_at DESC);
+
+
+--
+-- Name: automation_rules_enabled_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX automation_rules_enabled_idx ON public.automation_rules USING btree (user_id, is_enabled);
+
+
+--
+-- Name: automation_rules_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX automation_rules_user_id_idx ON public.automation_rules USING btree (user_id);
+
+
+--
 -- Name: digests_user_channel_day_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3924,6 +3997,13 @@ CREATE INDEX timeline_items_project_starts_idx ON public.timeline_items USING bt
 
 
 --
+-- Name: user_preferences_priority_config_gin_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX user_preferences_priority_config_gin_idx ON public.user_preferences USING gin (priority_config);
+
+
+--
 -- Name: user_preferences_user_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4005,6 +4085,13 @@ CREATE TRIGGER approvals_set_updated_at BEFORE UPDATE ON public.approvals FOR EA
 --
 
 CREATE TRIGGER assets_set_updated_at BEFORE UPDATE ON public.assets FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: automation_rules automation_rules_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER automation_rules_set_updated_at BEFORE UPDATE ON public.automation_rules FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -4280,6 +4367,30 @@ ALTER TABLE ONLY public.audit_logs
 
 ALTER TABLE ONLY public.audit_logs
     ADD CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: automation_rule_executions automation_rule_executions_rule_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.automation_rule_executions
+    ADD CONSTRAINT automation_rule_executions_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES public.automation_rules(id) ON DELETE CASCADE;
+
+
+--
+-- Name: automation_rule_executions automation_rule_executions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.automation_rule_executions
+    ADD CONSTRAINT automation_rule_executions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: automation_rules automation_rules_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.automation_rules
+    ADD CONSTRAINT automation_rules_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -5368,5 +5479,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 4TfUasalx6KW4fWGJO4bncfQ3KbtDsUUmcRUebmwQlFQJlBq4yKhxrP6vxiR6AQ
+\unrestrict mocHRcuzcanKP6hxshk0cbsVcsouC3DD9vev2dSzuxT84kSaiiezzdbuzaNZWOV
 
