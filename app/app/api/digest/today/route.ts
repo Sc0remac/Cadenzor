@@ -8,10 +8,12 @@ import {
   mapApprovalRow,
 } from "@/lib/projectMappers";
 import {
+  DEFAULT_PRIORITY_CONFIG,
   buildDigestPayload,
   ensureDefaultLabelCoverage,
   normaliseLabels,
   normaliseLabel,
+  normalizePriorityConfigInput,
   type DigestPayload,
   type UserPreferenceRecord,
   type ProjectDigestMetrics,
@@ -38,6 +40,26 @@ function mapPreferenceRow(row: any): UserPreferenceRecord {
     : parseJson<string[]>(row.channels);
 
   const quietHours = row.quiet_hours ? parseJson<Record<string, unknown>>(row.quiet_hours) : null;
+  const rawPriorityConfig = row.priority_config ?? null;
+  let priorityConfig = DEFAULT_PRIORITY_CONFIG;
+  let priorityConfigSource: UserPreferenceRecord["priorityConfigSource"] = "default";
+
+  if (rawPriorityConfig) {
+    try {
+      const parsed = typeof rawPriorityConfig === "object" ? rawPriorityConfig : JSON.parse(String(rawPriorityConfig));
+      priorityConfig = normalizePriorityConfigInput(parsed);
+      priorityConfigSource = "custom";
+    } catch (err) {
+      priorityConfig = DEFAULT_PRIORITY_CONFIG;
+      priorityConfigSource = "default";
+    }
+  }
+
+  const priorityConfigUpdatedAt = row.priority_config_updated_at
+    ? String(row.priority_config_updated_at)
+    : row.updated_at
+    ? String(row.updated_at)
+    : null;
 
   return {
     id: row.id as string,
@@ -47,6 +69,9 @@ function mapPreferenceRow(row: any): UserPreferenceRecord {
     timezone: (row.timezone as string) ?? "UTC",
     channels,
     quietHours,
+    priorityConfig,
+    priorityConfigSource,
+    priorityConfigUpdatedAt,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at ?? row.created_at),
   } satisfies UserPreferenceRecord;
@@ -138,7 +163,11 @@ export async function GET(request: Request) {
   const now = new Date();
 
   if (projectIds.length === 0) {
-    const digest = buildDigestPayload({ projects: [], now });
+    const digest = buildDigestPayload({
+      projects: [],
+      now,
+      priorityConfig: preferences?.priorityConfig ?? DEFAULT_PRIORITY_CONFIG,
+    });
     return NextResponse.json({
       digest,
       preferences,
@@ -275,6 +304,7 @@ export async function GET(request: Request) {
     now,
     perProjectLimit: 5,
     topActionLimit: 12,
+    priorityConfig: preferences?.priorityConfig ?? DEFAULT_PRIORITY_CONFIG,
   });
 
   const generatedFor = now.toISOString().slice(0, 10);

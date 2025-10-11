@@ -4,11 +4,13 @@ config();
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { fileURLToPath } from "node:url";
 import {
+  DEFAULT_PRIORITY_CONFIG,
   buildDigestPayload,
   getPriorityConfig,
   ensureDefaultLabelCoverage,
   normaliseLabel,
   normaliseLabels,
+  normalizePriorityConfigInput,
   getTimelineLaneForType,
   type DigestPayload,
   type ProjectRecord,
@@ -19,6 +21,7 @@ import {
   type EmailRecord,
   type UserPreferenceRecord,
   type ProjectDigestMetrics,
+  type PriorityConfig,
 } from "@kazador/shared";
 
 type ServiceClient = SupabaseClient<any, any, any>;
@@ -158,6 +161,27 @@ function mapPreferenceRow(row: any): UserPreferenceRecord {
     ? (row.channels as string[])
     : parseJson<string[]>(row.channels);
   const quietHours = row.quiet_hours ? parseJson<Record<string, unknown>>(row.quiet_hours) : null;
+  const rawPriorityConfig = row.priority_config ?? null;
+  let priorityConfig = DEFAULT_PRIORITY_CONFIG;
+  let priorityConfigSource: UserPreferenceRecord["priorityConfigSource"] = "default";
+
+  if (rawPriorityConfig) {
+    try {
+      const parsed = typeof rawPriorityConfig === "object" ? rawPriorityConfig : JSON.parse(String(rawPriorityConfig));
+      priorityConfig = normalizePriorityConfigInput(parsed);
+      priorityConfigSource = "custom";
+    } catch (err) {
+      priorityConfig = DEFAULT_PRIORITY_CONFIG;
+      priorityConfigSource = "default";
+    }
+  }
+
+  const priorityConfigUpdatedAt = row.priority_config_updated_at
+    ? String(row.priority_config_updated_at)
+    : row.updated_at
+    ? String(row.updated_at)
+    : null;
+
   return {
     id: row.id as string,
     userId: row.user_id as string,
@@ -166,6 +190,9 @@ function mapPreferenceRow(row: any): UserPreferenceRecord {
     timezone: (row.timezone as string) ?? "UTC",
     channels,
     quietHours,
+    priorityConfig,
+    priorityConfigSource,
+    priorityConfigUpdatedAt,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at ?? row.created_at),
   } satisfies UserPreferenceRecord;
@@ -253,8 +280,11 @@ async function loadProjectsForUser(client: ServiceClient, userId: string) {
   return (projectRows ?? []).map(mapProjectRow);
 }
 
-async function buildDigestForUser(client: ServiceClient, userId: string) {
-  const priorityConfig = getPriorityConfig(userId);
+async function buildDigestForUser(
+  client: ServiceClient,
+  userId: string,
+  priorityConfig: PriorityConfig = DEFAULT_PRIORITY_CONFIG
+) {
   const projects = await loadProjectsForUser(client, userId);
   if (projects.length === 0) {
     const payload = buildDigestPayload({ projects: [], now: new Date(), priorityConfig });
@@ -443,7 +473,7 @@ async function generateDailyDigests(): Promise<void> {
         continue;
       }
 
-      const { payload } = await buildDigestForUser(client, userId);
+      const { payload } = await buildDigestForUser(client, userId, preferences.priorityConfig);
 
       if (preferences.channels.includes("web")) {
         await persistDigest(client, userId, generatedFor, "web", payload, "generated");

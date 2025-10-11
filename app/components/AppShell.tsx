@@ -145,6 +145,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 >
                   Profile
                 </Link>
+                <Link
+                  href="/settings/priorities"
+                  className="block px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-100"
+                  role="menuitem"
+                >
+                  Priority settings
+                </Link>
                 {profile?.isAdmin ? (
                   <Link
                     href="/admin"

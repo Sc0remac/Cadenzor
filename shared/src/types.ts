@@ -1,3 +1,5 @@
+import type { PriorityConfig, PriorityConfigSource } from "./priorityConfig";
+
 export type EmailLabel = string;
 
 export interface LabelDefinition {
@@ -672,6 +674,9 @@ export interface UserPreferenceRecord {
   timezone: string;
   channels: string[];
   quietHours: Record<string, unknown> | null;
+  priorityConfig: PriorityConfig;
+  priorityConfigSource: PriorityConfigSource;
+  priorityConfigUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

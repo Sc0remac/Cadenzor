@@ -75,6 +75,78 @@ export interface PriorityConfig {
   health: PriorityHealthConfig;
 }
 
+<<<<<<< ours
+=======
+export type PriorityConfigInput = {
+  time?: Partial<PriorityTimeConfig> | null;
+  email?: {
+    categoryWeights?: Record<string, unknown> | null;
+    defaultCategoryWeight?: unknown;
+    modelPriorityWeight?: unknown;
+    unreadBonus?: unknown;
+    snoozeAgeReduction?: unknown;
+    triageStateAdjustments?: Partial<Record<EmailTriageState, unknown>> | null;
+    crossLabelRules?: Array<Partial<PriorityEmailCrossLabelRule>> | null;
+    idleAge?: Partial<PriorityEmailIdleAgeConfig> | null;
+  } | null;
+  tasks?: Partial<PriorityTaskConfig> | null;
+  timeline?: Partial<PriorityTimelineConfig> | null;
+  health?: Partial<PriorityHealthConfig> | null;
+} | null;
+
+export type PriorityConfigSource = "default" | "custom";
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+interface SanitizeOptions {
+  min?: number;
+  max?: number;
+  round?: boolean;
+}
+
+function sanitizeNumber(value: unknown, fallback: number, options: SanitizeOptions = {}): number {
+  const parsed = toNumber(value);
+  let result = parsed ?? fallback;
+  if (options.min != null) {
+    result = Math.max(options.min, result);
+  }
+  if (options.max != null) {
+    result = Math.min(options.max, result);
+  }
+  if (options.round) {
+    result = Math.round(result);
+  }
+  return Number.isFinite(result) ? result : fallback;
+}
+
+function sanitizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const lower = value.trim().toLowerCase();
+    if (lower === "true" || lower === "1") return true;
+    if (lower === "false" || lower === "0") return false;
+  }
+  return fallback;
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+>>>>>>> theirs
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -225,10 +297,332 @@ deepFreeze(PRIORITY_CONFIG_DATA);
 
 export const DEFAULT_PRIORITY_CONFIG: PriorityConfig = PRIORITY_CONFIG_DATA;
 
+<<<<<<< ours
 export function getPriorityConfig(_userId?: string): PriorityConfig {
   return DEFAULT_PRIORITY_CONFIG;
 }
 
 export function clonePriorityConfig(): PriorityConfig {
   return JSON.parse(JSON.stringify(DEFAULT_PRIORITY_CONFIG)) as PriorityConfig;
+=======
+function sanitizeCategoryWeights(
+  overrides: Record<string, unknown> | null | undefined,
+  base: Record<string, number>
+): Record<string, number> {
+  const result: Record<string, number> = { ...base };
+  if (!overrides) {
+    return result;
+  }
+
+  for (const [key, value] of Object.entries(overrides)) {
+    const fallback = result[key] ?? base[key] ?? 0;
+    result[key] = sanitizeNumber(value, fallback, { min: 0, max: 100, round: true });
+  }
+
+  return result;
+}
+
+function sanitizeTriageAdjustments(
+  overrides: Partial<Record<EmailTriageState, unknown>> | null | undefined,
+  base: Record<EmailTriageState, number>
+): Record<EmailTriageState, number> {
+  const result: Record<EmailTriageState, number> = { ...base };
+  if (!overrides) {
+    return result;
+  }
+
+  for (const [key, value] of Object.entries(overrides)) {
+    const state = key as EmailTriageState;
+    result[state] = sanitizeNumber(value, result[state] ?? 0, { min: -200, max: 200, round: true });
+  }
+
+  return result;
+}
+
+function sanitizeCrossLabelRules(
+  overrides: Array<Partial<PriorityEmailCrossLabelRule>> | null | undefined,
+  base: PriorityEmailCrossLabelRule[]
+): PriorityEmailCrossLabelRule[] {
+  if (!overrides || overrides.length === 0) {
+    return base.map((rule) => clone(rule));
+  }
+
+  const overridesByPrefix = new Map<string, PriorityEmailCrossLabelRule>();
+
+  for (const candidate of overrides) {
+    if (!candidate) continue;
+    const prefixValue = typeof candidate.prefix === "string" ? candidate.prefix.trim() : "";
+    if (!prefixValue) continue;
+    const fallback = base.find((rule) => rule.prefix === prefixValue);
+    const weight = sanitizeNumber(candidate.weight, fallback?.weight ?? 0, {
+      min: -200,
+      max: 200,
+      round: true,
+    });
+    const descriptionRaw =
+      typeof candidate.description === "string" && candidate.description.trim()
+        ? candidate.description.trim()
+        : fallback?.description ?? prefixValue;
+    const caseInsensitive = sanitizeBoolean(candidate.caseInsensitive, fallback?.caseInsensitive ?? true);
+
+    overridesByPrefix.set(prefixValue, {
+      prefix: prefixValue,
+      weight,
+      description: descriptionRaw,
+      caseInsensitive,
+    });
+  }
+
+  const seen = new Set<string>();
+  const merged: PriorityEmailCrossLabelRule[] = base.map((rule) => {
+    const override = overridesByPrefix.get(rule.prefix);
+    seen.add(rule.prefix);
+    return override ? override : clone(rule);
+  });
+
+  for (const [prefix, rule] of overridesByPrefix.entries()) {
+    if (!seen.has(prefix)) {
+      merged.push(rule);
+    }
+  }
+
+  return merged;
+}
+
+function sanitizeEmailConfig(
+  input: PriorityConfigInput["email"],
+  base: PriorityEmailConfig
+): PriorityEmailConfig {
+  if (!input) {
+    return clone(base);
+  }
+
+  return {
+    categoryWeights: sanitizeCategoryWeights(input.categoryWeights, base.categoryWeights),
+    defaultCategoryWeight: sanitizeNumber(input.defaultCategoryWeight, base.defaultCategoryWeight, {
+      min: 0,
+      max: 100,
+      round: true,
+    }),
+    modelPriorityWeight: sanitizeNumber(input.modelPriorityWeight, base.modelPriorityWeight, {
+      min: 0,
+      max: 1,
+    }),
+    unreadBonus: sanitizeNumber(input.unreadBonus, base.unreadBonus, { min: -100, max: 200, round: true }),
+    snoozeAgeReduction: sanitizeNumber(input.snoozeAgeReduction, base.snoozeAgeReduction, { min: 0, max: 1 }),
+    triageStateAdjustments: sanitizeTriageAdjustments(input.triageStateAdjustments, base.triageStateAdjustments),
+    crossLabelRules: sanitizeCrossLabelRules(input.crossLabelRules, base.crossLabelRules),
+    idleAge: {
+      shortWindowHours: sanitizeNumber(input.idleAge?.shortWindowHours, base.idleAge.shortWindowHours, {
+        min: 0,
+        max: 72,
+        round: true,
+      }),
+      shortWindowMultiplier: sanitizeNumber(input.idleAge?.shortWindowMultiplier, base.idleAge.shortWindowMultiplier, {
+        min: 0,
+      }),
+      mediumWindowStartHours: sanitizeNumber(
+        input.idleAge?.mediumWindowStartHours,
+        base.idleAge.mediumWindowStartHours,
+        { min: 0, max: 72, round: true }
+      ),
+      mediumWindowEndHours: sanitizeNumber(input.idleAge?.mediumWindowEndHours, base.idleAge.mediumWindowEndHours, {
+        min: 1,
+        max: 168,
+        round: true,
+      }),
+      mediumWindowBase: sanitizeNumber(input.idleAge?.mediumWindowBase, base.idleAge.mediumWindowBase, {
+        min: 0,
+        max: 200,
+        round: true,
+      }),
+      mediumWindowMultiplier: sanitizeNumber(
+        input.idleAge?.mediumWindowMultiplier,
+        base.idleAge.mediumWindowMultiplier,
+        { min: 0 }
+      ),
+      longWindowStartHours: sanitizeNumber(input.idleAge?.longWindowStartHours, base.idleAge.longWindowStartHours, {
+        min: 0,
+        max: 720,
+        round: true,
+      }),
+      longWindowBase: sanitizeNumber(input.idleAge?.longWindowBase, base.idleAge.longWindowBase, {
+        min: 0,
+        max: 400,
+        round: true,
+      }),
+      longWindowMultiplier: sanitizeNumber(input.idleAge?.longWindowMultiplier, base.idleAge.longWindowMultiplier, {
+        min: 0,
+      }),
+      longWindowMaxBonus: sanitizeNumber(input.idleAge?.longWindowMaxBonus, base.idleAge.longWindowMaxBonus, {
+        min: 0,
+        max: 400,
+        round: true,
+      }),
+    },
+  } satisfies PriorityEmailConfig;
+}
+
+function sanitizeTimeConfig(input: PriorityConfigInput["time"], base: PriorityTimeConfig): PriorityTimeConfig {
+  if (!input) {
+    return clone(base);
+  }
+  return {
+    upcomingBaseScore: sanitizeNumber(input.upcomingBaseScore, base.upcomingBaseScore, { min: 0, max: 200, round: true }),
+    upcomingDecayPerDay: sanitizeNumber(input.upcomingDecayPerDay, base.upcomingDecayPerDay, { min: 0, max: 50, round: true }),
+    overdueBasePenalty: sanitizeNumber(input.overdueBasePenalty, base.overdueBasePenalty, { min: 0, max: 200, round: true }),
+    overduePenaltyPerDay: sanitizeNumber(input.overduePenaltyPerDay, base.overduePenaltyPerDay, {
+      min: 0,
+      max: 100,
+      round: true,
+    }),
+    overdueMaxPenalty: sanitizeNumber(input.overdueMaxPenalty, base.overdueMaxPenalty, { min: 0, max: 400, round: true }),
+  } satisfies PriorityTimeConfig;
+}
+
+function sanitizeTaskConfig(input: PriorityConfigInput["tasks"], base: PriorityTaskConfig): PriorityTaskConfig {
+  if (!input) {
+    return clone(base);
+  }
+  return {
+    noDueDateValue: sanitizeNumber(input.noDueDateValue, base.noDueDateValue, { min: 0, max: 100, round: true }),
+    manualPriorityWeight: sanitizeNumber(input.manualPriorityWeight, base.manualPriorityWeight, { min: 0, max: 1 }),
+    statusBoosts: {
+      ...base.statusBoosts,
+      ...Object.fromEntries(
+        Object.entries(input.statusBoosts ?? {}).map(([key, value]) => [
+          key,
+          sanitizeNumber(value, base.statusBoosts[key as keyof PriorityTaskConfig["statusBoosts"]] ?? 0, {
+            min: -100,
+            max: 200,
+            round: true,
+          }),
+        ])
+      ),
+    },
+  } satisfies PriorityTaskConfig;
+}
+
+function sanitizeTimelineConfig(input: PriorityConfigInput["timeline"], base: PriorityTimelineConfig): PriorityTimelineConfig {
+  if (!input) {
+    return clone(base);
+  }
+  return {
+    undatedValue: sanitizeNumber(input.undatedValue, base.undatedValue, { min: 0, max: 100, round: true }),
+    manualPriorityWeight: sanitizeNumber(input.manualPriorityWeight, base.manualPriorityWeight, { min: 0, max: 1 }),
+    conflictPenalties: {
+      ...base.conflictPenalties,
+      ...Object.fromEntries(
+        Object.entries(input.conflictPenalties ?? {}).map(([key, value]) => [
+          key,
+          sanitizeNumber(value, base.conflictPenalties[key as keyof PriorityTimelineConfig["conflictPenalties"]] ?? 0, {
+            min: 0,
+            max: 200,
+            round: true,
+          }),
+        ])
+      ),
+    } as PriorityTimelineConfig["conflictPenalties"],
+    dependencyPenalties: {
+      finishToStart: sanitizeNumber(
+        input.dependencyPenalties?.finishToStart,
+        base.dependencyPenalties.finishToStart,
+        { min: 0, max: 200, round: true }
+      ),
+      other: sanitizeNumber(input.dependencyPenalties?.other, base.dependencyPenalties.other, {
+        min: 0,
+        max: 200,
+        round: true,
+      }),
+    },
+  } satisfies PriorityTimelineConfig;
+}
+
+function sanitizeHealthConfig(input: PriorityConfigInput["health"], base: PriorityHealthConfig): PriorityHealthConfig {
+  if (!input) {
+    return clone(base);
+  }
+  return {
+    baseScore: sanitizeNumber(input.baseScore, base.baseScore, { min: 0, max: 200, round: true }),
+    minScore: sanitizeNumber(input.minScore, base.minScore, { min: 0, max: 200, round: true }),
+    maxScore: sanitizeNumber(input.maxScore, base.maxScore, { min: 0, max: 200, round: true }),
+    openTaskPenaltyPerItem: sanitizeNumber(
+      input.openTaskPenaltyPerItem,
+      base.openTaskPenaltyPerItem,
+      { min: 0, max: 100, round: true }
+    ),
+    openTaskPenaltyCap: sanitizeNumber(input.openTaskPenaltyCap, base.openTaskPenaltyCap, { min: 0, max: 400, round: true }),
+    conflictPenaltyPerItem: sanitizeNumber(
+      input.conflictPenaltyPerItem,
+      base.conflictPenaltyPerItem,
+      { min: 0, max: 100, round: true }
+    ),
+    conflictPenaltyCap: sanitizeNumber(input.conflictPenaltyCap, base.conflictPenaltyCap, { min: 0, max: 400, round: true }),
+    linkedEmailPenaltyPerItem: sanitizeNumber(
+      input.linkedEmailPenaltyPerItem,
+      base.linkedEmailPenaltyPerItem,
+      { min: 0, max: 100, round: true }
+    ),
+    linkedEmailPenaltyCap: sanitizeNumber(
+      input.linkedEmailPenaltyCap,
+      base.linkedEmailPenaltyCap,
+      { min: 0, max: 400, round: true }
+    ),
+  } satisfies PriorityHealthConfig;
+}
+
+export function clonePriorityConfig(base: PriorityConfig = DEFAULT_PRIORITY_CONFIG): PriorityConfig {
+  return clone(base);
+}
+
+export function normalizePriorityConfigInput(
+  input: PriorityConfigInput,
+  base: PriorityConfig = DEFAULT_PRIORITY_CONFIG
+): PriorityConfig {
+  const workingBase = clonePriorityConfig(base);
+  if (!input || typeof input !== "object") {
+    return workingBase;
+  }
+
+  const configInput = input as PriorityConfigInput;
+  return {
+    time: sanitizeTimeConfig(configInput.time, workingBase.time),
+    email: sanitizeEmailConfig(configInput.email, workingBase.email),
+    tasks: sanitizeTaskConfig(configInput.tasks, workingBase.tasks),
+    timeline: sanitizeTimelineConfig(configInput.timeline, workingBase.timeline),
+    health: sanitizeHealthConfig(configInput.health, workingBase.health),
+  } satisfies PriorityConfig;
+}
+
+function sortObject<T>(value: T): T {
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sortObject(item)) as unknown as T;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+    a.localeCompare(b)
+  );
+  const sorted: Record<string, unknown> = {};
+  for (const [key, val] of entries) {
+    sorted[key] = sortObject(val);
+  }
+  return sorted as unknown as T;
+}
+
+function stableSerialize(value: unknown): string {
+  return JSON.stringify(sortObject(value));
+}
+
+export function isPriorityConfigEqual(a: PriorityConfig, b: PriorityConfig): boolean {
+  return stableSerialize(a) === stableSerialize(b);
+}
+
+export function getPriorityConfig(input?: PriorityConfigInput | null): PriorityConfig {
+  if (!input) {
+    return DEFAULT_PRIORITY_CONFIG;
+  }
+  return normalizePriorityConfigInput(input);
+>>>>>>> theirs
 }
