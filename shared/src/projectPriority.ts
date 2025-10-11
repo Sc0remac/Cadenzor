@@ -4,7 +4,6 @@ import type {
   TimelineDependencyRecord,
   ProjectTopAction,
   EmailRecord,
-  EmailTriageState,
   ProjectRecord,
   ApprovalRecord,
   ProjectDigestMetrics,
@@ -13,94 +12,20 @@ import type {
   DigestPayload,
 } from "./types";
 import { buildConflictIndex, detectTimelineConflicts, type TimelineConflict } from "./timelineConflicts";
+import { getPriorityConfig, type PriorityConfig, type PriorityEmailCrossLabelRule } from "./priorityConfig";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
-const CATEGORY_SEVERITY_WEIGHTS: Record<string, number> = Object.freeze({
-  "LEGAL/Contract_Executed": 95,
-  "LEGAL/Contract_Draft": 90,
-  "LEGAL/Addendum_or_Amendment": 88,
-  "LEGAL/NDA_or_Clearance": 82,
-  "LEGAL/Insurance_Indemnity": 80,
-  "LEGAL/Compliance": 76,
-  "FINANCE/Settlement": 94,
-  "FINANCE/Invoice": 86,
-  "FINANCE/Payment_Remittance": 70,
-  "FINANCE/Banking_Details": 96,
-  "FINANCE/Tax_Docs": 82,
-  "FINANCE/Expenses_Receipts": 66,
-  "FINANCE/Royalties_Publishing": 62,
-  "LOGISTICS/Itinerary_DaySheet": 83,
-  "LOGISTICS/Travel": 90,
-  "LOGISTICS/Accommodation": 78,
-  "LOGISTICS/Ground_Transport": 74,
-  "LOGISTICS/Visas_Immigration": 95,
-  "LOGISTICS/Technical_Advance": 82,
-  "LOGISTICS/Passes_Access": 70,
-  "BOOKING/Offer": 86,
-  "BOOKING/Hold_or_Availability": 72,
-  "BOOKING/Confirmation": 90,
-  "BOOKING/Reschedule_or_Cancel": 96,
-  "PROMO/Promo_Time_Request": 78,
-  "PROMO/Press_Feature": 60,
-  "PROMO/Radio_Playlist": 58,
-  "PROMO/Deliverables": 74,
-  "PROMO/Promos_Submission": 50,
-  "ASSETS/Artwork": 55,
-  "ASSETS/Audio": 68,
-  "ASSETS/Video": 62,
-  "ASSETS/Photos": 48,
-  "ASSETS/Logos_Brand": 52,
-  "ASSETS/EPK_OneSheet": 56,
-  "FAN/Support_or_Thanks": 20,
-  "FAN/Request": 28,
-  "FAN/Issues_or_Safety": 72,
-  "MISC/Uncategorized": 18,
-});
-
-const DEFAULT_EMAIL_SEVERITY = 40;
-
-const TRIAGE_STATE_ADJUSTMENTS: Record<EmailTriageState, number> = {
-  unassigned: 12,
-  acknowledged: -8,
-  snoozed: -24,
-  resolved: -80,
-};
-
-const UNREAD_URGENCY_BONUS = 18;
-const SNOOZE_AGE_REDUCTION = 0.65;
-
-const CROSS_LABEL_RULES: Array<{
-  test: (label: string) => boolean;
-  weight: number;
-  description: string;
-}> = [
-  {
-    test: (label) => label.toLowerCase().startsWith("approval/"),
-    weight: 22,
-    description: "Pending approval",
-  },
-  {
-    test: (label) => label.toLowerCase().startsWith("risk/"),
-    weight: 24,
-    description: "Risk flagged",
-  },
-  {
-    test: (label) => label.toLowerCase().startsWith("status/escalated"),
-    weight: 18,
-    description: "Escalated thread",
-  },
-  {
-    test: (label) => label.toLowerCase().startsWith("status/pending_reply"),
-    weight: 14,
-    description: "Awaiting reply",
-  },
-];
-
 interface ScoreComponent {
   label: string;
   value: number;
+}
+
+function matchesCrossLabelRule(rule: PriorityEmailCrossLabelRule, label: string): boolean {
+  const comparisonLabel = rule.caseInsensitive ? label.toLowerCase() : label;
+  const prefix = rule.caseInsensitive ? rule.prefix.toLowerCase() : rule.prefix;
+  return comparisonLabel.startsWith(prefix);
 }
 
 export interface ComputeTopActionsInput {
@@ -113,6 +38,7 @@ export interface ComputeTopActionsInput {
   now?: Date;
   emails?: EmailRecord[];
   emailLimit?: number;
+  priorityConfig?: PriorityConfig;
 }
 
 export interface DigestProjectInput {
@@ -131,6 +57,7 @@ export interface BuildDigestInput {
   now?: Date;
   perProjectLimit?: number;
   topActionLimit?: number;
+  priorityConfig?: PriorityConfig;
 }
 
 function formatDays(diffDays: number): string {
@@ -152,12 +79,17 @@ function formatHours(diffHours: number): string {
   return formatDays(diffHours / 24);
 }
 
-function computeDateComponent(date: Date, now: Date, labelPrefix: string): ScoreComponent[] {
+function computeDateComponent(
+  date: Date,
+  now: Date,
+  labelPrefix: string,
+  timeConfig: PriorityConfig["time"]
+): ScoreComponent[] {
   const diffMs = date.getTime() - now.getTime();
   const diffDays = diffMs / DAY_MS;
 
   if (diffMs >= 0) {
-    const clamped = Math.max(0, 45 - Math.round(diffDays * 4));
+    const clamped = Math.max(0, timeConfig.upcomingBaseScore - Math.round(diffDays * timeConfig.upcomingDecayPerDay));
     if (clamped === 0) {
       return [];
     }
@@ -165,7 +97,10 @@ function computeDateComponent(date: Date, now: Date, labelPrefix: string): Score
   }
 
   const overdueDays = Math.abs(diffDays);
-  const penalty = Math.min(60, 25 + Math.round(overdueDays * 6));
+  const penalty = Math.min(
+    timeConfig.overdueMaxPenalty,
+    timeConfig.overdueBasePenalty + Math.round(overdueDays * timeConfig.overduePenaltyPerDay)
+  );
   return [{ label: `${labelPrefix} overdue by ${formatDays(diffDays)}`, value: -penalty }];
 }
 
@@ -182,28 +117,35 @@ function computeManualPriorityComponent(priority: number | null | undefined, wei
 
 function computeConflictComponents(
   itemId: string,
-  conflictIndex: Map<string, TimelineConflict[]>
+  conflictIndex: Map<string, TimelineConflict[]>,
+  config: PriorityConfig["timeline"]
 ): ScoreComponent[] {
   const conflicts = conflictIndex.get(itemId);
   if (!conflicts || conflicts.length === 0) {
     return [];
   }
   return conflicts.map((conflict) => {
-    const basePenalty = conflict.severity === "error" ? 25 : 15;
+    const penalty =
+      config.conflictPenalties[conflict.severity] ?? config.conflictPenalties.default;
     return {
       label: `Conflict: ${conflict.message}`,
-      value: -basePenalty,
+      value: -penalty,
     } satisfies ScoreComponent;
   });
 }
 
-function computeEmailComponents(email: EmailRecord, now: Date): ScoreComponent[] {
+function computeEmailComponents(
+  email: EmailRecord,
+  now: Date,
+  config: PriorityConfig["email"]
+): ScoreComponent[] {
   const components: ScoreComponent[] = [];
-  const categoryWeight = CATEGORY_SEVERITY_WEIGHTS[email.category] ?? DEFAULT_EMAIL_SEVERITY;
+  const categoryWeight = config.categoryWeights[email.category] ?? config.defaultCategoryWeight;
   components.push({ label: `Category ${email.category}`, value: categoryWeight });
 
   if (email.priorityScore != null && !Number.isNaN(email.priorityScore)) {
-    const priorityValue = Math.round(Math.min(100, Math.max(0, email.priorityScore)) * 0.6);
+    const clamped = Math.min(100, Math.max(0, email.priorityScore));
+    const priorityValue = Math.round(clamped * config.modelPriorityWeight);
     if (priorityValue !== 0) {
       components.push({ label: `Model priority ${email.priorityScore}`, value: priorityValue });
     }
@@ -216,16 +158,23 @@ function computeEmailComponents(email: EmailRecord, now: Date): ScoreComponent[]
       if (diffMs >= 0) {
         const ageHours = diffMs / HOUR_MS;
         let ageValue: number;
-        if (ageHours < 4) {
-          ageValue = Math.round(ageHours * 5);
-        } else if (ageHours < 24) {
-          ageValue = Math.round(16 + (ageHours - 4) * 2.2);
+        const idleConfig = config.idleAge;
+        if (ageHours < idleConfig.shortWindowHours) {
+          ageValue = Math.round(ageHours * idleConfig.shortWindowMultiplier);
+        } else if (ageHours < idleConfig.mediumWindowEndHours) {
+          const hoursIntoMedium = Math.max(0, ageHours - idleConfig.mediumWindowStartHours);
+          ageValue = Math.round(idleConfig.mediumWindowBase + hoursIntoMedium * idleConfig.mediumWindowMultiplier);
         } else {
-          ageValue = Math.round(40 + Math.min(28, (ageHours - 24) * 1.5));
+          const hoursBeyondLongStart = Math.max(0, ageHours - idleConfig.longWindowStartHours);
+          const incremental = Math.min(
+            idleConfig.longWindowMaxBonus,
+            hoursBeyondLongStart * idleConfig.longWindowMultiplier
+          );
+          ageValue = Math.round(idleConfig.longWindowBase + incremental);
         }
 
         if (email.triageState === "snoozed") {
-          ageValue = Math.round(ageValue * SNOOZE_AGE_REDUCTION);
+          ageValue = Math.round(ageValue * config.snoozeAgeReduction);
         }
 
         if (ageValue !== 0) {
@@ -236,18 +185,18 @@ function computeEmailComponents(email: EmailRecord, now: Date): ScoreComponent[]
   }
 
   if (!email.isRead) {
-    components.push({ label: "Unread in inbox", value: UNREAD_URGENCY_BONUS });
+    components.push({ label: "Unread in inbox", value: config.unreadBonus });
   }
 
   const state = email.triageState ?? "unassigned";
-  const triageAdjustment = TRIAGE_STATE_ADJUSTMENTS[state] ?? 0;
+  const triageAdjustment = config.triageStateAdjustments[state] ?? 0;
   if (triageAdjustment !== 0) {
     components.push({ label: `Triage ${state}`, value: triageAdjustment });
   }
 
   const uniqueLabels = Array.isArray(email.labels) ? Array.from(new Set(email.labels)) : [];
-  for (const rule of CROSS_LABEL_RULES) {
-    if (uniqueLabels.some(rule.test)) {
+  for (const rule of config.crossLabelRules) {
+    if (uniqueLabels.some((label) => matchesCrossLabelRule(rule, label))) {
       components.push({ label: rule.description, value: rule.weight });
     }
   }
@@ -255,12 +204,17 @@ function computeEmailComponents(email: EmailRecord, now: Date): ScoreComponent[]
   return components;
 }
 
-function buildEmailTopAction(projectId: string, email: EmailRecord, now: Date): ProjectTopAction | null {
+function buildEmailTopAction(
+  projectId: string,
+  email: EmailRecord,
+  now: Date,
+  config: PriorityConfig["email"]
+): ProjectTopAction | null {
   if (email.triageState === "resolved") {
     return null;
   }
 
-  const components = computeEmailComponents(email, now);
+  const components = computeEmailComponents(email, now, config);
   if (components.length === 0) {
     return null;
   }
@@ -297,12 +251,17 @@ function buildEmailTopAction(projectId: string, email: EmailRecord, now: Date): 
   } satisfies ProjectTopAction;
 }
 
-function calculateHealthScore(openTasks: number, conflicts: number, linkedEmails: number): number {
-  const taskPenalty = Math.min(45, openTasks * 4);
-  const conflictPenalty = Math.min(30, conflicts * 7);
-  const emailPenalty = Math.min(20, linkedEmails * 2);
-  const health = 100 - taskPenalty - conflictPenalty - emailPenalty;
-  return Math.max(5, Math.min(100, Math.round(health)));
+function calculateHealthScore(
+  openTasks: number,
+  conflicts: number,
+  linkedEmails: number,
+  config: PriorityConfig["health"]
+): number {
+  const taskPenalty = Math.min(config.openTaskPenaltyCap, openTasks * config.openTaskPenaltyPerItem);
+  const conflictPenalty = Math.min(config.conflictPenaltyCap, conflicts * config.conflictPenaltyPerItem);
+  const emailPenalty = Math.min(config.linkedEmailPenaltyCap, linkedEmails * config.linkedEmailPenaltyPerItem);
+  const health = config.baseScore - taskPenalty - conflictPenalty - emailPenalty;
+  return Math.max(config.minScore, Math.min(config.maxScore, Math.round(health)));
 }
 
 export function computeTopActions(input: ComputeTopActionsInput): ProjectTopAction[] {
@@ -316,8 +275,10 @@ export function computeTopActions(input: ComputeTopActionsInput): ProjectTopActi
     now = new Date(),
     emails = [],
     emailLimit,
+    priorityConfig: providedConfig,
   } = input;
 
+  const priorityConfig = providedConfig ?? getPriorityConfig();
   const timelineConflicts = conflicts ?? detectTimelineConflicts(timelineItems);
   const conflictIndex = buildConflictIndex(timelineConflicts);
   const dependencyLookup = new Map<string, TimelineDependencyRecord[]>();
@@ -337,14 +298,14 @@ export function computeTopActions(input: ComputeTopActionsInput): ProjectTopActi
     const components: ScoreComponent[] = [];
     if (task.dueAt) {
       const dueDate = new Date(task.dueAt);
-      components.push(...computeDateComponent(dueDate, now, "Due"));
+      components.push(...computeDateComponent(dueDate, now, "Due", priorityConfig.time));
     } else {
-      components.push({ label: "No due date set", value: 10 });
+      components.push({ label: "No due date set", value: priorityConfig.tasks.noDueDateValue });
     }
 
-    components.push(...computeManualPriorityComponent(task.priority, 0.3));
+    components.push(...computeManualPriorityComponent(task.priority, priorityConfig.tasks.manualPriorityWeight));
 
-    const statusBoost = task.status === "in_progress" ? 8 : task.status === "waiting" ? 4 : 0;
+    const statusBoost = priorityConfig.tasks.statusBoosts[task.status] ?? 0;
     if (statusBoost !== 0) {
       components.push({ label: `Status ${task.status}`, value: statusBoost });
     }
@@ -381,23 +342,25 @@ export function computeTopActions(input: ComputeTopActionsInput): ProjectTopActi
 
     const components: ScoreComponent[] = [];
     if (item.startsAt) {
-      components.push(...computeDateComponent(new Date(item.startsAt), now, "Starts"));
+      components.push(...computeDateComponent(new Date(item.startsAt), now, "Starts", priorityConfig.time));
     } else if (item.endsAt) {
-      components.push(...computeDateComponent(new Date(item.endsAt), now, "Ends"));
+      components.push(...computeDateComponent(new Date(item.endsAt), now, "Ends", priorityConfig.time));
     } else if (item.dueAt) {
-      components.push(...computeDateComponent(new Date(item.dueAt), now, "Due"));
+      components.push(...computeDateComponent(new Date(item.dueAt), now, "Due", priorityConfig.time));
     } else {
-      components.push({ label: "Undated timeline entry", value: 6 });
+      components.push({ label: "Undated timeline entry", value: priorityConfig.timeline.undatedValue });
     }
 
-    components.push(...computeManualPriorityComponent(item.priorityScore, 0.25));
+    components.push(...computeManualPriorityComponent(item.priorityScore, priorityConfig.timeline.manualPriorityWeight));
 
-    const itemConflicts = computeConflictComponents(item.id, conflictIndex);
+    const itemConflicts = computeConflictComponents(item.id, conflictIndex, priorityConfig.timeline);
     components.push(...itemConflicts);
 
     const blockers = dependencyLookup.get(item.id) ?? [];
     if (blockers.length > 0) {
-      const unresolvedPenalty = blockers.some((dependency) => dependency.kind === "FS") ? 10 : 6;
+      const unresolvedPenalty = blockers.some((dependency) => dependency.kind === "FS")
+        ? priorityConfig.timeline.dependencyPenalties.finishToStart
+        : priorityConfig.timeline.dependencyPenalties.other;
       components.push({
         label: `Blocked by ${blockers.length} item${blockers.length === 1 ? "" : "s"}`,
         value: -unresolvedPenalty,
@@ -431,7 +394,7 @@ export function computeTopActions(input: ComputeTopActionsInput): ProjectTopActi
 
   const emailActions: ProjectTopAction[] = [];
   for (const email of emails) {
-    const action = buildEmailTopAction(projectId, email, now);
+    const action = buildEmailTopAction(projectId, email, now, priorityConfig.email);
     if (action) {
       emailActions.push(action);
     }
@@ -453,6 +416,7 @@ export function computeTopActions(input: ComputeTopActionsInput): ProjectTopActi
 }
 
 export function buildDigestPayload(input: BuildDigestInput): DigestPayload {
+  const priorityConfig = input.priorityConfig ?? getPriorityConfig();
   const now = input.now ?? new Date();
   const perProjectLimit = input.perProjectLimit ?? 5;
   const topActionLimit = input.topActionLimit ?? 10;
@@ -468,6 +432,7 @@ export function buildDigestPayload(input: BuildDigestInput): DigestPayload {
       emails: entry.emails,
       minimumCount: perProjectLimit,
       now,
+      priorityConfig,
     });
 
     const openTasks = entry.metrics?.openTasks ?? entry.tasks.filter((task) => !["done", "completed"].includes(task.status)).length;
@@ -479,7 +444,8 @@ export function buildDigestPayload(input: BuildDigestInput): DigestPayload {
     }).length;
     const linkedEmails = entry.metrics?.linkedEmails ?? (entry.emails ?? []).length;
     const conflictCount = entry.metrics?.conflicts ?? conflicts.length;
-    const healthScore = entry.metrics?.healthScore ?? calculateHealthScore(openTasks, conflictCount, linkedEmails);
+    const healthScore =
+      entry.metrics?.healthScore ?? calculateHealthScore(openTasks, conflictCount, linkedEmails, priorityConfig.health);
     const trend = entry.metrics?.trend ?? null;
 
     const metrics: ProjectDigestMetrics = {

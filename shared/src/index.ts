@@ -5,3 +5,4 @@ export * from "./heuristicLabels";
 export * from "./projectPriority";
 export * from "./timelineConflicts";
 export * from "./projectSuggestions";
+export * from "./priorityConfig";

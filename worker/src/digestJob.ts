@@ -5,6 +5,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { fileURLToPath } from "node:url";
 import {
   buildDigestPayload,
+  getPriorityConfig,
   ensureDefaultLabelCoverage,
   normaliseLabel,
   normaliseLabels,
@@ -253,9 +254,10 @@ async function loadProjectsForUser(client: ServiceClient, userId: string) {
 }
 
 async function buildDigestForUser(client: ServiceClient, userId: string) {
+  const priorityConfig = getPriorityConfig(userId);
   const projects = await loadProjectsForUser(client, userId);
   if (projects.length === 0) {
-    const payload = buildDigestPayload({ projects: [], now: new Date() });
+    const payload = buildDigestPayload({ projects: [], now: new Date(), priorityConfig });
     return { payload, projects }; // used for empty digest
   }
 
@@ -375,6 +377,7 @@ async function buildDigestForUser(client: ServiceClient, userId: string) {
     now: new Date(),
     perProjectLimit: 5,
     topActionLimit: 12,
+    priorityConfig,
   });
 
   return { payload, projects: digestProjects };

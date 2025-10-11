@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeTopActions, buildDigestPayload } from "../projectPriority";
+import { getPriorityConfig, clonePriorityConfig } from "../priorityConfig";
+import type { PriorityConfig } from "../priorityConfig";
 import type {
   EmailRecord,
   ProjectRecord,
@@ -100,12 +102,82 @@ describe("projectPriority", () => {
       emails,
       now: NOW,
       minimumCount: 3,
+      priorityConfig: getPriorityConfig(),
     });
 
     expect(actions.length).toBeGreaterThan(0);
     expect(actions[0].entityType).toBe("email");
     expect(actions[0].score).toBeGreaterThan(80);
     expect(actions[0].rationale.join(" ")).toContain("Visas_Immigration");
+  });
+
+  it("respects configurable email category weights", () => {
+    const priorityConfig = getPriorityConfig();
+    const urgentCategory = "LOGISTICS/Visas_Immigration";
+    const calmCategory = "FAN/Support_or_Thanks";
+    const urgentEmail = buildEmail({ id: "email-urgent", category: urgentCategory, labels: [], priorityScore: 0 });
+    const calmEmail = buildEmail({ id: "email-calm", category: calmCategory, labels: [], priorityScore: 0 });
+
+    const baseline = computeTopActions({
+      projectId: "project-1",
+      tasks: [],
+      timelineItems: [],
+      dependencies: [],
+      emails: [urgentEmail, calmEmail],
+      now: NOW,
+      minimumCount: 2,
+      priorityConfig,
+    });
+
+    expect(baseline[0]?.refId).toBe("email-urgent");
+
+    const customConfig: PriorityConfig = clonePriorityConfig();
+    customConfig.email.categoryWeights[urgentCategory] = 10;
+    customConfig.email.categoryWeights[calmCategory] = 160;
+
+    const tweaked = computeTopActions({
+      projectId: "project-1",
+      tasks: [],
+      timelineItems: [],
+      dependencies: [],
+      emails: [urgentEmail, calmEmail],
+      now: NOW,
+      minimumCount: 2,
+      priorityConfig: customConfig,
+    });
+
+    expect(tweaked[0]?.refId).toBe("email-calm");
+  });
+
+  it("applies configurable manual priority weight for tasks", () => {
+    const baseActions = computeTopActions({
+      projectId: "project-1",
+      tasks: [buildTask({ id: "task-manual", priority: 80, dueAt: null })],
+      timelineItems: [],
+      dependencies: [],
+      emails: [],
+      now: NOW,
+      minimumCount: 1,
+      priorityConfig: getPriorityConfig(),
+    });
+
+    const baseScore = baseActions[0]?.score ?? 0;
+
+    const customConfig = clonePriorityConfig();
+    customConfig.tasks.manualPriorityWeight = customConfig.tasks.manualPriorityWeight * 2;
+
+    const customActions = computeTopActions({
+      projectId: "project-1",
+      tasks: [buildTask({ id: "task-manual", priority: 80, dueAt: null })],
+      timelineItems: [],
+      dependencies: [],
+      emails: [],
+      now: NOW,
+      minimumCount: 1,
+      priorityConfig: customConfig,
+    });
+
+    expect(customActions[0]?.score ?? 0).toBeGreaterThan(baseScore);
   });
 
   it("builds digest payload with meta counts", () => {
@@ -132,6 +204,7 @@ describe("projectPriority", () => {
       now: NOW,
       perProjectLimit: 3,
       topActionLimit: 5,
+      priorityConfig: getPriorityConfig(),
     });
 
     expect(payload.meta.totalProjects).toBe(1);
