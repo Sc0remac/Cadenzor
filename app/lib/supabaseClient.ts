@@ -19,6 +19,7 @@ import type {
   DigestPayload,
   UserPreferenceRecord,
   DigestRecord,
+  TimelineLaneDefinition,
 } from "@kazador/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -184,6 +185,7 @@ export interface TimelineExplorerResponse {
   project: ProjectRecord | null;
   items: TimelineItemRecord[];
   dependencies: TimelineDependencyRecord[];
+  lanes: TimelineLaneDefinition[];
 }
 
 export interface FetchTimelineExplorerOptions {
@@ -271,6 +273,7 @@ export interface ProjectHubResponse {
   assetLinks: AssetLinkRecord[];
   timelineItems: TimelineItemRecord[];
   timelineDependencies: TimelineDependencyRecord[];
+  laneDefinitions: TimelineLaneDefinition[];
   tasks: ProjectTaskRecord[];
   itemLinks: ProjectItemLinkRecord[];
   emailLinks: Array<{ link: ProjectEmailLinkRecord; email: EmailRecord | null }>;
@@ -336,8 +339,9 @@ export async function fetchTimelineExplorer(options: FetchTimelineExplorerOption
   const dependencies = Array.isArray(payload?.dependencies)
     ? (payload.dependencies as TimelineDependencyRecord[])
     : [];
+  const lanes = Array.isArray(payload?.lanes) ? (payload.lanes as TimelineLaneDefinition[]) : [];
 
-  return { project, items, dependencies };
+  return { project, items, dependencies, lanes };
 }
 
 export async function searchProfiles(options: {

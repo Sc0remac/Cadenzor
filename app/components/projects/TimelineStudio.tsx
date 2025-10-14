@@ -13,6 +13,7 @@ import type {
   TimelineItemRecord,
   TimelineItemStatus,
   TimelineLane,
+  TimelineLaneDefinition,
 } from "@kazador/shared";
 import { buildConflictIndex, detectTimelineConflicts } from "@kazador/shared";
 
@@ -30,47 +31,62 @@ const MIN_PIN_WIDTH = 12;
 const MAX_ZOOM = 3;
 const MIN_ZOOM = 0.4;
 
-const LANE_CONFIG: Record<
-  TimelineLane,
-  { label: string; tint: string; accent: string; border: string }
-> = {
-  LIVE_HOLDS: {
-    label: "Live / Holds",
-    tint: "bg-slate-900/60",
-    accent: "from-purple-500/30 to-purple-500/0",
-    border: "border-purple-400/40",
-  },
-  TRAVEL: {
-    label: "Travel",
-    tint: "bg-sky-900/60",
-    accent: "from-sky-400/30 to-sky-400/0",
-    border: "border-sky-400/40",
-  },
-  PROMO: {
-    label: "Promo",
-    tint: "bg-emerald-900/60",
-    accent: "from-emerald-400/30 to-emerald-400/0",
-    border: "border-emerald-400/40",
-  },
-  RELEASE: {
-    label: "Release",
-    tint: "bg-amber-900/60",
-    accent: "from-amber-400/30 to-amber-400/0",
-    border: "border-amber-400/40",
-  },
-  LEGAL: {
-    label: "Legal",
-    tint: "bg-rose-900/60",
-    accent: "from-rose-400/30 to-rose-400/0",
-    border: "border-rose-400/40",
-  },
-  FINANCE: {
-    label: "Finance",
-    tint: "bg-cyan-900/60",
-    accent: "from-cyan-400/30 to-cyan-400/0",
-    border: "border-cyan-400/40",
-  },
+const DEFAULT_LANE_COLORS: Record<string, string> = {
+  LIVE_HOLDS: "#7c3aed",
+  TRAVEL: "#0284c7",
+  PROMO: "#0f766e",
+  RELEASE: "#f97316",
+  LEGAL: "#dc2626",
+  FINANCE: "#06b6d4",
 };
+
+const FALLBACK_LANE_COLOR = "#475569";
+
+function normaliseHex(color?: string | null): string {
+  if (!color) return FALLBACK_LANE_COLOR;
+  let value = color.trim();
+  if (!value) return FALLBACK_LANE_COLOR;
+  if (!value.startsWith("#")) {
+    const hexMatch = value.match(/[0-9a-fA-F]{6}/);
+    if (!hexMatch) return FALLBACK_LANE_COLOR;
+    value = `#${hexMatch[0]}`;
+  }
+  if (value.length === 4) {
+    return `#${value[1]}${value[1]}${value[2]}${value[2]}${value[3]}${value[3]}`;
+  }
+  if (value.length >= 7) {
+    return value.slice(0, 7);
+  }
+  return FALLBACK_LANE_COLOR;
+}
+
+function withAlpha(color: string, alpha: number): string {
+  const hex = normaliseHex(color).slice(1);
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const safeAlpha = Math.min(1, Math.max(0, alpha));
+  return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
+}
+
+function buildLaneVisual(color?: string | null) {
+  const base = normaliseHex(color);
+  return {
+    base,
+    background: withAlpha(base, 0.12),
+    accent: `linear-gradient(90deg, ${withAlpha(base, 0.4)} 0%, ${withAlpha(base, 0.08)} 65%, transparent 100%)`,
+    border: withAlpha(base, 0.35),
+  };
+}
+
+function formatLaneLabel(slug: string): string {
+  return slug
+    .toLowerCase()
+    .split(/[_\s]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 const TYPE_COLORS: Record<
   TimelineItemRecord["type"],
@@ -127,14 +143,17 @@ type ContextAction = "edit" | "attach" | "convert";
 interface LaneState {
   id: TimelineLane;
   label: string;
+  color: string;
   visible: boolean;
   collapsed: boolean;
+  sortOrder: number;
 }
 
 interface TimelineStudioProps {
   items: TimelineItemRecord[];
   dependencies?: TimelineDependencyRecord[];
   lanes?: LaneState[];
+  laneDefinitions?: TimelineLaneDefinition[];
   viewMode: TimelineViewMode;
   startDate: Date;
   endDate: Date;
@@ -325,6 +344,7 @@ export function TimelineStudio({
   items,
   dependencies = [],
   lanes,
+  laneDefinitions,
   viewMode,
   startDate,
   endDate,
@@ -451,22 +471,68 @@ export function TimelineStudio({
   const today = Date.now();
   const todayPosition = today >= startMs && today <= endMs ? (today - startMs) * pxPerMs : null;
 
-  const laneDefinitions: LaneState[] = useMemo(() => {
-    if (lanes && lanes.length) {
-      return lanes;
+  const laneMetadata = useMemo(() => {
+    if (laneDefinitions && laneDefinitions.length) {
+      return [...laneDefinitions]
+        .map((lane, index) => {
+          const slug = lane.slug || lane.id;
+          const defaultColor = DEFAULT_LANE_COLORS[slug] ?? FALLBACK_LANE_COLOR;
+          return {
+            id: slug as TimelineLane,
+            label: lane.name || formatLaneLabel(slug),
+            color: normaliseHex(lane.color ?? defaultColor),
+            sortOrder: lane.sortOrder ?? index * 100,
+          };
+        })
+        .sort((a, b) => {
+          if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+          return a.label.localeCompare(b.label);
+        });
     }
-    return (Object.keys(LANE_CONFIG) as TimelineLane[]).map((laneId) => ({
-      id: laneId,
-      label: LANE_CONFIG[laneId].label,
+    return Object.entries(DEFAULT_LANE_COLORS).map(([slug, color], index) => ({
+      id: slug as TimelineLane,
+      label: formatLaneLabel(slug),
+      color: normaliseHex(color),
+      sortOrder: index * 100,
+    }));
+  }, [laneDefinitions]);
+
+  const laneStateList: LaneState[] = useMemo(() => {
+    if (lanes && lanes.length) {
+      return lanes
+        .map((lane) => {
+          const meta = laneMetadata.find((entry) => entry.id === lane.id) ?? {
+            id: lane.id,
+            label: formatLaneLabel(String(lane.id)),
+            color: normaliseHex(DEFAULT_LANE_COLORS[String(lane.id)] ?? FALLBACK_LANE_COLOR),
+            sortOrder: 9999,
+          };
+          return {
+            ...lane,
+            label: meta.label,
+            color: meta.color,
+            sortOrder: meta.sortOrder,
+          };
+        })
+        .sort((a, b) => {
+          if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+          return a.label.localeCompare(b.label);
+        });
+    }
+    return laneMetadata.map((lane) => ({
+      id: lane.id,
+      label: lane.label,
+      color: lane.color,
       visible: true,
       collapsed: false,
+      sortOrder: lane.sortOrder,
     }));
-  }, [lanes]);
+  }, [lanes, laneMetadata]);
   const positionedLayouts = useMemo<LaneLayout[]>(() => {
     let offset = 0;
     const layouts: LaneLayout[] = [];
 
-    for (const lane of laneDefinitions) {
+    for (const lane of laneStateList) {
       if (!lane.visible) {
         const height = lane.collapsed ? LANE_HEADER_HEIGHT : LANE_HEADER_HEIGHT;
         layouts.push({
@@ -544,13 +610,13 @@ export function TimelineStudio({
     }
 
     return layouts;
-  }, [laneDefinitions, localItems, pxPerMs, startMs]);
+  }, [laneStateList, localItems, pxPerMs, startMs]);
 
   const totalHeight = useMemo(() => {
-    if (!positionedLayouts.length) return laneDefinitions.length * LANE_HEADER_HEIGHT;
+    if (!positionedLayouts.length) return laneStateList.length * LANE_HEADER_HEIGHT;
     const last = positionedLayouts[positionedLayouts.length - 1];
     return last.offsetTop + last.height;
-  }, [positionedLayouts, laneDefinitions.length]);
+  }, [positionedLayouts, laneStateList.length]);
 
   const conflictIndex = useMemo(() => {
     const conflicts = detectTimelineConflicts(localItems, { bufferHours: 4 });
@@ -782,16 +848,26 @@ export function TimelineStudio({
           </div>
           <div className="relative" style={{ height: totalHeight }}>
             {positionedLayouts.map((layout) => {
-              const config = LANE_CONFIG[layout.lane.id];
+              const visuals = buildLaneVisual(layout.lane.color);
               return (
                 <div
                   key={layout.lane.id}
-                  className="flex items-start justify-between border-b border-slate-900/60 px-4"
-                  style={{ height: layout.height }}
+                  className="flex items-start justify-between border-b px-4"
+                  style={{
+                    height: layout.height,
+                    borderColor: visuals.border,
+                    background: layout.lane.collapsed ? "transparent" : withAlpha(visuals.base, 0.08),
+                  }}
                 >
                   <div className="py-4">
-                    <p className="text-sm font-semibold text-white">{config.label}</p>
-                    <p className="text-xs text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: visuals.base }}
+                      />
+                      <p className="text-sm font-semibold text-white">{layout.lane.label}</p>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">
                       {layout.rowCount > 0 ? `${layout.items.length} scheduled` : "Collapsed"}
                     </p>
                   </div>
@@ -852,24 +928,27 @@ export function TimelineStudio({
                 </div>
 
                 {positionedLayouts.map((layout) => {
-                  const config = LANE_CONFIG[layout.lane.id];
+                  const visuals = buildLaneVisual(layout.lane.color);
                   return (
                     <div
                       key={layout.lane.id}
-                      className={`absolute inset-x-0 ${config.tint}`}
-                      style={{ top: layout.offsetTop, height: layout.height }}
+                      className="absolute inset-x-0"
+                      style={{ top: layout.offsetTop, height: layout.height, background: visuals.background }}
                     >
                       <div
-                        className={`pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${config.accent}`}
+                        className="pointer-events-none absolute inset-x-0 top-0 h-1"
+                        style={{ background: visuals.accent }}
                         aria-hidden
                       />
-                      <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-px ${config.border}`} />
+                      <div
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-px"
+                        style={{ backgroundColor: visuals.border }}
+                      />
                     </div>
                   );
                 })}
 
                 {virtualizedLayouts.map((layout) => {
-                  const config = LANE_CONFIG[layout.lane.id];
                   if (!layout.visibleItems || layout.visibleItems.length === 0) {
                     return null;
                   }

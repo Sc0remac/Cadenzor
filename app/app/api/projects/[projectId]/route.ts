@@ -13,6 +13,7 @@ import {
   mapProjectEmailLinkRow,
   mapTimelineDependencyRow,
   mapApprovalRow,
+  mapLaneDefinitionRow,
 } from "../../../../lib/projectMappers";
 import type { ProjectRecord, EmailRecord } from "@kazador/shared";
 import {
@@ -80,6 +81,7 @@ export async function GET(request: Request, { params }: Params) {
     emailLinksRes,
     dependenciesRes,
     approvalsRes,
+    laneDefinitionsRes,
   ] = await Promise.all([
     supabase
       .from("project_members")
@@ -128,6 +130,12 @@ export async function GET(request: Request, { params }: Params) {
       .eq("project_id", projectId)
       .eq("status", "pending")
       .order("created_at", { ascending: true }),
+    supabase
+      .from("lane_definitions")
+      .select("*")
+      .or(`user_id.eq.${user.id},user_id.is.null`)
+      .order("sort_order", { ascending: true, nullsFirst: false })
+      .order("name", { ascending: true }),
   ]);
 
   if (membersRes.error) {
@@ -159,6 +167,9 @@ export async function GET(request: Request, { params }: Params) {
   }
   if (approvalsRes.error) {
     return formatError(approvalsRes.error.message, 500);
+  }
+  if (laneDefinitionsRes.error) {
+    return formatError(laneDefinitionsRes.error.message, 500);
   }
 
   const memberRows = membersRes.data ?? [];
@@ -198,6 +209,7 @@ export async function GET(request: Request, { params }: Params) {
   const itemLinks = (linksRes.data ?? []).map(mapProjectItemLinkRow);
   const timelineDependencies = (dependenciesRes.data ?? []).map(mapTimelineDependencyRow);
   const approvals = (approvalsRes.data ?? []).map(mapApprovalRow);
+  const laneDefinitions = (laneDefinitionsRes.data ?? []).map(mapLaneDefinitionRow);
 
   const emailLinkRows = emailLinksRes.data ?? [];
   const emailIds = emailLinkRows
@@ -259,6 +271,7 @@ export async function GET(request: Request, { params }: Params) {
     assetLinks,
     timelineItems,
     timelineDependencies,
+    laneDefinitions,
     tasks,
     itemLinks,
     emailLinks,

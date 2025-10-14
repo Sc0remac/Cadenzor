@@ -14,6 +14,7 @@ import type {
   AssetLinkRecord,
   OAuthAccountRecord,
   EmailAttachmentRecord,
+  TimelineLaneDefinition,
 } from "@kazador/shared";
 
 import { getTimelineLaneForType } from "@kazador/shared";
@@ -218,6 +219,25 @@ export function mapTimelineItemRow(row: any): TimelineItemRecord {
     conflictFlags,
     layoutRow: row.layout_row != null ? Number(row.layout_row) : null,
     territory: typeof labels.territory === "string" ? labels.territory : null,
+  };
+}
+
+export function mapLaneDefinitionRow(row: any): TimelineLaneDefinition {
+  const autoAssignRulesRaw = row.auto_assign_rules != null ? parseJson<Record<string, unknown>>(row.auto_assign_rules) : null;
+  const autoAssignRules = autoAssignRulesRaw && Object.keys(autoAssignRulesRaw).length > 0 ? autoAssignRulesRaw : null;
+  return {
+    id: row.id as string,
+    slug: (row.slug as string) ?? (row.id as string),
+    userId: (row.user_id as string) ?? null,
+    name: row.name as string,
+    description: (row.description as string) ?? null,
+    color: (row.color as string) ?? null,
+    icon: (row.icon as string) ?? null,
+    sortOrder: row.sort_order != null ? Number(row.sort_order) : 0,
+    autoAssignRules,
+    isDefault: Boolean(row.is_default),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
   };
 }
 

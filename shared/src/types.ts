@@ -466,7 +466,22 @@ export type TimelineItemType =
   | "LEGAL_ACTION"
   | "FINANCE_ACTION";
 
-export type TimelineLane = "LIVE_HOLDS" | "TRAVEL" | "PROMO" | "RELEASE" | "LEGAL" | "FINANCE";
+export type TimelineLane = string;
+
+export interface TimelineLaneDefinition {
+  id: string;
+  slug: string;
+  userId: string | null;
+  name: string;
+  description: string | null;
+  color: string | null;
+  icon: string | null;
+  sortOrder: number;
+  autoAssignRules: Record<string, unknown> | null;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export type TimelineItemStatus = "planned" | "tentative" | "confirmed" | "waiting" | "done" | "canceled";
 

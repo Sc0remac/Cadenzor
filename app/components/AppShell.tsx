@@ -159,6 +159,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 >
                   Automation rules
                 </Link>
+                <Link
+                  href="/settings/lanes"
+                  className="block px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-100"
+                  role="menuitem"
+                >
+                  Timeline lanes
+                </Link>
                 {profile?.isAdmin ? (
                   <Link
                     href="/admin"

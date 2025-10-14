@@ -4,13 +4,14 @@ import {
   mapProjectRow,
   mapTimelineDependencyRow,
   mapTimelineItemRow,
+  mapLaneDefinitionRow,
 } from "../../../lib/projectMappers";
 import type {
   ProjectRecord,
   TimelineItemRecord,
   TimelineItemType,
-  TimelineLane,
   TimelineItemStatus,
+  TimelineLaneDefinition,
 } from "@kazador/shared";
 
 function parseCsv(value: string | null): string[] {
@@ -73,12 +74,10 @@ function toTypeFilter(values: string[]): Set<TimelineItemType> | null {
   return filtered.length > 0 ? new Set(filtered) : null;
 }
 
-function toLaneFilter(values: string[]): Set<TimelineLane> | null {
+function toLaneFilter(values: string[]): Set<string> | null {
   if (values.length === 0) return null;
-  const allowed: TimelineLane[] = ["LIVE_HOLDS", "TRAVEL", "PROMO", "RELEASE", "LEGAL", "FINANCE"];
-  const lookup = new Set(values.map((value) => value.trim().toUpperCase()));
-  const filtered = allowed.filter((lane) => lookup.has(lane));
-  return filtered.length > 0 ? new Set(filtered) : null;
+  const normalised = values.map((value) => value.trim().toLowerCase()).filter((value) => value.length > 0);
+  return normalised.length > 0 ? new Set(normalised) : null;
 }
 
 function toStatusFilter(values: string[]): Set<TimelineItemStatus> | null {
@@ -170,13 +169,40 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: dependencyError.message }, { status: 500 });
   }
 
-  const items = (timelineRows ?? []).map(mapTimelineItemRow);
+  const { data: laneRows, error: laneError } = await supabase
+    .from("lane_definitions")
+    .select("*")
+    .or(`user_id.eq.${user.id},user_id.is.null`)
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("name", { ascending: true });
+
+  if (laneError) {
+    return NextResponse.json({ error: laneError.message }, { status: 500 });
+  }
+
+  const laneDefinitions: TimelineLaneDefinition[] = (laneRows ?? []).map(mapLaneDefinitionRow);
+
+  const laneLookup = new Map<string, TimelineLaneDefinition>();
+  for (const lane of laneDefinitions) {
+    laneLookup.set(lane.slug.toLowerCase(), lane);
+  }
+
+  const items = (timelineRows ?? []).map((row) => {
+    const mapped = mapTimelineItemRow(row);
+    const laneKey = mapped.lane.toLowerCase();
+    if (laneLookup.has(laneKey)) {
+      return mapped;
+    }
+    return mapped;
+  });
   const filteredItems = items.filter((item) => itemMatchesRange(item, rangeStartMs, rangeEndMs));
 
   const itemsByType = typeFilter
     ? filteredItems.filter((item) => typeFilter.has(item.type))
     : filteredItems;
-  const itemsByLane = laneFilter ? itemsByType.filter((item) => laneFilter.has(item.lane)) : itemsByType;
+  const itemsByLane = laneFilter
+    ? itemsByType.filter((item) => laneFilter.has(item.lane.toLowerCase()))
+    : itemsByType;
   const itemsByStatus = statusFilter
     ? itemsByLane.filter((item) => item.status && statusFilter.has(item.status))
     : itemsByLane;
@@ -188,5 +214,5 @@ export async function GET(request: Request) {
       (dependency) => allowedIds.has(dependency.fromItemId) && allowedIds.has(dependency.toItemId)
     );
 
-  return NextResponse.json({ project, items: itemsByStatus, dependencies });
+  return NextResponse.json({ project, items: itemsByStatus, dependencies, lanes: laneDefinitions });
 }

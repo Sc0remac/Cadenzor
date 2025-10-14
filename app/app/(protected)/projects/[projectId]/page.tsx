@@ -14,6 +14,7 @@ import type {
   ProjectTopAction,
   ProjectMemberRecord,
   ProjectMemberRole,
+  TimelineLaneDefinition,
 } from "@kazador/shared";
 import {
   createProjectTask,
@@ -35,6 +36,7 @@ import {
   searchProfiles,
   type ProfileSummary,
 } from "../../../../lib/supabaseClient";
+import { createLaneDefinition } from "../../../../lib/laneDefinitionsClient";
 import { useAuth } from "../../../../components/AuthProvider";
 import { TimelineStudio } from "../../../../components/projects/TimelineStudio";
 import ProjectFilesTab from "../../../../components/projects/FilesTab";
@@ -152,6 +154,12 @@ export default function ProjectHubPage() {
   const [memberActionKey, setMemberActionKey] = useState<string | null>(null);
   const [memberActionError, setMemberActionError] = useState<string | null>(null);
   const [memberActionSuccess, setMemberActionSuccess] = useState<string | null>(null);
+  const [creatingLane, setCreatingLane] = useState(false);
+  const [newLaneName, setNewLaneName] = useState("");
+  const [newLaneColor, setNewLaneColor] = useState("#6366f1");
+  const [laneCreationLoading, setLaneCreationLoading] = useState(false);
+  const [laneCreationError, setLaneCreationError] = useState<string | null>(null);
+  const [laneCreationSuccess, setLaneCreationSuccess] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!projectId || !accessToken) {
@@ -183,7 +191,28 @@ export default function ProjectHubPage() {
   const timelineDependencies: TimelineDependencyRecord[] = hub?.timelineDependencies ?? [];
   const timelineItems: TimelineItemRecord[] = hub?.timelineItems ?? [];
   const approvals: ApprovalRecord[] = hub?.approvals ?? [];
+  const laneDefinitions: TimelineLaneDefinition[] = hub?.laneDefinitions ?? [];
   const currentUserId = user?.id ?? null;
+
+  const laneNameLookup = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const lane of laneDefinitions) {
+      map.set(lane.slug, lane.name);
+    }
+    return map;
+  }, [laneDefinitions]);
+
+  useEffect(() => {
+    if (laneDefinitions.length === 0) {
+      return;
+    }
+    setTimelineForm((prev) => {
+      if (prev.lane && laneDefinitions.some((lane) => lane.slug === prev.lane)) {
+        return prev;
+      }
+      return { ...prev, lane: laneDefinitions[0].slug };
+    });
+  }, [laneDefinitions]);
 
   const { timelineStartDate, timelineEndDate } = useMemo(() => {
     const now = Date.now();
@@ -342,7 +371,8 @@ export default function ProjectHubPage() {
         metadata.push(`Starts ${new Date(payload.startsAt as string).toLocaleString()}`);
       }
       if (typeof payload.lane === "string") {
-        metadata.push(`Lane ${payload.lane}`);
+        const laneLabel = laneNameLookup.get(payload.lane as string) ?? (payload.lane as string);
+        metadata.push(`Lane ${laneLabel}`);
       }
       if (Array.isArray(payload.dependencies) && (payload.dependencies as unknown[]).length > 0) {
         metadata.push(`${(payload.dependencies as unknown[]).length} dependencies`);
@@ -369,6 +399,55 @@ export default function ProjectHubPage() {
   const handleTaskField = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = event.target;
     setTaskForm((prev) => ({ ...prev, [name]: name === "priority" ? Number(value) : value }));
+  };
+
+  const openLaneCreator = () => {
+    setCreatingLane(true);
+    setLaneCreationError(null);
+    setLaneCreationSuccess(null);
+    setNewLaneName("");
+  };
+
+  const cancelLaneCreator = () => {
+    setCreatingLane(false);
+    setLaneCreationError(null);
+    setLaneCreationSuccess(null);
+    setNewLaneName("");
+  };
+
+  const submitLaneCreation = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!projectId || !accessToken) {
+      setLaneCreationError("Authentication is required to create lanes.");
+      return;
+    }
+    if (!newLaneName.trim()) {
+      setLaneCreationError("Lane name is required");
+      return;
+    }
+
+    setLaneCreationLoading(true);
+    setLaneCreationError(null);
+    setLaneCreationSuccess(null);
+    try {
+      const lane = await createLaneDefinition(
+        {
+          name: newLaneName.trim(),
+          color: newLaneColor?.trim() ? newLaneColor.trim() : null,
+          isDefault: true,
+        },
+        accessToken
+      );
+      setLaneCreationSuccess(`Created lane “${lane.name}”.`);
+      setCreatingLane(false);
+      setNewLaneName("");
+      await loadHub();
+      setTimelineForm((prev) => ({ ...prev, lane: lane.slug }));
+    } catch (err: any) {
+      setLaneCreationError(err?.message || "Failed to create lane");
+    } finally {
+      setLaneCreationLoading(false);
+    }
   };
 
   const submitTimelineItem = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -400,7 +479,10 @@ export default function ProjectHubPage() {
         },
         accessToken
       );
-      setTimelineForm(INITIAL_TIMELINE_FORM);
+      const preservedLane = laneDefinitions.some((lane) => lane.slug === timelineForm.lane)
+        ? timelineForm.lane
+        : laneDefinitions[0]?.slug ?? "";
+      setTimelineForm({ ...INITIAL_TIMELINE_FORM, lane: preservedLane });
       await loadHub();
     } catch (err: any) {
       setError(err?.message || "Failed to add timeline item");
@@ -826,7 +908,7 @@ export default function ProjectHubPage() {
                 <li key={item.id} className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-gray-900">{item.title}</p>
-                    <p className="text-xs text-gray-500">{item.lane || "General"}</p>
+                    <p className="text-xs text-gray-500">{laneNameLookup.get(item.lane) ?? item.lane ?? "General"}</p>
                   </div>
                   <span className="text-xs text-gray-500">{item.startsAt ? new Date(item.startsAt).toLocaleString() : "No date"}</span>
                 </li>
@@ -895,13 +977,73 @@ export default function ProjectHubPage() {
 
   const renderTimeline = () => (
     <div className="space-y-6">
+      {laneCreationSuccess ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {laneCreationSuccess}
+        </div>
+      ) : null}
       <TimelineForm
         form={timelineForm}
         onFieldChange={handleTimelineField}
         onDependenciesChange={handleTimelineDependencies}
         onSubmit={submitTimelineItem}
         existingItems={hub?.timelineItems ?? []}
+        laneDefinitions={laneDefinitions}
+        onRequestCreateLane={openLaneCreator}
       />
+      {creatingLane ? (
+        <form onSubmit={submitLaneCreation} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900">Create timeline lane</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Lanes organise items across every project. They are available immediately in this project and Timeline Studio.
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="text-xs font-semibold uppercase text-gray-500">
+              Name
+              <input
+                type="text"
+                value={newLaneName}
+                onChange={(event) => setNewLaneName(event.target.value)}
+                placeholder="Finance, Creative, Logistics"
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                required
+              />
+            </label>
+            <label className="text-xs font-semibold uppercase text-gray-500">
+              Color
+              <input
+                type="color"
+                value={newLaneColor}
+                onChange={(event) => setNewLaneColor(event.target.value)}
+                className="mt-1 h-10 w-full rounded-md border border-gray-300"
+              />
+            </label>
+          </div>
+          {laneCreationError ? (
+            <p className="mt-3 text-sm text-red-600">{laneCreationError}</p>
+          ) : null}
+          <div className="mt-5 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={cancelLaneCreator}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+              disabled={laneCreationLoading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={laneCreationLoading}
+              className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-500"
+            >
+              {laneCreationLoading ? "Saving…" : "Save lane"}
+            </button>
+          </div>
+        </form>
+      ) : null}
+      {!creatingLane && laneCreationError ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{laneCreationError}</div>
+      ) : null}
       <TimelineStudio
         items={timelineItems}
         dependencies={timelineDependencies}
@@ -909,7 +1051,9 @@ export default function ProjectHubPage() {
         startDate={timelineStartDate}
         endDate={timelineEndDate}
         zoom={timelineZoom}
+        laneDefinitions={laneDefinitions}
       />
+      <div className="text-xs text-gray-400">Manage lane order and automation rules in Settings → Timeline lanes.</div>
     </div>
   );
 
@@ -1561,12 +1705,16 @@ function TimelineForm({
   onDependenciesChange,
   onSubmit,
   existingItems,
+  laneDefinitions,
+  onRequestCreateLane,
 }: {
   form: TimelineFormState;
   onFieldChange: (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
   onDependenciesChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   existingItems: TimelineItemRecord[];
+  laneDefinitions: TimelineLaneDefinition[];
+  onRequestCreateLane: () => void;
 }) {
   const sortedTimelineItems = useMemo(() => {
     return [...existingItems].sort((a, b) => {
@@ -1577,6 +1725,7 @@ function TimelineForm({
       return aValue - bValue;
     });
   }, [existingItems]);
+  const hasLaneDefinitions = laneDefinitions.length > 0;
 
   return (
     <form onSubmit={onSubmit} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
@@ -1629,13 +1778,37 @@ function TimelineForm({
         </label>
         <label className="text-xs font-semibold uppercase text-gray-500">
           Lane
-          <input
-            name="lane"
-            value={form.lane}
-            onChange={onFieldChange}
-            placeholder="Live / Promo / Writing / Brand / Release"
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-          />
+          <div className="mt-1 flex items-center gap-2">
+            <select
+              name="lane"
+              value={form.lane}
+              onChange={onFieldChange}
+              disabled={!hasLaneDefinitions}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+            >
+              {hasLaneDefinitions ? (
+                laneDefinitions.map((lane) => (
+                  <option key={lane.id} value={lane.slug}>
+                    {lane.name}
+                  </option>
+                ))
+              ) : (
+                <option value="">No lanes configured</option>
+              )}
+            </select>
+            <button
+              type="button"
+              onClick={onRequestCreateLane}
+              className="whitespace-nowrap rounded-md border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-100"
+            >
+              Add lane
+            </button>
+          </div>
+          <span className="mt-1 block text-[0.65rem] text-gray-400">
+            {hasLaneDefinitions
+              ? "Choose where the item should live."
+              : "Add a lane to start organising your timeline."}
+          </span>
         </label>
         <label className="md:col-span-2 text-xs font-semibold uppercase text-gray-500">
           Dependencies

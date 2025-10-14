@@ -7,6 +7,7 @@ import type {
   TimelineItemRecord,
   TimelineItemStatus,
   TimelineLane,
+  TimelineLaneDefinition,
 } from "@kazador/shared";
 import { detectTimelineConflicts } from "@kazador/shared";
 import { useAuth } from "../../../components/AuthProvider";
@@ -24,15 +25,6 @@ const VIEW_OPTIONS: Array<{ value: TimelineViewMode; label: string }> = [
   { value: "month", label: "Month" },
 ];
 
-const LANE_OPTIONS: Array<{ id: TimelineLane; label: string }> = [
-  { id: "LIVE_HOLDS", label: "Live / Holds" },
-  { id: "TRAVEL", label: "Travel" },
-  { id: "PROMO", label: "Promo" },
-  { id: "RELEASE", label: "Release" },
-  { id: "LEGAL", label: "Legal" },
-  { id: "FINANCE", label: "Finance" },
-];
-
 const STATUS_OPTIONS: Array<{ id: TimelineItemStatus; label: string }> = [
   { id: "planned", label: "Planned" },
   { id: "tentative", label: "Tentative" },
@@ -40,6 +32,24 @@ const STATUS_OPTIONS: Array<{ id: TimelineItemStatus; label: string }> = [
   { id: "waiting", label: "Waiting" },
   { id: "done", label: "Completed" },
   { id: "canceled", label: "Canceled" },
+];
+
+const DEFAULT_LANE_COLORS: Record<string, string> = {
+  LIVE_HOLDS: "#7c3aed",
+  TRAVEL: "#0284c7",
+  PROMO: "#0f766e",
+  RELEASE: "#f97316",
+  LEGAL: "#dc2626",
+  FINANCE: "#06b6d4",
+};
+
+const ITEM_TYPE_OPTIONS: Array<{ id: TimelineItemRecord["type"]; label: string }> = [
+  { id: "LIVE_HOLD", label: "Live / Hold" },
+  { id: "TRAVEL_SEGMENT", label: "Travel" },
+  { id: "PROMO_SLOT", label: "Promo" },
+  { id: "RELEASE_MILESTONE", label: "Release" },
+  { id: "LEGAL_ACTION", label: "Legal" },
+  { id: "FINANCE_ACTION", label: "Finance" },
 ];
 
 const PRIORITY_OPTIONS: Array<{ id: PriorityBand; label: string }> = [
@@ -54,14 +64,23 @@ const PRIORITY_THRESHOLDS: Record<PriorityBand, number> = {
   LOW: 0,
 };
 
-const LANE_TO_TYPE: Record<TimelineLane, TimelineItemRecord["type"]> = {
-  LIVE_HOLDS: "LIVE_HOLD",
-  TRAVEL: "TRAVEL_SEGMENT",
-  PROMO: "PROMO_SLOT",
-  RELEASE: "RELEASE_MILESTONE",
-  LEGAL: "LEGAL_ACTION",
-  FINANCE: "FINANCE_ACTION",
-};
+function formatLaneLabel(slug: string): string {
+  return slug
+    .toLowerCase()
+    .split(/[_\s]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function resolveLaneSlug(lane: TimelineLaneDefinition): TimelineLane {
+  return (lane.slug || lane.id) as TimelineLane;
+}
+
+function resolveLaneColor(lane: TimelineLaneDefinition): string {
+  const slug = lane.slug || lane.id;
+  return lane.color ?? DEFAULT_LANE_COLORS[slug] ?? "#475569";
+}
 
 const REFRESH_INTERVAL_MS = 30_000;
 function computeViewRange(view: TimelineViewMode, anchor: Date): { start: Date; end: Date } {
@@ -179,15 +198,14 @@ export default function TimelinePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [laneDefinitions, setLaneDefinitions] = useState<TimelineLaneDefinition[]>([]);
   const [viewMode, setViewMode] = useState<TimelineViewMode>("week");
   const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
   const defaultRange = useMemo(() => computeViewRange("week", new Date()), []);
   const [startDate, setStartDate] = useState<Date>(defaultRange.start);
   const [endDate, setEndDate] = useState<Date>(defaultRange.end);
 
-  const [laneFilters, setLaneFilters] = useState<Set<TimelineLane>>(
-    () => new Set(LANE_OPTIONS.map((option) => option.id))
-  );
+  const [laneFilters, setLaneFilters] = useState<Set<TimelineLane>>(() => new Set());
   const [collapsedLanes, setCollapsedLanes] = useState<Set<TimelineLane>>(new Set());
   const [statusFilters, setStatusFilters] = useState<Set<TimelineItemStatus>>(new Set());
   const [priorityFilters, setPriorityFilters] = useState<Set<PriorityBand>>(new Set());
@@ -199,7 +217,8 @@ export default function TimelinePage() {
   const [selectedItem, setSelectedItem] = useState<TimelineItemRecord | null>(null);
 
   const [draftTitle, setDraftTitle] = useState("");
-  const [draftLane, setDraftLane] = useState<TimelineLane>("PROMO");
+  const [draftLane, setDraftLane] = useState<TimelineLane>("" as TimelineLane);
+  const [draftType, setDraftType] = useState<TimelineItemRecord["type"]>("PROMO_SLOT");
   const [draftPriority, setDraftPriority] = useState<PriorityBand>("MEDIUM");
   const [draftStart, setDraftStart] = useState<string>(() => formatDateTimeLocal(new Date()));
   const [draftEnd, setDraftEnd] = useState<string>(() => formatDateTimeLocal(new Date(Date.now() + 2 * 60 * 60 * 1000)));
@@ -234,12 +253,61 @@ export default function TimelinePage() {
     project: ProjectRecord | null;
     items: TimelineItemRecord[];
     dependencies: TimelineDependencyRecord[];
+    lanes?: TimelineLaneDefinition[];
   }) => {
     setTimelineItems(payload.items);
     setDependencies(payload.dependencies);
     setProjectProfile(payload.project);
+    if (payload.lanes !== undefined) {
+      setLaneDefinitions(payload.lanes);
+    }
     setLastRefreshed(new Date());
   }, []);
+
+  useEffect(() => {
+    if (laneDefinitions.length === 0) {
+      setLaneFilters(new Set());
+      setCollapsedLanes(new Set());
+      setDraftLane("" as TimelineLane);
+      return;
+    }
+
+    setLaneFilters((previous) => {
+      if (previous.size === 0) {
+        return new Set(laneDefinitions.map((lane) => resolveLaneSlug(lane)));
+      }
+      const next = new Set<TimelineLane>();
+      const available = new Set(laneDefinitions.map((lane) => resolveLaneSlug(lane)));
+      for (const slug of previous) {
+        if (available.has(slug)) {
+          next.add(slug);
+        }
+      }
+      if (next.size === 0) {
+        available.forEach((slug) => next.add(slug));
+      }
+      return next;
+    });
+
+    setCollapsedLanes((previous) => {
+      if (previous.size === 0) return previous;
+      const available = new Set(laneDefinitions.map((lane) => resolveLaneSlug(lane)));
+      const next = new Set<TimelineLane>();
+      for (const slug of previous) {
+        if (available.has(slug)) {
+          next.add(slug);
+        }
+      }
+      return next;
+    });
+
+    setDraftLane((prev) => {
+      if (prev && laneDefinitions.some((lane) => resolveLaneSlug(lane) === prev)) {
+        return prev;
+      }
+      return resolveLaneSlug(laneDefinitions[0]);
+    });
+  }, [laneDefinitions]);
 
   useEffect(() => {
     if (!accessToken || !selectedProjectId) return;
@@ -291,7 +359,13 @@ export default function TimelinePage() {
   useEffect(() => {
     if (drawerMode === "create") {
       setDraftTitle("");
-      setDraftLane("PROMO");
+      setDraftLane((prev) => {
+        if (laneDefinitions.length > 0) {
+          return resolveLaneSlug(laneDefinitions[0]);
+        }
+        return prev || ("" as TimelineLane);
+      });
+      setDraftType("PROMO_SLOT");
       setDraftPriority("MEDIUM");
       setDraftStart(formatDateTimeLocal(startDate));
       setDraftEnd(formatDateTimeLocal(new Date(startDate.getTime() + 2 * 60 * 60 * 1000)));
@@ -300,7 +374,7 @@ export default function TimelinePage() {
     } else {
       setCreateError(null);
     }
-  }, [drawerMode, startDate]);
+  }, [drawerMode, laneDefinitions, startDate]);
   const handleProjectChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const next = event.target.value;
     setSelectedProjectId(next.length > 0 ? next : null);
@@ -395,11 +469,13 @@ export default function TimelinePage() {
   const handleContextAction = (action: "edit" | "attach" | "convert", item: TimelineItemRecord) => {
     setSelectedItem(item);
     setDrawerMode("view");
-    if (action === "convert") {
-      const nextLane = item.lane === "PROMO" ? "RELEASE" : item.lane;
-      if (nextLane !== item.lane) {
+    if (action === "convert" && laneDefinitions.length > 0) {
+      const currentIndex = laneDefinitions.findIndex((lane) => resolveLaneSlug(lane) === item.lane);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % laneDefinitions.length : 0;
+      const nextLaneSlug = resolveLaneSlug(laneDefinitions[nextIndex]);
+      if (nextLaneSlug !== item.lane) {
         setTimelineItems((previous) =>
-          previous.map((entry) => (entry.id === item.id ? { ...entry, lane: nextLane } : entry))
+          previous.map((entry) => (entry.id === item.id ? { ...entry, lane: nextLaneSlug } : entry))
         );
       }
     }
@@ -427,6 +503,10 @@ export default function TimelinePage() {
       setCreateError("Title is required.");
       return;
     }
+    if (!draftLane || !laneDefinitions.some((lane) => resolveLaneSlug(lane) === draftLane)) {
+      setCreateError("Select a lane for this item.");
+      return;
+    }
     const start = parseDateTimeLocal(draftStart) ?? new Date();
     const end = parseDateTimeLocal(draftEnd) ?? new Date(start.getTime() + 2 * 60 * 60 * 1000);
     if (end <= start) {
@@ -443,7 +523,7 @@ export default function TimelinePage() {
     const newItem: TimelineItemRecord = {
       id: `draft-${Date.now()}`,
       projectId: selectedProjectId,
-      type: LANE_TO_TYPE[draftLane],
+      type: draftType,
       lane: draftLane,
       kind: null,
       title: draftTitle.trim(),
@@ -479,18 +559,27 @@ export default function TimelinePage() {
 
   const laneState = useMemo(
     () =>
-      LANE_OPTIONS.map((option) => ({
-        id: option.id,
-        label: option.label,
-        visible: laneFilters.has(option.id),
-        collapsed: collapsedLanes.has(option.id),
-      })),
-    [laneFilters, collapsedLanes]
+      laneDefinitions.map((lane) => {
+        const slug = resolveLaneSlug(lane);
+        return {
+          id: slug,
+          label: lane.name || formatLaneLabel(slug),
+          color: resolveLaneColor(lane),
+          visible: laneFilters.has(slug),
+          collapsed: collapsedLanes.has(slug),
+          sortOrder: lane.sortOrder ?? 0,
+        };
+      })
+        .sort((a, b) => {
+          if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+          return a.label.localeCompare(b.label);
+        }),
+    [laneDefinitions, laneFilters, collapsedLanes]
   );
 
   const filteredItems = useMemo(() => {
     return timelineItems.filter((item) => {
-      if (!laneFilters.has(item.lane)) return false;
+      if (laneFilters.size > 0 && !laneFilters.has(item.lane)) return false;
       if (statusFilters.size > 0 && !statusFilters.has(item.status)) return false;
       const band = getPriorityBand(item.priorityScore);
       if (priorityFilters.size > 0 && !priorityFilters.has(band)) return false;
@@ -566,7 +655,7 @@ export default function TimelinePage() {
             <div>
               <h1 className="text-3xl font-semibold text-white">Timeline Command Center</h1>
               <p className="mt-1 text-sm text-slate-400">
-                Align Live, Promo, Travel, Release, Legal, and Finance in one synchronized view.
+                Align every custom lane and priority in one synchronized view.
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
@@ -627,16 +716,36 @@ export default function TimelinePage() {
 
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap gap-2">
-              {LANE_OPTIONS.map((lane) => (
-                <button
-                  key={lane.id}
-                  type="button"
-                  onClick={() => toggleLaneFilter(lane.id)}
-                  className={chipClass(laneFilters.has(lane.id))}
-                >
-                  {lane.label}
-                </button>
-              ))}
+              {laneDefinitions.length === 0 ? (
+                <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-400">
+                  No lanes configured. Visit Settings → Timeline lanes to add some.
+                </span>
+              ) : (
+                laneDefinitions.map((lane) => {
+                  const slug = resolveLaneSlug(lane);
+                  const active = laneFilters.has(slug);
+                  const color = resolveLaneColor(lane);
+                  return (
+                    <button
+                      key={slug}
+                      type="button"
+                      onClick={() => toggleLaneFilter(slug)}
+                      className={chipClass(active)}
+                      style={
+                        active
+                          ? {
+                              borderColor: color,
+                              backgroundColor: `${color}33`,
+                              color: "#fff",
+                            }
+                          : undefined
+                      }
+                    >
+                      {lane.name || formatLaneLabel(slug)}
+                    </button>
+                  );
+                })
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {STATUS_OPTIONS.map((option) => (
@@ -720,6 +829,7 @@ export default function TimelinePage() {
               items={filteredItems}
               dependencies={filteredDependencies}
               lanes={laneState}
+              laneDefinitions={laneDefinitions}
               viewMode={viewMode}
               startDate={startDate}
               endDate={endDate}
@@ -775,10 +885,31 @@ export default function TimelinePage() {
                     value={draftLane}
                     onChange={(event) => setDraftLane(event.target.value as TimelineLane)}
                     className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-indigo-400 focus:outline-none"
+                    disabled={laneDefinitions.length === 0}
                   >
-                    {LANE_OPTIONS.map((lane) => (
-                      <option key={lane.id} value={lane.id}>
-                        {lane.label}
+                    {laneDefinitions.length === 0 ? (
+                      <option value="">No lanes configured</option>
+                    ) : null}
+                    {laneDefinitions.map((lane) => {
+                      const slug = resolveLaneSlug(lane);
+                      return (
+                        <option key={slug} value={slug}>
+                          {lane.name || formatLaneLabel(slug)}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label className="block text-xs uppercase tracking-wide text-slate-400">
+                  Type
+                  <select
+                    value={draftType}
+                    onChange={(event) => setDraftType(event.target.value as TimelineItemRecord["type"])}
+                    className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-indigo-400 focus:outline-none"
+                  >
+                    {ITEM_TYPE_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
                       </option>
                     ))}
                   </select>
@@ -867,7 +998,10 @@ export default function TimelinePage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-xs uppercase tracking-wide text-slate-400">Lane</span>
-                    <span className="font-semibold">{selectedItem.lane.replace(/_/g, " ")}</span>
+                    <span className="font-semibold">
+                      {laneDefinitions.find((lane) => resolveLaneSlug(lane) === selectedItem.lane)?.name ||
+                        formatLaneLabel(selectedItem.lane)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-xs uppercase tracking-wide text-slate-400">Priority</span>
@@ -951,7 +1085,10 @@ export default function TimelinePage() {
                       {relatedItems.map((item) => (
                         <li key={item.id} className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
                           <p className="font-semibold text-white">{item.title}</p>
-                          <p className="text-xs text-slate-400">{item.lane.replace(/_/g, " ")}</p>
+                          <p className="text-xs text-slate-400">
+                            {laneDefinitions.find((lane) => resolveLaneSlug(lane) === item.lane)?.name ||
+                              formatLaneLabel(item.lane)}
+                          </p>
                         </li>
                       ))}
                     </ul>
