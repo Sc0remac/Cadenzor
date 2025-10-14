@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict mocHRcuzcanKP6hxshk0cbsVcsouC3DD9vev2dSzuxT84kSaiiezzdbuzaNZWOV
+\restrict T3dF01onI6lSHhhybeFETwf77jS3lnsnmy8jtRJ0wsHI23a97KG4508MwY4pB7L
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -188,12 +188,43 @@ CREATE TYPE auth.factor_type AS ENUM (
 
 
 --
+-- Name: oauth_authorization_status; Type: TYPE; Schema: auth; Owner: -
+--
+
+CREATE TYPE auth.oauth_authorization_status AS ENUM (
+    'pending',
+    'approved',
+    'denied',
+    'expired'
+);
+
+
+--
+-- Name: oauth_client_type; Type: TYPE; Schema: auth; Owner: -
+--
+
+CREATE TYPE auth.oauth_client_type AS ENUM (
+    'public',
+    'confidential'
+);
+
+
+--
 -- Name: oauth_registration_type; Type: TYPE; Schema: auth; Owner: -
 --
 
 CREATE TYPE auth.oauth_registration_type AS ENUM (
     'dynamic',
     'manual'
+);
+
+
+--
+-- Name: oauth_response_type; Type: TYPE; Schema: auth; Owner: -
+--
+
+CREATE TYPE auth.oauth_response_type AS ENUM (
+    'code'
 );
 
 
@@ -1801,13 +1832,43 @@ COMMENT ON TABLE auth.mfa_factors IS 'auth: stores metadata about factors';
 
 
 --
+-- Name: oauth_authorizations; Type: TABLE; Schema: auth; Owner: -
+--
+
+CREATE TABLE auth.oauth_authorizations (
+    id uuid NOT NULL,
+    authorization_id text NOT NULL,
+    client_id uuid NOT NULL,
+    user_id uuid,
+    redirect_uri text NOT NULL,
+    scope text NOT NULL,
+    state text,
+    resource text,
+    code_challenge text,
+    code_challenge_method auth.code_challenge_method,
+    response_type auth.oauth_response_type DEFAULT 'code'::auth.oauth_response_type NOT NULL,
+    status auth.oauth_authorization_status DEFAULT 'pending'::auth.oauth_authorization_status NOT NULL,
+    authorization_code text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone DEFAULT (now() + '00:03:00'::interval) NOT NULL,
+    approved_at timestamp with time zone,
+    CONSTRAINT oauth_authorizations_authorization_code_length CHECK ((char_length(authorization_code) <= 255)),
+    CONSTRAINT oauth_authorizations_code_challenge_length CHECK ((char_length(code_challenge) <= 128)),
+    CONSTRAINT oauth_authorizations_expires_at_future CHECK ((expires_at > created_at)),
+    CONSTRAINT oauth_authorizations_redirect_uri_length CHECK ((char_length(redirect_uri) <= 2048)),
+    CONSTRAINT oauth_authorizations_resource_length CHECK ((char_length(resource) <= 2048)),
+    CONSTRAINT oauth_authorizations_scope_length CHECK ((char_length(scope) <= 4096)),
+    CONSTRAINT oauth_authorizations_state_length CHECK ((char_length(state) <= 4096))
+);
+
+
+--
 -- Name: oauth_clients; Type: TABLE; Schema: auth; Owner: -
 --
 
 CREATE TABLE auth.oauth_clients (
     id uuid NOT NULL,
-    client_id text NOT NULL,
-    client_secret_hash text NOT NULL,
+    client_secret_hash text,
     registration_type auth.oauth_registration_type NOT NULL,
     redirect_uris text NOT NULL,
     grant_types text NOT NULL,
@@ -1817,9 +1878,27 @@ CREATE TABLE auth.oauth_clients (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
+    client_type auth.oauth_client_type DEFAULT 'confidential'::auth.oauth_client_type NOT NULL,
     CONSTRAINT oauth_clients_client_name_length CHECK ((char_length(client_name) <= 1024)),
     CONSTRAINT oauth_clients_client_uri_length CHECK ((char_length(client_uri) <= 2048)),
     CONSTRAINT oauth_clients_logo_uri_length CHECK ((char_length(logo_uri) <= 2048))
+);
+
+
+--
+-- Name: oauth_consents; Type: TABLE; Schema: auth; Owner: -
+--
+
+CREATE TABLE auth.oauth_consents (
+    id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    client_id uuid NOT NULL,
+    scopes text NOT NULL,
+    granted_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    CONSTRAINT oauth_consents_revoked_after_granted CHECK (((revoked_at IS NULL) OR (revoked_at >= granted_at))),
+    CONSTRAINT oauth_consents_scopes_length CHECK ((char_length(scopes) <= 2048)),
+    CONSTRAINT oauth_consents_scopes_not_empty CHECK ((char_length(TRIM(BOTH FROM scopes)) > 0))
 );
 
 
@@ -1964,7 +2043,8 @@ CREATE TABLE auth.sessions (
     refreshed_at timestamp without time zone,
     user_agent text,
     ip inet,
-    tag text
+    tag text,
+    oauth_client_id uuid
 );
 
 
@@ -2914,11 +2994,27 @@ ALTER TABLE ONLY auth.mfa_factors
 
 
 --
--- Name: oauth_clients oauth_clients_client_id_key; Type: CONSTRAINT; Schema: auth; Owner: -
+-- Name: oauth_authorizations oauth_authorizations_authorization_code_key; Type: CONSTRAINT; Schema: auth; Owner: -
 --
 
-ALTER TABLE ONLY auth.oauth_clients
-    ADD CONSTRAINT oauth_clients_client_id_key UNIQUE (client_id);
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_authorization_code_key UNIQUE (authorization_code);
+
+
+--
+-- Name: oauth_authorizations oauth_authorizations_authorization_id_key; Type: CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_authorization_id_key UNIQUE (authorization_id);
+
+
+--
+-- Name: oauth_authorizations oauth_authorizations_pkey; Type: CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_pkey PRIMARY KEY (id);
 
 
 --
@@ -2927,6 +3023,22 @@ ALTER TABLE ONLY auth.oauth_clients
 
 ALTER TABLE ONLY auth.oauth_clients
     ADD CONSTRAINT oauth_clients_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: oauth_consents oauth_consents_pkey; Type: CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.oauth_consents
+    ADD CONSTRAINT oauth_consents_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: oauth_consents oauth_consents_user_client_unique; Type: CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.oauth_consents
+    ADD CONSTRAINT oauth_consents_user_client_unique UNIQUE (user_id, client_id);
 
 
 --
@@ -3500,10 +3612,10 @@ CREATE INDEX mfa_factors_user_id_idx ON auth.mfa_factors USING btree (user_id);
 
 
 --
--- Name: oauth_clients_client_id_idx; Type: INDEX; Schema: auth; Owner: -
+-- Name: oauth_auth_pending_exp_idx; Type: INDEX; Schema: auth; Owner: -
 --
 
-CREATE INDEX oauth_clients_client_id_idx ON auth.oauth_clients USING btree (client_id);
+CREATE INDEX oauth_auth_pending_exp_idx ON auth.oauth_authorizations USING btree (expires_at) WHERE (status = 'pending'::auth.oauth_authorization_status);
 
 
 --
@@ -3511,6 +3623,27 @@ CREATE INDEX oauth_clients_client_id_idx ON auth.oauth_clients USING btree (clie
 --
 
 CREATE INDEX oauth_clients_deleted_at_idx ON auth.oauth_clients USING btree (deleted_at);
+
+
+--
+-- Name: oauth_consents_active_client_idx; Type: INDEX; Schema: auth; Owner: -
+--
+
+CREATE INDEX oauth_consents_active_client_idx ON auth.oauth_consents USING btree (client_id) WHERE (revoked_at IS NULL);
+
+
+--
+-- Name: oauth_consents_active_user_client_idx; Type: INDEX; Schema: auth; Owner: -
+--
+
+CREATE INDEX oauth_consents_active_user_client_idx ON auth.oauth_consents USING btree (user_id, client_id) WHERE (revoked_at IS NULL);
+
+
+--
+-- Name: oauth_consents_user_order_idx; Type: INDEX; Schema: auth; Owner: -
+--
+
+CREATE INDEX oauth_consents_user_order_idx ON auth.oauth_consents USING btree (user_id, granted_at DESC);
 
 
 --
@@ -3616,6 +3749,13 @@ CREATE INDEX saml_relay_states_sso_provider_id_idx ON auth.saml_relay_states USI
 --
 
 CREATE INDEX sessions_not_after_idx ON auth.sessions USING btree (not_after DESC);
+
+
+--
+-- Name: sessions_oauth_client_id_idx; Type: INDEX; Schema: auth; Owner: -
+--
+
+CREATE INDEX sessions_oauth_client_id_idx ON auth.sessions USING btree (oauth_client_id);
 
 
 --
@@ -4218,6 +4358,38 @@ ALTER TABLE ONLY auth.mfa_factors
 
 
 --
+-- Name: oauth_authorizations oauth_authorizations_client_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_client_id_fkey FOREIGN KEY (client_id) REFERENCES auth.oauth_clients(id) ON DELETE CASCADE;
+
+
+--
+-- Name: oauth_authorizations oauth_authorizations_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: oauth_consents oauth_consents_client_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.oauth_consents
+    ADD CONSTRAINT oauth_consents_client_id_fkey FOREIGN KEY (client_id) REFERENCES auth.oauth_clients(id) ON DELETE CASCADE;
+
+
+--
+-- Name: oauth_consents oauth_consents_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.oauth_consents
+    ADD CONSTRAINT oauth_consents_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: one_time_tokens one_time_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: -
 --
 
@@ -4255,6 +4427,14 @@ ALTER TABLE ONLY auth.saml_relay_states
 
 ALTER TABLE ONLY auth.saml_relay_states
     ADD CONSTRAINT saml_relay_states_sso_provider_id_fkey FOREIGN KEY (sso_provider_id) REFERENCES auth.sso_providers(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sessions sessions_oauth_client_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: -
+--
+
+ALTER TABLE ONLY auth.sessions
+    ADD CONSTRAINT sessions_oauth_client_id_fkey FOREIGN KEY (oauth_client_id) REFERENCES auth.oauth_clients(id) ON DELETE CASCADE;
 
 
 --
@@ -5479,5 +5659,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict mocHRcuzcanKP6hxshk0cbsVcsouC3DD9vev2dSzuxT84kSaiiezzdbuzaNZWOV
+\unrestrict T3dF01onI6lSHhhybeFETwf77jS3lnsnmy8jtRJ0wsHI23a97KG4508MwY4pB7L
 
