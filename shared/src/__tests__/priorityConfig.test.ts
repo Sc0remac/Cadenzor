@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PRIORITY_CONFIG,
+  applyPriorityConfigPreset,
   clonePriorityConfig,
   getPriorityConfig,
+  getPriorityConfigPreset,
   isPriorityConfigEqual,
+  listPriorityConfigPresets,
   normalizePriorityConfigInput,
   type PriorityConfigInput,
 } from "../priorityConfig";
@@ -73,5 +76,33 @@ describe("priorityConfig", () => {
     expect(isPriorityConfigEqual(DEFAULT_PRIORITY_CONFIG, withOverrides)).toBe(false);
     const mergedBack = normalizePriorityConfigInput({ tasks: { manualPriorityWeight: baseline.tasks.manualPriorityWeight } });
     expect(isPriorityConfigEqual(baseline, mergedBack)).toBe(true);
+  });
+
+  it("exposes curated presets with metadata", () => {
+    const presets = listPriorityConfigPresets();
+    expect(presets.length).toBeGreaterThanOrEqual(4);
+    const releaseWeek = presets.find((preset) => preset.slug === "release-week");
+    expect(releaseWeek).toBeTruthy();
+    expect(releaseWeek?.adjustments).toContain("+16 PROMO/Deliverables");
+  });
+
+  it("retrieves presets case-insensitively", () => {
+    const preset = getPriorityConfigPreset("Legal-Focus");
+    expect(preset).not.toBeNull();
+    expect(preset?.slug).toBe("legal-focus");
+  });
+
+  it("applies preset overrides on top of defaults", () => {
+    const config = applyPriorityConfigPreset("release-week");
+    expect(config.email.categoryWeights["PROMO/Deliverables"]).toBe(90);
+    expect(config.email.unreadBonus).toBe(24);
+  });
+
+  it("can apply presets against an existing base configuration", () => {
+    const base = clonePriorityConfig();
+    base.email.unreadBonus = 10;
+    const config = applyPriorityConfigPreset("touring-season", base);
+    expect(config.email.unreadBonus).toBe(10);
+    expect(config.email.categoryWeights["LOGISTICS/Travel"]).toBe(96);
   });
 });

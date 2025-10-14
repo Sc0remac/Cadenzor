@@ -145,6 +145,7 @@ With this guide, contributors should be able to navigate the codebase, identify 
 
 ## Update log
 
+- **2025-11-18T09:00:00Z** – Delivered priority configuration presets and reset tooling: shared preset catalog, `/api/priority-config/presets/*` + `/reset` routes, client helpers, import/export UX, and preset cards on `/settings/priorities`.
 - **2025-11-05T12:30:00Z** – Introduced the project item engine: new `project_items` table, `timeline_entries` view, Supabase policies, and API/client updates consuming deterministic type→lane mapping and shared priority metadata.
 - **2025-10-09T00:33:37Z** – Documented the newly added workspace Timeline Studio feature set: navigation entry, `/api/timeline` aggregation endpoint, Supabase client helpers, and the protected Timeline Studio page with advanced filtering controls.
 - **2025-10-09T02:15:00Z** – Reworked the dedicated Timeline Studio into a project-focused, full-screen experience with simplified top filters, entry-type classification, refined API contract, and documented third-party timeline research options.

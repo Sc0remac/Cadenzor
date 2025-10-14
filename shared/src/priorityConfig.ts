@@ -94,6 +94,15 @@ export type PriorityConfigInput = {
 
 export type PriorityConfigSource = "default" | "custom";
 
+export interface PriorityConfigPreset {
+  slug: string;
+  name: string;
+  description: string;
+  recommendedScenarios: string[];
+  adjustments: string[];
+  overrides: PriorityConfigInput;
+}
+
 function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -293,6 +302,197 @@ const PRIORITY_CONFIG_DATA: PriorityConfig = {
 deepFreeze(PRIORITY_CONFIG_DATA);
 
 export const DEFAULT_PRIORITY_CONFIG: PriorityConfig = PRIORITY_CONFIG_DATA;
+
+const PRIORITY_CONFIG_PRESETS_DATA: PriorityConfigPreset[] = [
+  {
+    slug: "release-week",
+    name: "Release Week",
+    description: "Elevate promo deliverables and creative approvals leading into a release.",
+    recommendedScenarios: ["Album or single launch", "Heavy press cycle"],
+    adjustments: [
+      "+16 PROMO/Deliverables",
+      "+16 PROMO/Promo_Time_Request",
+      "+14 ASSETS/Audio",
+      "+16 ASSETS/Video",
+      "+6 unread inbox bonus",
+    ],
+    overrides: {
+      email: {
+        categoryWeights: {
+          "PROMO/Deliverables": 90,
+          "PROMO/Promo_Time_Request": 94,
+          "PROMO/Press_Feature": 74,
+          "PROMO/Radio_Playlist": 70,
+          "ASSETS/Audio": 82,
+          "ASSETS/Video": 78,
+          "ASSETS/Artwork": 72,
+        },
+        unreadBonus: 24,
+      },
+      timeline: {
+        manualPriorityWeight: 0.3,
+      },
+    },
+  },
+  {
+    slug: "touring-season",
+    name: "Touring Season",
+    description: "Prioritise logistics, travel, and show confirmations while on the road.",
+    recommendedScenarios: ["Active tour routing", "Festival runs"],
+    adjustments: [
+      "Faster upcoming decay",
+      "Stronger overdue penalty",
+      "Logistics categories 90+",
+      "Higher conflict penalties",
+    ],
+    overrides: {
+      time: {
+        upcomingDecayPerDay: 6,
+        overduePenaltyPerDay: 8,
+      },
+      email: {
+        categoryWeights: {
+          "LOGISTICS/Itinerary_DaySheet": 92,
+          "LOGISTICS/Travel": 96,
+          "LOGISTICS/Accommodation": 88,
+          "LOGISTICS/Ground_Transport": 86,
+          "LOGISTICS/Visas_Immigration": 97,
+          "LOGISTICS/Technical_Advance": 90,
+          "LOGISTICS/Passes_Access": 84,
+          "BOOKING/Confirmation": 94,
+          "BOOKING/Reschedule_or_Cancel": 98,
+        },
+      },
+      timeline: {
+        conflictPenalties: {
+          default: 20,
+          warning: 20,
+          error: 32,
+        },
+        dependencyPenalties: {
+          finishToStart: 16,
+          other: 10,
+        },
+      },
+    },
+  },
+  {
+    slug: "off-season",
+    name: "Off Season",
+    description: "Dial priorities back to a balanced baseline for planning periods.",
+    recommendedScenarios: ["Post-tour recovery", "Admin catch-up weeks"],
+    adjustments: [
+      "Lower unread inbox bonus",
+      "Moderate promo + assets weights",
+      "Reduced conflict penalties",
+      "Higher manual task influence",
+    ],
+    overrides: {
+      email: {
+        unreadBonus: 14,
+        modelPriorityWeight: 0.5,
+        categoryWeights: {
+          "PROMO/Promo_Time_Request": 68,
+          "PROMO/Deliverables": 66,
+          "ASSETS/Audio": 60,
+          "ASSETS/Video": 58,
+          "ASSETS/Artwork": 52,
+          "FAN/Support_or_Thanks": 24,
+        },
+      },
+      time: {
+        upcomingDecayPerDay: 3,
+        overduePenaltyPerDay: 5,
+      },
+      timeline: {
+        conflictPenalties: {
+          default: 12,
+          warning: 10,
+          error: 18,
+        },
+      },
+      tasks: {
+        manualPriorityWeight: 0.35,
+        noDueDateValue: 18,
+      },
+    },
+  },
+  {
+    slug: "legal-focus",
+    name: "Legal Focus",
+    description: "Elevate contract, compliance, and settlement threads to the top.",
+    recommendedScenarios: ["Contract negotiation sprints", "Major deal review"],
+    adjustments: [
+      "LEGAL categories 94-98",
+      "FINANCE/Settlement to 98",
+      "Higher AI weighting",
+      "Greater manual priority blend",
+    ],
+    overrides: {
+      email: {
+        modelPriorityWeight: 0.65,
+        categoryWeights: {
+          "LEGAL/Contract_Executed": 98,
+          "LEGAL/Contract_Draft": 96,
+          "LEGAL/Addendum_or_Amendment": 94,
+          "LEGAL/NDA_or_Clearance": 92,
+          "LEGAL/Insurance_Indemnity": 90,
+          "LEGAL/Compliance": 88,
+          "FINANCE/Settlement": 98,
+          "FINANCE/Invoice": 90,
+        },
+      },
+      tasks: {
+        manualPriorityWeight: 0.4,
+      },
+      timeline: {
+        manualPriorityWeight: 0.32,
+      },
+    },
+  },
+];
+
+deepFreeze(PRIORITY_CONFIG_PRESETS_DATA);
+
+export const PRIORITY_CONFIG_PRESETS: readonly PriorityConfigPreset[] = PRIORITY_CONFIG_PRESETS_DATA;
+
+export function listPriorityConfigPresets(): PriorityConfigPreset[] {
+  return PRIORITY_CONFIG_PRESETS.map((preset) => ({
+    ...preset,
+    recommendedScenarios: [...preset.recommendedScenarios],
+    adjustments: [...preset.adjustments],
+    overrides: clone(preset.overrides),
+  }));
+}
+
+export function getPriorityConfigPreset(slug: string): PriorityConfigPreset | null {
+  if (!slug) {
+    return null;
+  }
+  const normalized = slug.trim().toLowerCase();
+  const preset = PRIORITY_CONFIG_PRESETS.find((entry) => entry.slug === normalized);
+  if (!preset) {
+    return null;
+  }
+  return {
+    ...preset,
+    recommendedScenarios: [...preset.recommendedScenarios],
+    adjustments: [...preset.adjustments],
+    overrides: clone(preset.overrides),
+  };
+}
+
+export function applyPriorityConfigPreset(
+  preset: PriorityConfigPreset | string,
+  base: PriorityConfig = DEFAULT_PRIORITY_CONFIG
+): PriorityConfig {
+  const presetData =
+    typeof preset === "string" ? getPriorityConfigPreset(preset) : preset;
+  if (!presetData) {
+    throw new Error(`Unknown priority config preset: ${String(preset)}`);
+  }
+  return normalizePriorityConfigInput(presetData.overrides, base);
+}
 
 function sanitizeCategoryWeights(
   overrides: Record<string, unknown> | null | undefined,

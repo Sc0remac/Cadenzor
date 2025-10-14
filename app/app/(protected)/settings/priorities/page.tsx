@@ -1,19 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_PRIORITY_CONFIG,
   PRIMARY_LABEL_DEFINITIONS,
   clonePriorityConfig,
   isPriorityConfigEqual,
+  normalizePriorityConfigInput,
   type PriorityConfig,
   type PriorityEmailCrossLabelRule,
 } from "@kazador/shared";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  applyPriorityPreset,
   fetchPriorityConfig,
+  fetchPriorityConfigPresets,
+  resetPriorityConfig,
   updatePriorityConfig,
   type PriorityConfigPayload,
+  type PriorityConfigPresetSummary,
 } from "@/lib/priorityConfigClient";
 
 interface CategoryGroup {
@@ -79,6 +85,10 @@ export default function PrioritySettingsPage() {
   const [baselineConfig, setBaselineConfig] = useState<PriorityConfig>(() =>
     clonePriorityConfig(DEFAULT_PRIORITY_CONFIG)
   );
+  const [presets, setPresets] = useState<PriorityConfigPresetSummary[]>([]);
+  const [presetLoading, setPresetLoading] = useState(true);
+  const [presetError, setPresetError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!accessToken) {
@@ -88,6 +98,8 @@ export default function PrioritySettingsPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setPresetLoading(true);
+    setPresetError(null);
 
     fetchPriorityConfig(accessToken)
       .then((response) => {
@@ -106,6 +118,21 @@ export default function PrioritySettingsPage() {
         }
       });
 
+    fetchPriorityConfigPresets(accessToken)
+      .then((response) => {
+        if (cancelled) return;
+        setPresets(response);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPresetError(err instanceof Error ? err.message : "Failed to load presets");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPresetLoading(false);
+        }
+      });
+
     return () => {
       cancelled = true;
     };
@@ -118,8 +145,39 @@ export default function PrioritySettingsPage() {
 
   const hasChanges = useMemo(() => !isPriorityConfigEqual(config, baselineConfig), [config, baselineConfig]);
 
-  const handleResetAll = () => {
-    setConfig(clonePriorityConfig(DEFAULT_PRIORITY_CONFIG));
+  const handleResetAll = async () => {
+    if (!accessToken) {
+      setError("Authentication required");
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "Reset all priority settings to their default values? This will immediately save the change."
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await resetPriorityConfig({}, accessToken);
+      setPayload(response);
+      setBaselineConfig(clonePriorityConfig(response.config));
+      setConfig(clonePriorityConfig(response.config));
+      if (response.resetCategories && response.resetCategories.length > 0) {
+        setSuccess(`Reset ${response.resetCategories.length} categories to defaults.`);
+      } else {
+        setSuccess("Priority configuration reset to defaults.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset configuration");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateCategoryWeight = (name: string, weight: number) => {
@@ -258,6 +316,69 @@ export default function PrioritySettingsPage() {
     });
   };
 
+  const handleApplyPreset = async (slug: string) => {
+    if (!accessToken) {
+      setError("Authentication required");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await applyPriorityPreset(slug, accessToken);
+      setPayload(response);
+      setBaselineConfig(clonePriorityConfig(response.config));
+      setConfig(clonePriorityConfig(response.config));
+      if (response.preset?.name) {
+        setSuccess(`${response.preset.name} preset applied.`);
+      } else {
+        setSuccess("Preset applied.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to apply preset");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleExport = () => {
+    try {
+      const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      const timestamp = new Date().toISOString().slice(0, 10);
+      anchor.download = `priority-config-${timestamp}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setSuccess("Priority configuration exported.");
+    } catch (err) {
+      setError("Failed to export configuration");
+    }
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const normalized = normalizePriorityConfigInput(parsed);
+      setConfig(clonePriorityConfig(normalized));
+      setSuccess("Imported configuration. Review changes and save to apply.");
+      setError(null);
+    } catch (err) {
+      setError("Failed to import configuration. Please provide a valid Kazador export.");
+    }
+  };
+
+  const triggerImport = () => {
+    fileInputRef.current?.click();
+  };
+
   const handleSave = async () => {
     if (!accessToken) {
       setError("Authentication required");
@@ -292,6 +413,13 @@ export default function PrioritySettingsPage() {
 
   return (
     <div className="space-y-8">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={handleImportFile}
+      />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Priority settings</h1>
@@ -302,7 +430,21 @@ export default function PrioritySettingsPage() {
             Last updated: {formatTimestamp(payload?.updatedAt ?? null)} • Source: {payload?.source ?? "default"}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleExport}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Export JSON
+          </button>
+          <button
+            type="button"
+            onClick={triggerImport}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Import JSON
+          </button>
           <button
             type="button"
             onClick={handleResetAll}
@@ -403,6 +545,75 @@ export default function PrioritySettingsPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-4">
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Presets &amp; shortcuts</h2>
+            <p className="text-sm text-gray-600">
+              Apply curated configurations for common seasons. Presets save immediately and can be tweaked afterward.
+            </p>
+          </div>
+        </header>
+        {presetError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{presetError}</div>
+        ) : null}
+        {presetLoading ? (
+          <div className="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-500">Loading presets…</div>
+        ) : presets.length === 0 ? (
+          <div className="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-500">
+            No presets are available yet.
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {presets.map((preset) => (
+              <div
+                key={preset.slug}
+                className="flex h-full flex-col justify-between rounded-lg border border-gray-200 bg-white p-5 shadow-sm"
+              >
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">{preset.name}</h3>
+                    <p className="text-sm text-gray-600">{preset.description}</p>
+                  </div>
+                  {preset.recommendedScenarios.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Best for</p>
+                      <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-gray-500">
+                        {preset.recommendedScenarios.map((scenario) => (
+                          <li key={scenario}>{scenario}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {preset.adjustments.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {preset.adjustments.map((item) => (
+                        <span
+                          key={item}
+                          className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600"
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset(preset.slug)}
+                  disabled={saving || loading}
+                  className={`mt-4 w-full rounded-md px-3 py-2 text-sm font-semibold text-white shadow-sm transition ${
+                    !saving && !loading ? "bg-gray-900 hover:bg-gray-700" : "bg-gray-400 cursor-not-allowed"
+                  }`}
+                >
+                  Apply preset
+                </button>
               </div>
             ))}
           </div>
