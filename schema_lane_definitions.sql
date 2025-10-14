@@ -59,6 +59,7 @@ begin
         where schemaname = 'public'
           and tablename = 'lane_definitions'
 <<<<<<< ours
+<<<<<<< ours
           and polname = 'Lane definitions are viewable by owner or global'
     ) then
         execute $$create policy "Lane definitions are viewable by owner or global"
@@ -66,12 +67,17 @@ begin
             for select
             using (user_id is null or auth.uid() = user_id)$$;
 =======
+=======
+>>>>>>> theirs
           and policyname = 'Lane definitions are viewable by owner or global'
     ) then
         execute format(
             'create policy %I on public.lane_definitions for select using (user_id is null or auth.uid() = user_id);',
             'Lane definitions are viewable by owner or global'
         );
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
     end if;
 end
@@ -85,6 +91,7 @@ begin
         where schemaname = 'public'
           and tablename = 'lane_definitions'
 <<<<<<< ours
+<<<<<<< ours
           and polname = 'Lane definitions are insertable by owner'
     ) then
         execute $$create policy "Lane definitions are insertable by owner"
@@ -92,12 +99,17 @@ begin
             for insert
             with check ((user_id is null and auth.role() = 'service_role') or auth.uid() = user_id)$$;
 =======
+=======
+>>>>>>> theirs
           and policyname = 'Lane definitions are insertable by owner'
     ) then
         execute format(
             'create policy %I on public.lane_definitions for insert with check ((user_id is null and auth.role() = ''service_role'') or auth.uid() = user_id);',
             'Lane definitions are insertable by owner'
         );
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
     end if;
 end
@@ -110,6 +122,7 @@ begin
         select 1 from pg_policies
         where schemaname = 'public'
           and tablename = 'lane_definitions'
+<<<<<<< ours
 <<<<<<< ours
           and polname = 'Lane definitions are updatable by owner'
     ) then
@@ -119,12 +132,17 @@ begin
             using (auth.uid() = user_id)
             with check (auth.uid() = user_id)$$;
 =======
+=======
+>>>>>>> theirs
           and policyname = 'Lane definitions are updatable by owner'
     ) then
         execute format(
             'create policy %I on public.lane_definitions for update using (auth.uid() = user_id) with check (auth.uid() = user_id);',
             'Lane definitions are updatable by owner'
         );
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
     end if;
 end
@@ -138,6 +156,7 @@ begin
         where schemaname = 'public'
           and tablename = 'lane_definitions'
 <<<<<<< ours
+<<<<<<< ours
           and polname = 'Lane definitions are deletable by owner'
     ) then
         execute $$create policy "Lane definitions are deletable by owner"
@@ -145,12 +164,17 @@ begin
             for delete
             using (auth.uid() = user_id)$$;
 =======
+=======
+>>>>>>> theirs
           and policyname = 'Lane definitions are deletable by owner'
     ) then
         execute format(
             'create policy %I on public.lane_definitions for delete using (auth.uid() = user_id);',
             'Lane definitions are deletable by owner'
         );
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
     end if;
 end

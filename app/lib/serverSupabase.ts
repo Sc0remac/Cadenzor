@@ -8,9 +8,14 @@ const URL_ENV_VAR = "SUPABASE_URL" as const;
 const SERVICE_KEY_ENV_VAR = "SUPABASE_SERVICE_ROLE_KEY" as const;
 const ANON_KEY_ENV_VAR = "SUPABASE_ANON_KEY" as const;
 
-export function createServerSupabaseClient(): ClientResult {
-  const url = process.env[URL_ENV_VAR];
-  const key = process.env[SERVICE_KEY_ENV_VAR] ?? process.env[ANON_KEY_ENV_VAR];
+export function createServerSupabaseClient(accessToken?: string): ClientResult {
+  const url =
+    process.env[URL_ENV_VAR] ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
+  const key =
+    process.env[SERVICE_KEY_ENV_VAR] ??
+    process.env[ANON_KEY_ENV_VAR] ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    null;
 
   if (!url || !key) {
     const missing: string[] = [];
@@ -29,12 +34,22 @@ export function createServerSupabaseClient(): ClientResult {
     };
   }
 
-  const supabase = createClient(url, key, {
+  const options: Parameters<typeof createClient>[2] = {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
-  });
+  };
+
+  if (accessToken) {
+    options.global = {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    };
+  }
+
+  const supabase = createClient(url, key, options);
 
   return { ok: true, supabase };
 }

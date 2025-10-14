@@ -49,6 +49,7 @@ describe("requireAuthenticatedUser", () => {
     );
 
     expect(result).toEqual({ ok: false, status: 500, error: "boom" });
+    expect(createServerSupabaseClient).toHaveBeenCalledWith("token");
   });
 
   it("rejects when Supabase reports auth error", async () => {
@@ -67,6 +68,7 @@ describe("requireAuthenticatedUser", () => {
       expect(result.status).toBe(401);
       expect(result.error).toBe("expired");
     }
+    expect(createServerSupabaseClient).toHaveBeenCalledWith("token");
   });
 
   it("returns the user when validation succeeds", async () => {
@@ -80,5 +82,31 @@ describe("requireAuthenticatedUser", () => {
 
     expect(result).toEqual({ ok: true, supabase, user: { id: "user-1" } });
     expect(getUserMock).toHaveBeenCalledWith("token");
+    expect(createServerSupabaseClient).toHaveBeenCalledWith("token");
+  });
+
+  it("decodes fallback user when auth request fails", async () => {
+    const supabase = { auth: { getUser: getUserMock } } as any;
+    vi.mocked(createServerSupabaseClient).mockReturnValue({ ok: true, supabase });
+    getUserMock.mockRejectedValue(new Error("fetch failed"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({ sub: "user-42", email: "user@example.com", aud: "authenticated", iat: 0, exp: 1 })
+    ).toString("base64url");
+    const token = `${header}.${payload}.signature`;
+
+    const result = await requireAuthenticatedUser(
+      buildRequest({ Authorization: `Bearer ${token}` })
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.user.id).toBe("user-42");
+      expect(result.user.email).toBe("user@example.com");
+    }
+    expect(createServerSupabaseClient).toHaveBeenCalledWith(token);
+    warnSpy.mockRestore();
   });
 });

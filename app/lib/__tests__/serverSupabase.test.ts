@@ -51,4 +51,38 @@ describe("createServerSupabaseClient", () => {
     expect(result.ok).toBe(true);
     expect(createClient).toHaveBeenCalledWith("https://example.supabase.co", "anon-key", expect.any(Object));
   });
+
+  it("falls back to NEXT_PUBLIC variables when server env missing", () => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env.SUPABASE_ANON_KEY;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://public.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "public-anon";
+
+    const result = createServerSupabaseClient();
+
+    expect(result.ok).toBe(true);
+    expect(createClient).toHaveBeenCalledWith(
+      "https://public.supabase.co",
+      "public-anon",
+      expect.objectContaining({ auth: { autoRefreshToken: false, persistSession: false } })
+    );
+  });
+
+  it("injects authorization header when access token provided", () => {
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key";
+
+    const result = createServerSupabaseClient("token-123");
+
+    expect(result.ok).toBe(true);
+    expect(createClient).toHaveBeenCalledWith(
+      "https://example.supabase.co",
+      "service-key",
+      expect.objectContaining({
+        auth: { autoRefreshToken: false, persistSession: false },
+        global: { headers: { Authorization: "Bearer token-123" } },
+      })
+    );
+  });
 });
