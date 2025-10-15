@@ -192,6 +192,11 @@ const TYPE_COLORS: Record<
     text: "text-cyan-100",
     border: "border-cyan-400/70",
   },
+  TASK: {
+    base: "bg-slate-500/15",
+    text: "text-slate-100",
+    border: "border-slate-400/70",
+  },
 };
 
 const STATUS_DECORATION: Partial<Record<TimelineItemStatus, string>> = {

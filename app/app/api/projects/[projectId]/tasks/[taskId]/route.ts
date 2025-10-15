@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../../../../lib/serverAuth";
 import { assertProjectRole } from "../../../../../../lib/projectAccess";
-import { mapProjectTaskRow } from "../../../../../../lib/projectMappers";
+import { mapLaneDefinitionRow, mapProjectTaskRow } from "../../../../../../lib/projectMappers";
+import { resolveAutoAssignedLane, type TimelineLaneDefinition } from "@kazador/shared";
 
 interface Params {
   params: {
@@ -40,6 +41,9 @@ export async function PATCH(request: Request, { params }: Params) {
     dueAt: string | null;
     priority: number;
     assigneeId: string | null;
+    laneId: string | null;
+    laneSlug: string | null;
+    autoAssign: boolean;
   }>;
 
   try {
@@ -56,6 +60,66 @@ export async function PATCH(request: Request, { params }: Params) {
   if (payload.priority !== undefined) updatePayload["priority"] = payload.priority;
   if (payload.assigneeId !== undefined) updatePayload["assignee_id"] = payload.assigneeId;
 
+  const laneIdProvided = Object.prototype.hasOwnProperty.call(payload, "laneId");
+  const laneSlugProvided = Object.prototype.hasOwnProperty.call(payload, "laneSlug");
+  const autoAssignRequested = payload.autoAssign === true;
+
+  if (laneIdProvided || laneSlugProvided || autoAssignRequested) {
+    const { data: laneRows, error: laneError } = await supabase
+      .from("lane_definitions")
+      .select("*")
+      .or(`user_id.eq.${user.id},user_id.is.null`);
+
+    if (laneError) {
+      return formatError(laneError.message, 500);
+    }
+
+    const laneDefinitions: TimelineLaneDefinition[] = (laneRows ?? []).map(mapLaneDefinitionRow);
+    const byId = new Map(laneDefinitions.map((lane) => [lane.id, lane]));
+    const bySlug = new Map(laneDefinitions.map((lane) => [lane.slug.toUpperCase(), lane]));
+
+    let laneId: string | null | undefined = undefined;
+
+    if (laneIdProvided) {
+      if (payload.laneId === null) {
+        laneId = null;
+      } else if (typeof payload.laneId === "string" && payload.laneId.trim().length > 0) {
+        const match = byId.get(payload.laneId.trim());
+        if (!match) {
+          return formatError("Selected lane is not available", 400);
+        }
+        laneId = match.id;
+      }
+    }
+
+    if (laneSlugProvided && laneId === undefined) {
+      if (payload.laneSlug === null) {
+        laneId = null;
+      } else if (typeof payload.laneSlug === "string" && payload.laneSlug.trim().length > 0) {
+        const match = bySlug.get(payload.laneSlug.trim().toUpperCase());
+        if (!match) {
+          return formatError("Selected lane is not available", 400);
+        }
+        laneId = match.id;
+      }
+    }
+
+    if (laneId === undefined && autoAssignRequested) {
+      const autoLane = resolveAutoAssignedLane(laneDefinitions, {
+        type: "task",
+        title: payload.title ?? "",
+        description: payload.description ?? null,
+        status: payload.status ?? undefined,
+        priority: payload.priority ?? null,
+      });
+      laneId = autoLane?.id ?? null;
+    }
+
+    if (laneId !== undefined) {
+      updatePayload["lane_id"] = laneId;
+    }
+  }
+
   if (Object.keys(updatePayload).length === 0) {
     return formatError("No fields to update", 400);
   }
@@ -65,7 +129,7 @@ export async function PATCH(request: Request, { params }: Params) {
     .update(updatePayload)
     .eq("id", taskId)
     .eq("project_id", projectId)
-    .select("*")
+    .select("*, lane:lane_definitions(id, slug, name, color, icon)")
     .maybeSingle();
 
   if (error) {

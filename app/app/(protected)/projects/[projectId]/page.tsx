@@ -98,6 +98,7 @@ interface TaskFormState {
   status: string;
   dueAt: string;
   priority: number;
+  laneId: string;
 }
 
 const INITIAL_TIMELINE_FORM: TimelineFormState = {
@@ -118,6 +119,7 @@ const INITIAL_TASK_FORM: TaskFormState = {
   status: "todo",
   dueAt: "",
   priority: 50,
+  laneId: "",
 };
 
 export default function ProjectHubPage() {
@@ -497,6 +499,12 @@ export default function ProjectHubPage() {
     }
 
     try {
+      const lanePayload =
+        taskForm.laneId === "__none__"
+          ? { laneId: null }
+          : taskForm.laneId && taskForm.laneId.length > 0
+          ? { laneId: taskForm.laneId }
+          : {};
       await createProjectTask(
         projectId,
         {
@@ -505,6 +513,7 @@ export default function ProjectHubPage() {
           status: taskForm.status,
           dueAt: taskForm.dueAt || undefined,
           priority: taskForm.priority,
+          ...lanePayload,
         },
         accessToken
       );
@@ -522,6 +531,22 @@ export default function ProjectHubPage() {
       await loadHub();
     } catch (err: any) {
       setError(err?.message || "Failed to update task");
+    }
+  };
+
+  const updateTaskLane = async (task: ProjectTaskRecord, selection: string) => {
+    if (!projectId || !accessToken) return;
+    try {
+      const lanePayload =
+        selection === "__none__"
+          ? { laneId: null }
+          : selection === ""
+          ? { autoAssign: true }
+          : { laneId: selection };
+      await updateProjectTask(projectId, task.id, lanePayload, accessToken);
+      await loadHub();
+    } catch (err: any) {
+      setError(err?.message || "Failed to update task lane");
     }
   };
 
@@ -1165,7 +1190,7 @@ export default function ProjectHubPage() {
 
   const renderTasks = () => (
     <div className="space-y-6">
-      <TaskForm form={taskForm} onFieldChange={handleTaskField} onSubmit={submitTask} />
+      <TaskForm form={taskForm} lanes={laneDefinitions} onFieldChange={handleTaskField} onSubmit={submitTask} />
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900">Project tasks</h3>
         {hub.tasks.length === 0 ? (
@@ -1176,7 +1201,9 @@ export default function ProjectHubPage() {
               <TaskRow
                 key={task.id}
                 task={task}
+                lanes={laneDefinitions}
                 onStatusChange={(status) => void updateTaskStatus(task, status)}
+                onLaneChange={(value) => void updateTaskLane(task, value)}
                 onRemove={() => void removeTask(task)}
               />
             ))}
@@ -1886,10 +1913,12 @@ function TimelineForm({
 
 function TaskForm({
   form,
+  lanes,
   onFieldChange,
   onSubmit,
 }: {
   form: TaskFormState;
+  lanes: TimelineLaneDefinition[];
   onFieldChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 }) {
@@ -1953,6 +1982,23 @@ function TaskForm({
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
           />
         </label>
+        <label className="text-xs font-semibold uppercase text-gray-500">
+          Timeline lane
+          <select
+            name="laneId"
+            value={form.laneId}
+            onChange={onFieldChange}
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="">Auto (use lane rules)</option>
+            <option value="__none__">No lane (keep off timeline)</option>
+            {lanes.map((lane) => (
+              <option key={lane.id} value={lane.id}>
+                {lane.name}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <div className="mt-4 flex justify-end">
         <button
@@ -1968,13 +2014,18 @@ function TaskForm({
 
 function TaskRow({
   task,
+  lanes,
   onStatusChange,
+  onLaneChange,
   onRemove,
 }: {
   task: ProjectTaskRecord;
+  lanes: TimelineLaneDefinition[];
   onStatusChange: (status: string) => void;
+  onLaneChange: (laneId: string) => void;
   onRemove: () => void;
 }) {
+  const laneValue = task.laneId ?? "__none__";
   return (
     <li className="flex flex-col gap-3 rounded border border-gray-200 p-3 text-sm text-gray-700 md:flex-row md:items-center md:justify-between">
       <div>
@@ -1996,6 +2047,22 @@ function TaskRow({
           </span>
           {task.dueAt ? <span>Due {new Date(task.dueAt).toLocaleDateString()}</span> : null}
           <span>Priority {task.priority ?? 0}</span>
+          <span>
+            Lane:
+            <select
+              value={laneValue}
+              onChange={(event) => onLaneChange(event.target.value)}
+              className="ml-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+            >
+              <option value="">Auto (rules)</option>
+              <option value="__none__">No lane</option>
+              {lanes.map((lane) => (
+                <option key={lane.id} value={lane.id}>
+                  {lane.name}
+                </option>
+              ))}
+            </select>
+          </span>
         </div>
       </div>
       <button

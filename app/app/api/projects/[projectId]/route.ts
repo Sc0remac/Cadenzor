@@ -108,7 +108,7 @@ export async function GET(request: Request, { params }: Params) {
       .order("start_at", { ascending: true, nullsFirst: true }),
     supabase
       .from("project_tasks")
-      .select("*")
+      .select("*, lane:lane_definitions(id, slug, name, color, icon)")
       .eq("project_id", projectId)
       .order("priority", { ascending: false })
       .order("due_at", { ascending: true }),

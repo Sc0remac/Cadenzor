@@ -5,6 +5,7 @@ import {
   mapTimelineDependencyRow,
   mapTimelineItemRow,
   mapLaneDefinitionRow,
+  mapProjectTaskRow,
 } from "../../../lib/projectMappers";
 import type {
   ProjectRecord,
@@ -12,6 +13,7 @@ import type {
   TimelineItemType,
   TimelineItemStatus,
   TimelineLaneDefinition,
+  ProjectTaskRecord,
 } from "@kazador/shared";
 
 function parseCsv(value: string | null): string[] {
@@ -68,6 +70,7 @@ function toTypeFilter(values: string[]): Set<TimelineItemType> | null {
     "RELEASE_MILESTONE",
     "LEGAL_ACTION",
     "FINANCE_ACTION",
+    "TASK",
   ];
   const lookup = new Set(values.map((value) => value.trim().toUpperCase()));
   const filtered = allowed.filter((type) => lookup.has(type));
@@ -95,6 +98,59 @@ function normaliseIsoTimestamp(value: string | null): string | null {
     return null;
   }
   return new Date(ms).toISOString();
+}
+
+function mapTaskStatusToTimelineStatus(status: string | null | undefined): TimelineItemStatus {
+  const normalised = (status ?? "").trim().toLowerCase();
+  switch (normalised) {
+    case "waiting":
+      return "waiting";
+    case "in_progress":
+    case "progress":
+    case "doing":
+      return "confirmed";
+    case "tentative":
+      return "tentative";
+    case "done":
+    case "completed":
+      return "done";
+    case "canceled":
+    case "cancelled":
+      return "canceled";
+    default:
+      return "planned";
+  }
+}
+
+function transformTaskToTimelineItem(task: ProjectTaskRecord): TimelineItemRecord | null {
+  if (!task.laneSlug) {
+    return null;
+  }
+
+  return {
+    id: `task:${task.id}`,
+    projectId: task.projectId,
+    type: "TASK",
+    lane: task.laneSlug,
+    kind: "task",
+    title: task.title,
+    description: task.description,
+    startsAt: null,
+    endsAt: null,
+    dueAt: task.dueAt,
+    timezone: null,
+    status: mapTaskStatusToTimelineStatus(task.status),
+    priorityScore: task.priority,
+    priorityComponents: null,
+    labels: { lane: task.laneSlug },
+    links: { taskId: task.id },
+    createdBy: task.createdBy,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    conflictFlags: null,
+    layoutRow: null,
+    territory: null,
+  } satisfies TimelineItemRecord;
 }
 
 export async function GET(request: Request) {
@@ -160,6 +216,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: timelineError.message }, { status: 500 });
   }
 
+  const { data: taskRows, error: taskError } = await supabase
+    .from("project_tasks")
+    .select("*, lane:lane_definitions(id, slug, name, color, icon)")
+    .eq("project_id", projectId)
+    .not("lane_id", "is", null);
+
+  if (taskError) {
+    return NextResponse.json({ error: taskError.message }, { status: 500 });
+  }
+
   const { data: dependencyRows, error: dependencyError } = await supabase
     .from("timeline_dependencies")
     .select("*")
@@ -187,7 +253,7 @@ export async function GET(request: Request) {
     laneLookup.set(lane.slug.toLowerCase(), lane);
   }
 
-  const items = (timelineRows ?? []).map((row) => {
+  const timelineItems = (timelineRows ?? []).map((row) => {
     const mapped = mapTimelineItemRow(row);
     const laneKey = mapped.lane.toLowerCase();
     if (laneLookup.has(laneKey)) {
@@ -195,7 +261,13 @@ export async function GET(request: Request) {
     }
     return mapped;
   });
-  const filteredItems = items.filter((item) => itemMatchesRange(item, rangeStartMs, rangeEndMs));
+  const tasks = (taskRows ?? []).map(mapProjectTaskRow);
+  const taskTimelineItems = tasks
+    .map((task) => transformTaskToTimelineItem(task))
+    .filter((item): item is TimelineItemRecord => Boolean(item));
+
+  const combinedItems = [...timelineItems, ...taskTimelineItems];
+  const filteredItems = combinedItems.filter((item) => itemMatchesRange(item, rangeStartMs, rangeEndMs));
 
   const itemsByType = typeFilter
     ? filteredItems.filter((item) => typeFilter.has(item.type))

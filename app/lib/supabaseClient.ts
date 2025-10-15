@@ -974,6 +974,9 @@ export interface CreateProjectTaskInput {
   dueAt?: string | null;
   priority?: number;
   assigneeId?: string | null;
+  laneId?: string | null;
+  laneSlug?: string | null;
+  autoAssign?: boolean;
 }
 
 export async function createProjectTask(

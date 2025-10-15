@@ -260,6 +260,12 @@ export function mapApprovalRow(row: any): ApprovalRecord {
 }
 
 export function mapProjectTaskRow(row: any): ProjectTaskRecord {
+  const laneRelation = row.lane ?? null;
+  const laneId = (row.lane_id as string) ?? (laneRelation?.id as string) ?? null;
+  const laneSlugValue = (row as Record<string, unknown>).lane_slug ?? laneRelation?.slug;
+  const laneNameValue = (row as Record<string, unknown>).lane_name ?? laneRelation?.name;
+  const laneColorValue = (row as Record<string, unknown>).lane_color ?? laneRelation?.color;
+  const laneIconValue = (row as Record<string, unknown>).lane_icon ?? laneRelation?.icon;
   return {
     id: row.id as string,
     projectId: row.project_id as string,
@@ -269,6 +275,11 @@ export function mapProjectTaskRow(row: any): ProjectTaskRecord {
     dueAt: parseDateTime(row.due_at),
     priority: row.priority != null ? Number(row.priority) : null,
     assigneeId: (row.assignee_id as string) ?? null,
+    laneId,
+    laneSlug: typeof laneSlugValue === "string" ? laneSlugValue : null,
+    laneName: typeof laneNameValue === "string" ? laneNameValue : null,
+    laneColor: typeof laneColorValue === "string" ? laneColorValue : null,
+    laneIcon: typeof laneIconValue === "string" ? laneIconValue : null,
     createdBy: (row.created_by as string) ?? null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),

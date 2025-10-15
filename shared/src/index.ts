@@ -7,3 +7,4 @@ export * from "./timelineConflicts";
 export * from "./projectSuggestions";
 export * from "./priorityConfig";
 export * from "./automationRules";
+export * from "./laneAutoAssignment";

@@ -189,7 +189,7 @@ export async function GET(request: Request) {
       .in("id", projectIds),
     supabase
       .from("project_tasks")
-      .select("*")
+      .select("*, lane:lane_definitions(id, slug, name, color, icon)")
       .in("project_id", projectIds),
     supabase
       .from("timeline_items")

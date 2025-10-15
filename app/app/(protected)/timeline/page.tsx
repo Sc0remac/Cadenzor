@@ -52,6 +52,7 @@ const ITEM_TYPE_OPTIONS: Array<{ id: TimelineItemRecord["type"]; label: string }
   { id: "RELEASE_MILESTONE", label: "Release" },
   { id: "LEGAL_ACTION", label: "Legal" },
   { id: "FINANCE_ACTION", label: "Finance" },
+  { id: "TASK", label: "Tasks" },
 ];
 
 const PRIORITY_OPTIONS: Array<{ id: PriorityBand; label: string }> = [

@@ -56,6 +56,12 @@ function mapProjectRow(row: any): ProjectRecord {
 }
 
 function mapTaskRow(row: any): ProjectTaskRecord {
+  const laneRelation = row.lane ?? null;
+  const laneId = (row.lane_id as string) ?? (laneRelation?.id as string) ?? null;
+  const laneSlugValue = (row as Record<string, unknown>).lane_slug ?? laneRelation?.slug;
+  const laneNameValue = (row as Record<string, unknown>).lane_name ?? laneRelation?.name;
+  const laneColorValue = (row as Record<string, unknown>).lane_color ?? laneRelation?.color;
+  const laneIconValue = (row as Record<string, unknown>).lane_icon ?? laneRelation?.icon;
   return {
     id: row.id as string,
     projectId: row.project_id as string,
@@ -68,6 +74,11 @@ function mapTaskRow(row: any): ProjectTaskRecord {
     updatedAt: String(row.updated_at),
     assigneeId: (row.assignee_id as string) ?? null,
     createdBy: (row.created_by as string) ?? null,
+    laneId,
+    laneSlug: typeof laneSlugValue === "string" ? laneSlugValue : null,
+    laneName: typeof laneNameValue === "string" ? laneNameValue : null,
+    laneColor: typeof laneColorValue === "string" ? laneColorValue : null,
+    laneIcon: typeof laneIconValue === "string" ? laneIconValue : null,
   } satisfies ProjectTaskRecord;
 }
 
@@ -296,7 +307,7 @@ async function buildDigestForUser(
   const [tasksRes, timelineRes, dependenciesRes, approvalsRes, emailLinksRes] = await Promise.all([
     client
       .from("project_tasks")
-      .select("*")
+      .select("*, lane:lane_definitions(id, slug, name, color, icon)")
       .in("project_id", projectIds),
     client
       .from("timeline_entries")

@@ -2568,6 +2568,7 @@ CREATE TABLE public.project_tasks (
     due_at timestamp with time zone,
     priority integer DEFAULT 0 NOT NULL,
     assignee_id uuid,
+    lane_id uuid,
     created_by uuid,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -4114,6 +4115,8 @@ CREATE UNIQUE INDEX project_sources_unique_external ON public.project_sources US
 --
 
 CREATE INDEX project_tasks_project_status_idx ON public.project_tasks USING btree (project_id, status);
+-- Name: project_tasks_lane_id_idx; Type: INDEX; Schema: public; Owner: -
+CREATE INDEX project_tasks_lane_id_idx ON public.project_tasks USING btree (lane_id);
 
 
 --
@@ -4748,6 +4751,14 @@ ALTER TABLE ONLY public.project_tasks
 
 ALTER TABLE ONLY public.project_tasks
     ADD CONSTRAINT project_tasks_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: project_tasks project_tasks_lane_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.project_tasks
+    ADD CONSTRAINT project_tasks_lane_id_fkey FOREIGN KEY (lane_id) REFERENCES public.lane_definitions(id) ON DELETE SET NULL;
 
 
 --
@@ -5759,4 +5770,3 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 --
 
 \unrestrict GXSETxy5xvei4iP1Be8m4dfTbtT3uxpabarUH5hHqWKOkjWRDM1EbrIWdmor90c
-

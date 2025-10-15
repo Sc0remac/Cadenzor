@@ -464,7 +464,8 @@ export type TimelineItemType =
   | "PROMO_SLOT"
   | "RELEASE_MILESTONE"
   | "LEGAL_ACTION"
-  | "FINANCE_ACTION";
+  | "FINANCE_ACTION"
+  | "TASK";
 
 export type TimelineLane = string;
 
@@ -541,6 +542,8 @@ export interface TimelineItemRecord {
 export function normaliseTimelineItemType(raw?: string | null): TimelineItemType {
   const candidate = (raw ?? "").trim().toUpperCase();
   switch (candidate) {
+    case "TASK":
+      return "TASK";
     case "LIVE_HOLD":
     case "LIVE/HOLD":
     case "LIVE HOLDS":
@@ -607,6 +610,8 @@ export function getTimelineLaneForType(type: TimelineItemType): TimelineLane {
       return "LEGAL";
     case "FINANCE_ACTION":
       return "FINANCE";
+    case "TASK":
+      return "PROMO";
     default:
       return "PROMO";
   }
@@ -621,6 +626,11 @@ export interface ProjectTaskRecord {
   dueAt: string | null;
   priority: number | null;
   assigneeId: string | null;
+  laneId: string | null;
+  laneSlug: string | null;
+  laneName: string | null;
+  laneColor: string | null;
+  laneIcon: string | null;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
