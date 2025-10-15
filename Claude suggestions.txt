@@ -1,0 +1,415 @@
+Executive Summary
+
+  The Timeline Studio is well-architected with solid foundations (virtualization, conflict detection, dependencies,
+  priority scoring), but needs critical UX/polish and several functional enhancements to meet Oran's workflow needs as
+  an artist manager.
+
+  Three biggest issues:
+  1. Constrained viewport – page width caps make the timeline feel cramped instead of expansive
+  2. Lane filtering UX is broken – filtering appears to "collapse" lanes rather than truly hide them, creating visual
+  confusion
+  3. Missing routing-aware intelligence – no travel buffer detection, timezone handling, or tour-context promo
+  scheduling
+
+  ---
+  1. What's Working Well ✅
+
+  Architecture & Performance
+
+  - Virtualization (app/components/projects/TimelineStudio.tsx:635-649) keeps rendering fast with many items
+  - Conflict detection (shared/src/timelineConflicts.ts) is wired and surfaces red outlines + messages
+  - Priority scoring (shared/src/projectPriority.ts) computes urgency × impact × dependencies
+  - Dependency visualization (FS/SS arrows with SVG paths) exists and renders
+  - Real-time refresh (30s polling in app/app/(protected)/timeline/page.tsx:343-357)
+  - Lane metadata from database (timeline_lane_definitions table) with colors, sort order, labels
+
+  Data Model
+
+  - Comprehensive schema supporting:
+    - timeline_items with type, lane, status, priority, labels, links
+    - timeline_dependencies with FS/SS kinds
+    - project_sources for Drive folder connections
+    - approvals workflow
+    - asset_links and project_email_links
+
+  Component Quality
+
+  - Drag & drop for items (move, resize-start, resize-end)
+  - Context menu with edit/attach/convert actions
+  - Hover tooltips with item details
+  - Status decorations (tentative = dashed border, done = opacity)
+  - Priority indicators (colored left edge on items)
+  - Overdue highlighting (red glow on overdue items)
+
+  ---
+  2. Critical Issues (UX/UI Layer)
+
+  A. Viewport Constraints (Immediate Fix)
+
+  Problem:Timeline feels cramped and "centered" instead of full-width.
+
+  Root causes:
+  1. app/components/AppShell.tsx:197 constrains all pages to max-w-6xl mx-auto
+  2. app/app/(protected)/timeline/page.tsx:653, 787 add their own max-w-7xl caps
+
+  Fix:
+  // AppShell.tsx - make timeline full-width
+  const isTimelinePage = pathname.startsWith('/timeline');
+  <main className={isTimelinePage ? "px-0 py-0" : "mx-auto max-w-6xl px-6 py-8"}>
+
+  // timeline/page.tsx - remove max-w-7xl wrappers
+  // Line 653 & 787: replace with w-full px-4 lg:px-6
+
+  Impact: Timeline breathes, feels like a command center instead of a constrained panel.
+
+  ---
+  B. Lane Filtering Broken (Immediate Fix)
+
+  Problem:When filtering out a lane (e.g., unchecking "Travel"), the lane still renders a row and background band but
+  with no items. This looks like a "collapsed" lane rather than a hidden one.
+
+  Root cause:app/components/projects/TimelineStudio.tsx:536-546 builds a layout for every lane even when !lane.visible,
+   and backgrounds are rendered for all lanes around line 930.
+
+  Fix:
+  // TimelineStudio.tsx:536-546
+  for (const lane of laneStateList) {
+    if (!lane.visible) {
+      continue; // Skip entirely, don't create layout
+    }
+    // ... rest of lane layout logic
+  }
+
+  // TimelineStudio.tsx:930 - gate background rendering
+  {positionedLayouts.map((layout) => {
+    if (!layout.lane.visible) return null; // Don't render background
+    // ... render background band
+  })}
+
+  Impact: Filtering truly hides lanes; "Live Holds" and "Travel" vanish cleanly when unchecked.
+
+  ---
+  C. Zoom Behavior Feels Like Scrolling (Immediate Fix)
+
+  Problem:Clicking zoom +/− shifts the content instead of keeping the same time centered under the viewport.
+
+  Root cause:TimelineStudio.tsx:680-686 only changes zoom state; no scrollLeft adjustment to re-center.
+
+  Fix:
+  const handleZoom = useCallback(
+    (delta: number) => {
+      if (!onZoomChange || !scrollRef.current) return;
+      const container = scrollRef.current;
+      const oldPxPerMs = getPxPerMs(viewMode, zoom);
+      const newZoom = clampZoom(zoom + delta);
+      const newPxPerMs = getPxPerMs(viewMode, newZoom);
+
+      // Compute center time before zoom
+      const centerMs = startMs + (container.scrollLeft + container.clientWidth / 2) / oldPxPerMs;
+
+      onZoomChange(newZoom);
+
+      // Re-center after zoom
+      requestAnimationFrame(() => {
+        const newScrollLeft = (centerMs - startMs) * newPxPerMs - container.clientWidth / 2;
+        container.scrollLeft = Math.max(0, newScrollLeft);
+      });
+    },
+    [onZoomChange, zoom, viewMode, startMs]
+  );
+
+  Impact: Zoom feels natural (like Google Maps), not like a horizontal slide.
+
+  ---
+  D. View Preset Resets to "Now" (Immediate Fix)
+
+  Problem:When switching Day/Week/Month, the timeline jumps back to "today" instead of staying anchored to the current 
+  visible range.
+
+  Root cause:app/app/(protected)/timeline/page.tsx:384-386 calls setAnchorDate(new Date()) on every view change.
+
+  Fix:
+  const handleViewChange = (mode: TimelineViewMode) => {
+    setViewMode(mode);
+    setAnchorDate(startDate); // Keep current range anchor
+  };
+
+  Impact: Day/Week/Month feels deterministic; doesn't reset your scroll position.
+
+  ---
+  3. Missing Functionality (vs. Product Vision)
+
+  Tier 1: Core Workflow Blockers
+
+  3.1 Travel Buffer & Routing Awareness 🚨
+
+  What's missing:No automatic detection of travel time between cities, timezone shifts, or minimum buffer windows
+  (e.g., 4-hour buffer between events in different cities).
+
+  Why it matters:Oran needs to know if a promo slot in London at 14:00 is feasible when the show in Paris ends at
+  11:00.
+
+  What exists:
+  - shared/src/timelineConflicts.ts:detectTimelineConflicts detects overlaps
+  - Buffer hours are configurable but not location-aware
+
+  What's needed:
+  1. Extend TimelineItemRecord to capture city, venue, timezone (already in labels)
+  2. Add computeTravelTime(cityA, cityB) helper (simple lookup table or Google Maps API)
+  3. Enhance detectTimelineConflicts to:
+    - Flag items in different cities within X hours as "travel conflict"
+    - Suggest buffer windows
+    - Surface timezone math (e.g., "14:00 BST = 15:00 CEST")
+
+  Code pointers:
+  - shared/src/timelineConflicts.ts:66 – add checkTravelFeasibility function
+  - TimelineItemRecord.labels already has city/territory/venue
+  - TimelineStudio.tsx:621-633 – surface travel warnings alongside conflicts
+
+  ---
+  3.2 Promo Slot Proposals (Routing-Aware) 🚨
+
+  What's missing:No "suggest interview slots around routing" automation.
+
+  Oran's workflow:
+  1. Email arrives: "Can Barry do Radio 1 on May 12 at 14:00 BST?"
+  2. System should:
+    - Check timeline for May 12
+    - Propose 2-3 feasible slots considering travel, buffers, existing commitments
+    - Draft reply: "Thanks! Barry is available 14:00–14:30 or 16:00–16:30 BST"
+    - Create tentative hold on timeline
+
+  What exists:
+  - Email classification (PROMO/Promo_Time_Request)
+  - Timeline item creation
+  - No slot proposal logic
+
+  What's needed:
+  1. API endpoint: POST /api/timeline/suggest-slots
+    - Input: { date, durationMinutes, city, timezone }
+    - Output: { slots: [{ start, end, score, conflicts }] }
+  2. Playbook: PromoTimeRequestPlaybook
+    - Extract date/duration from email
+    - Call suggest-slots
+    - Create draft reply with 2-3 options
+    - Queue approval
+
+  Code pointers:
+  - Create app/app/api/timeline/suggest-slots/route.ts
+  - Use shared/src/timelineConflicts.ts to validate slots
+  - Draft template in shared/src/replyTemplates.ts (new file)
+
+  ---
+  3.3 Today Digest & Top 3 Actions 🚨
+
+  What's missing:No daily/weekly digest surfaced to Oran; no "Top 3 for today" pane.
+
+  What exists:
+  - shared/src/projectPriority.ts:computeTopActions computes priority
+  - worker/src/digestJob.ts scaffolded but not scheduled
+  - user_preferences table with digest frequency
+
+  What's needed:
+  1. Digest generator cron (daily 08:00 Europe/London):
+    - Fetch all active projects
+    - Compute top actions per project
+    - Roll up global top 3
+    - Store in digests table
+  2. UI: /today dashboard (already exists at app/app/(protected)/today/page.tsx)
+    - Show top 3 actions
+    - Pending approvals
+    - Conflicts summary
+    - New leads
+
+  Code pointers:
+  - Finish worker/src/digestJob.ts:generateDigest
+  - Schedule via cron or Supabase Edge Function
+  - Enhance app/components/today/TodayDashboard.tsx
+
+  ---
+  Tier 2: Quality-of-Life Enhancements
+
+  3.4 Quarter View
+
+  Add "Quarter" to view presets alongside Day/Week/Month. Compute 13-week range, weekly ticks.
+
+  Code: app/app/(protected)/timeline/page.tsx:22-26, 86-113
+
+  ---
+  3.5 Prev/Next Period Buttons
+
+  Add chevrons near zoom controls to step backward/forward by 1 day/week/month.
+
+  Code: TimelineStudio.tsx:824-841 – add buttons that call parent callback to adjust startDate/endDate
+
+  ---
+  3.6 Keyboard Shortcuts
+
+  - ←/→ to step prev/next period
+  - +/- to zoom
+  - T to center "today"
+
+  Code: Add useEffect with keydown listener in timeline/page.tsx
+
+  ---
+  3.7 Threaded Email View in Inbox Tab
+
+  What's missing:Email inbox (app/app/(protected)/projects/[projectId]/page.tsx Inbox tab) shows flat list; no thread
+  grouping, no "Open in Gmail" links, no attachments.
+
+  What's needed:
+  1. Store thread_id in emails table (schema supports it)
+  2. Group by thread in UI
+  3. Add "Open in Gmail" button: https://mail.google.com/mail/u/0/#inbox/${messageId}
+  4. Show attachments from email_attachments table
+
+  Code: app/app/(protected)/projects/[projectId]/page.tsx:300-400 (Inbox tab)
+
+  ---
+  3.8 Drive Asset Library & Filing
+
+  What exists:
+  - project_sources table with kind=drive_folder
+  - assets table with Drive metadata
+
+  What's missing:
+  - OAuth per user to connect Drive
+  - Worker to index files
+  - UI to browse/filter assets in Files tab
+
+  What's needed:
+  1. OAuth flow: app/lib/googleOAuth.ts (already exists but needs wiring)
+  2. Worker job: worker/src/driveIndexer.ts (scaffold exists in app/lib/driveIndexer.ts)
+  3. UI: app/components/projects/FilesTab.tsx – show asset grid with filters
+
+  Code pointers:
+  - Wire app/app/api/oauth/google/callback/route.ts
+  - Schedule Drive indexer in worker
+  - Enhance FilesTab.tsx to show assets table data
+
+  ---
+  Tier 3: Strategic Features (Post-MVP)
+
+  3.9 Calendar Sync (Google/Outlook)
+
+  Sync timeline holds/confirmed items to external calendars.
+
+  Schema: calendar_accounts, calendar_events tables (not yet created)
+
+  ---
+  3.10 Meeting Intelligence
+
+  Ingest Zoom recordings → transcribe → summarize → action items.
+
+  Schema: meetings table (spec'd in schema but not created)
+
+  ---
+  3.11 People & Org Enrichment
+
+  Extract signatures, map orgs, track reliability.
+
+  Schema: orgs, contact_orgs, contact_enrichment (not yet created)
+
+  ---
+  4. Prioritized Implementation Roadmap
+
+  Phase 1: Polish (1 week)
+
+  Fix the UX issues that make the timeline feel unfinished:
+
+  1. ✅ Make timeline full-width (AppShell + page wrapper)
+  2. ✅ Fix lane filtering (skip invisible lanes entirely)
+  3. ✅ Fix zoom re-centering
+  4. ✅ Fix view preset anchor to current range
+  5. ✅ Add prev/next period buttons
+  6. ✅ Add quarter view
+  7. ✅ Increase axis label size/contrast for readability
+
+  Effort: 1-2 daysImpact: Timeline feels professional, usable, and "sticky"
+
+  ---
+  Phase 2: Core Workflow (2-3 weeks)
+
+  Enable Oran's day-to-day operations:
+
+  1. ✅ Travel buffer detection & routing conflicts
+  2. ✅ Promo slot proposal API + playbook
+  3. ✅ Today digest generator + UI at /today
+  4. ✅ Threaded email view with Gmail links
+  5. ✅ Drive asset indexing + Files tab UI
+  6. ✅ Keyboard shortcuts
+
+  Effort: 2-3 weeksImpact: Kazador becomes operationally useful for booking/promo workflows
+
+  ---
+  Phase 3: Advanced Intelligence (4-6 weeks)
+
+  Enable predictive/proactive features:
+
+  1. ✅ Calendar sync (Google/Outlook)
+  2. ✅ Meeting intelligence (Zoom → tasks)
+  3. ✅ People/org enrichment
+  4. ✅ Settlement parsing & legal term extraction
+  5. ✅ Voice memo ingestion (Telegram)
+  6. ✅ Release-ops (SoundCloud, track reports, promo send-outs)
+
+  Effort: 4-6 weeksImpact: Kazador becomes predictive & autopilot-ready
+
+  ---
+  5. Quick Code Fixes (Copy-Paste Ready)
+
+  Fix 1: Full-Width Timeline
+
+  // app/components/AppShell.tsx
+  const isTimelinePage = pathname.startsWith('/timeline');
+
+  return (
+    <main className={isTimelinePage ? "flex-1" : "mx-auto max-w-6xl px-6 py-8"}>
+      {children}
+    </main>
+  );
+
+  Fix 2: Hide Filtered Lanes
+
+  // app/components/projects/TimelineStudio.tsx:536
+  for (const lane of laneStateList) {
+    if (!lane.visible) continue; // Skip invisible lanes
+
+    const laneItems = localItems.filter((item) => item.lane === lane.id);
+    // ... rest of layout logic
+  }
+
+  Fix 3: Zoom Re-Center
+
+  // app/components/projects/TimelineStudio.tsx
+  const prevPxPerMsRef = useRef(pxPerMs);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || prevPxPerMsRef.current === pxPerMs) return;
+
+    const centerMs = startMs + (container.scrollLeft + container.clientWidth / 2) / prevPxPerMsRef.current;
+    const newScrollLeft = (centerMs - startMs) * pxPerMs - container.clientWidth / 2;
+    container.scrollLeft = Math.max(0, newScrollLeft);
+
+    prevPxPerMsRef.current = pxPerMs;
+  }, [pxPerMs, startMs]);
+
+  ---
+  6. Key Metrics to Track
+
+  After Phase 1 & 2, track:
+  - Time to respond to booking offers (should drop from hours to minutes)
+  - Conflict detection rate (% of conflicts caught before they cause issues)
+  - Digest engagement (% of top actions completed within 24h)
+  - Asset retrieval time (Drive integration speeds up EPK/contract access)
+
+  ---
+  Summary
+
+  Your Timeline Studio foundations are solid. The architecture (virtualization, conflict detection, priority engine,
+  dependencies) is enterprise-grade. What's needed is:
+
+  1. UX polish (full-width, proper filtering, zoom behavior) – 1-2 days
+  2. Core workflow automation (travel buffers, promo slots, digest, Drive) – 2-3 weeks
+  3. Strategic intelligence (calendar sync, meetings, org enrichment) – 4-6 weeks

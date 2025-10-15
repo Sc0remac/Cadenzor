@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict T3dF01onI6lSHhhybeFETwf77jS3lnsnmy8jtRJ0wsHI23a97KG4508MwY4pB7L
+\restrict GXSETxy5xvei4iP1Be8m4dfTbtT3uxpabarUH5hHqWKOkjWRDM1EbrIWdmor90c
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -2385,6 +2385,26 @@ ALTER TABLE ONLY public.emails FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: lane_definitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.lane_definitions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid DEFAULT auth.uid(),
+    name text NOT NULL,
+    slug text NOT NULL,
+    description text,
+    color text,
+    icon text,
+    sort_order integer DEFAULT 0 NOT NULL,
+    auto_assign_rules jsonb,
+    is_default boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
 -- Name: oauth_accounts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3258,6 +3278,22 @@ ALTER TABLE ONLY public.emails
 
 
 --
+-- Name: lane_definitions lane_definitions_owner_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lane_definitions
+    ADD CONSTRAINT lane_definitions_owner_slug_key UNIQUE (user_id, slug);
+
+
+--
+-- Name: lane_definitions lane_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lane_definitions
+    ADD CONSTRAINT lane_definitions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: oauth_accounts oauth_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3983,6 +4019,20 @@ CREATE INDEX emails_triage_priority_idx ON public.emails USING btree (triage_sta
 
 
 --
+-- Name: lane_definitions_global_slug_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX lane_definitions_global_slug_key ON public.lane_definitions USING btree (slug) WHERE (user_id IS NULL);
+
+
+--
+-- Name: lane_definitions_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX lane_definitions_user_id_idx ON public.lane_definitions USING btree (user_id);
+
+
+--
 -- Name: oauth_accounts_expires_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4291,6 +4341,13 @@ CREATE TRIGGER projects_set_updated_at BEFORE UPDATE ON public.projects FOR EACH
 
 
 --
+-- Name: lane_definitions set_lane_definitions_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER set_lane_definitions_updated_at BEFORE UPDATE ON public.lane_definitions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: timeline_items timeline_items_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4587,6 +4644,14 @@ ALTER TABLE ONLY public.digests
 
 ALTER TABLE ONLY public.email_attachments
     ADD CONSTRAINT email_attachments_email_id_fkey FOREIGN KEY (email_id) REFERENCES public.emails(id) ON DELETE CASCADE;
+
+
+--
+-- Name: lane_definitions lane_definitions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lane_definitions
+    ADD CONSTRAINT lane_definitions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -4902,6 +4967,34 @@ ALTER TABLE auth.sso_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: lane_definitions Lane definitions are deletable by owner; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Lane definitions are deletable by owner" ON public.lane_definitions FOR DELETE USING ((auth.uid() = user_id));
+
+
+--
+-- Name: lane_definitions Lane definitions are insertable by owner; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Lane definitions are insertable by owner" ON public.lane_definitions FOR INSERT WITH CHECK (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id) OR (user_id IS NULL)));
+
+
+--
+-- Name: lane_definitions Lane definitions are updatable by owner; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Lane definitions are updatable by owner" ON public.lane_definitions FOR UPDATE USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
+-- Name: lane_definitions Lane definitions are viewable by owner or global; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Lane definitions are viewable by owner or global" ON public.lane_definitions FOR SELECT USING (((user_id IS NULL) OR (auth.uid() = user_id)));
+
+
+--
 -- Name: profiles Users can create their profile; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -5105,6 +5198,12 @@ CREATE POLICY emails_anon_read ON public.emails FOR SELECT USING (true);
 
 CREATE POLICY emails_service_role_all ON public.emails USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
 
+
+--
+-- Name: lane_definitions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.lane_definitions ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: oauth_accounts; Type: ROW SECURITY; Schema: public; Owner: -
@@ -5659,5 +5758,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict T3dF01onI6lSHhhybeFETwf77jS3lnsnmy8jtRJ0wsHI23a97KG4508MwY4pB7L
+\unrestrict GXSETxy5xvei4iP1Be8m4dfTbtT3uxpabarUH5hHqWKOkjWRDM1EbrIWdmor90c
 
