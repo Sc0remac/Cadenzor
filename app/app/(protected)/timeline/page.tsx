@@ -12,6 +12,7 @@ import type {
 import { detectTimelineConflicts } from "@kazador/shared";
 import { useAuth } from "../../../components/AuthProvider";
 import { TimelineStudio } from "../../../components/projects/TimelineStudio";
+import { TimelineCalendarView, type CalendarViewMode } from "../../../components/projects/TimelineCalendarView";
 import { fetchProjects, fetchTimelineExplorer, type ProjectListItem } from "../../../lib/supabaseClient";
 
 type TimelineViewMode = "day" | "week" | "month" | "quarter";
@@ -210,6 +211,7 @@ export default function TimelinePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [laneDefinitions, setLaneDefinitions] = useState<TimelineLaneDefinition[]>([]);
+  const [displayMode, setDisplayMode] = useState<"calendar" | "gantt">("calendar");
   const [viewMode, setViewMode] = useState<TimelineViewMode>("week");
   const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
   const defaultRange = useMemo(() => computeViewRange("week", new Date()), []);
@@ -241,6 +243,11 @@ export default function TimelinePage() {
     setStartDate(range.start);
     setEndDate(range.end);
   }, [viewMode, anchorDate]);
+  useEffect(() => {
+    if (displayMode === "calendar" && viewMode === "day") {
+      setViewMode("week");
+    }
+  }, [displayMode, viewMode]);
   useEffect(() => {
     if (!accessToken) return;
     let active = true;
@@ -505,6 +512,19 @@ export default function TimelinePage() {
     });
   };
 
+  const handleCalendarCreate = (date: Date, laneId: TimelineLane) => {
+    const start = new Date(date);
+    start.setHours(12, 0, 0, 0);
+    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+    setDraftLane(laneId);
+    setDraftStart(formatDateTimeLocal(start));
+    setDraftEnd(formatDateTimeLocal(end));
+    setDraftTitle("");
+    setDraftCity("");
+    setDrawerMode("create");
+    setSelectedItem(null);
+  };
+
   const handleSelectItem = (item: TimelineItemRecord) => {
     setSelectedItem(item);
     setDrawerMode("view");
@@ -600,6 +620,16 @@ export default function TimelinePage() {
       name: entry.project.name,
     }));
   }, [projects]);
+  const effectiveViewOptions = useMemo(() => {
+    if (displayMode === "calendar") {
+      return VIEW_OPTIONS.filter((option) => option.value !== "day");
+    }
+    return VIEW_OPTIONS;
+  }, [displayMode]);
+
+  const handleDisplayModeChange = (mode: "calendar" | "gantt") => {
+    setDisplayMode(mode);
+  };
 
   const laneState = useMemo(
     () =>
@@ -623,7 +653,6 @@ export default function TimelinePage() {
 
   const filteredItems = useMemo(() => {
     return timelineItems.filter((item) => {
-      if (laneFilters.size > 0 && !laneFilters.has(item.lane)) return false;
       if (statusFilters.size > 0 && !statusFilters.has(item.status)) return false;
       const band = getPriorityBand(item.priorityScore);
       if (priorityFilters.size > 0 && !priorityFilters.has(band)) return false;
@@ -643,6 +672,11 @@ export default function TimelinePage() {
         filteredItemIds.has(dependency.toItemId)
     );
   }, [dependencies, filteredItemIds]);
+
+  const calendarViewMode = useMemo<CalendarViewMode>(() => {
+    if (viewMode === "day") return "week";
+    return viewMode as CalendarViewMode;
+  }, [viewMode]);
 
   const summary = useMemo(() => summarizeTimeline(filteredItems), [filteredItems]);
   const rangeLabel = useMemo(() => {
@@ -732,10 +766,39 @@ export default function TimelinePage() {
                 </select>
               </label>
               <div className="flex flex-col text-xs uppercase tracking-wide text-slate-400">
+                Mode
+                <div className="mt-1 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDisplayModeChange("calendar")}
+                    className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${
+                      displayMode === "calendar"
+                        ? "border-indigo-400 bg-indigo-500/20 text-white"
+                        : "border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600"
+                    }`}
+                  >
+                    <span aria-hidden>📅</span>
+                    Calendar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDisplayModeChange("gantt")}
+                    className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${
+                      displayMode === "gantt"
+                        ? "border-indigo-400 bg-indigo-500/20 text-white"
+                        : "border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600"
+                    }`}
+                  >
+                    <span aria-hidden>📊</span>
+                    Gantt
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-col text-xs uppercase tracking-wide text-slate-400">
                 View
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <div className="flex overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-sm font-medium text-slate-200">
-                    {VIEW_OPTIONS.map((option) => (
+                    {effectiveViewOptions.map((option) => (
                       <button
                         key={option.value}
                         type="button"
@@ -910,25 +973,38 @@ export default function TimelinePage() {
           ) : null}
 
           <section className="relative">
-            <TimelineStudio
-              items={filteredItems}
-              dependencies={filteredDependencies}
-              lanes={laneState}
-              laneDefinitions={laneDefinitions}
-              viewMode={viewMode}
-              startDate={startDate}
-              endDate={endDate}
-              zoom={zoom}
-              onZoomChange={setZoom}
-              onSelectItem={handleSelectItem}
-              onToggleLaneCollapse={handleToggleLaneCollapse}
-              onContextAction={handleContextAction}
-              onAddItem={() => {
-                setDrawerMode("create");
-                setSelectedItem(null);
-              }}
-              realtimeLabel={realtimeLabel}
-            />
+            {displayMode === "calendar" ? (
+              <TimelineCalendarView
+                items={filteredItems}
+                lanes={laneState}
+                laneDefinitions={laneDefinitions}
+                viewMode={calendarViewMode}
+                startDate={startDate}
+                endDate={endDate}
+                onSelectItem={handleSelectItem}
+                onCreateItem={handleCalendarCreate}
+              />
+            ) : (
+              <TimelineStudio
+                items={filteredItems}
+                dependencies={filteredDependencies}
+                lanes={laneState}
+                laneDefinitions={laneDefinitions}
+                viewMode={viewMode}
+                startDate={startDate}
+                endDate={endDate}
+                zoom={zoom}
+                onZoomChange={setZoom}
+                onSelectItem={handleSelectItem}
+                onToggleLaneCollapse={handleToggleLaneCollapse}
+                onContextAction={handleContextAction}
+                onAddItem={() => {
+                  setDrawerMode("create");
+                  setSelectedItem(null);
+                }}
+                realtimeLabel={realtimeLabel}
+              />
+            )}
             {loading ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-slate-950/70">
                 <span className="animate-spin text-3xl">⏳</span>

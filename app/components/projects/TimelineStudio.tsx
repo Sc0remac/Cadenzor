@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -20,8 +21,8 @@ import { buildConflictIndex, detectTimelineConflicts } from "@kazador/shared";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
-const ITEM_HEIGHT = 52;
-const PIN_SIZE = 18;
+const ITEM_HEIGHT = 80;
+const PIN_SIZE = 24;
 const LANE_HEADER_HEIGHT = 48;
 const LANE_PADDING_Y = 18;
 const ROW_GAP = 12;
@@ -88,6 +89,75 @@ function formatLaneLabel(slug: string): string {
     .join(" ");
 }
 
+function alignToWeek(ms: number): number {
+  const date = new Date(ms);
+  date.setHours(0, 0, 0, 0);
+  const day = date.getDay();
+  const diff = (day + 6) % 7;
+  date.setDate(date.getDate() - diff);
+  return date.getTime();
+}
+
+function formatCompactDate(date: Date): string {
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function getWeekNumber(date: Date): number {
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  return Math.ceil((((target.getTime() - yearStart.getTime()) / DAY_MS) + 1) / 7);
+}
+
+function describeAutoAssignRules(rules: Record<string, unknown> | null): string {
+  if (!rules) return "Manual only";
+  const parts: string[] = [];
+  for (const [key, rawValue] of Object.entries(rules)) {
+    if (Array.isArray(rawValue) && rawValue.length > 0) {
+      parts.push(`${formatRuleKey(key)}: ${rawValue.join(", ")}`);
+    } else if (typeof rawValue === "string" && rawValue.trim().length > 0) {
+      parts.push(`${formatRuleKey(key)}: ${rawValue}`);
+    }
+  }
+  return parts.length > 0 ? parts.slice(0, 3).join(" • ") : "Manual only";
+}
+
+function formatRuleKey(key: string): string {
+  return key
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+interface QuickActionButtonProps {
+  label: string;
+  tone: "positive" | "neutral" | "negative";
+  onClick?: () => void;
+}
+
+function QuickActionButton({ label, tone, onClick }: QuickActionButtonProps) {
+  const toneClass =
+    tone === "positive"
+      ? "bg-emerald-500/80 hover:bg-emerald-500"
+      : tone === "negative"
+      ? "bg-rose-600/80 hover:bg-rose-600"
+      : "bg-slate-700/80 hover:bg-slate-600";
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick?.();
+      }}
+      className={`rounded-lg px-3 py-1 text-[0.65rem] font-semibold text-white shadow-sm transition ${toneClass}`}
+    >
+      {label}
+    </button>
+  );
+}
+
 const TYPE_COLORS: Record<
   TimelineItemRecord["type"],
   { base: string; text: string; border: string }
@@ -130,6 +200,24 @@ const STATUS_DECORATION: Partial<Record<TimelineItemStatus, string>> = {
   canceled: "opacity-60",
 };
 
+function getStatusMeta(status: TimelineItemStatus) {
+  const map: Record<
+    TimelineItemStatus,
+    {
+      icon: string;
+      label: string;
+    }
+  > = {
+    planned: { icon: "⚪", label: "Planned" },
+    tentative: { icon: "🟡", label: "Tentative" },
+    confirmed: { icon: "🟢", label: "Confirmed" },
+    waiting: { icon: "🟠", label: "Waiting" },
+    done: { icon: "✅", label: "Completed" },
+    canceled: { icon: "⛔", label: "Canceled" },
+  };
+  return map[status] ?? { icon: "⚪", label: "Planned" };
+}
+
 const PRIORITY_LEVELS = [
   { id: "HIGH", label: "High", min: 70, color: "bg-red-500" },
   { id: "MEDIUM", label: "Medium", min: 40, color: "bg-amber-500" },
@@ -140,13 +228,20 @@ type TimelineViewMode = "day" | "week" | "month" | "quarter";
 
 type ContextAction = "edit" | "attach" | "convert";
 
-interface LaneState {
+export interface LaneState {
   id: TimelineLane;
   label: string;
   color: string;
   visible: boolean;
   collapsed: boolean;
   sortOrder: number;
+}
+
+interface AxisTick {
+  position: number;
+  label: string;
+  subLabel?: string;
+  weekNumber?: number;
 }
 
 interface TimelineStudioProps {
@@ -240,7 +335,7 @@ function describeRange(viewMode: TimelineViewMode, start: Date, end: Date) {
         endMs = startMs + 30 * DAY_MS;
         break;
       case "quarter":
-        endMs = startMs + 90 * DAY_MS;
+        endMs = startMs + 13 * 7 * DAY_MS;
         break;
       default:
         endMs = startMs + 7 * DAY_MS;
@@ -265,9 +360,9 @@ function getPxPerMs(viewMode: TimelineViewMode, zoom: number): number {
   }
 }
 
-function getAxisTicks(viewMode: TimelineViewMode, startMs: number, endMs: number) {
-  const ticks: Array<{ position: number; label: string }> = [];
+function getAxisTicks(viewMode: TimelineViewMode, startMs: number, endMs: number): AxisTick[] {
   if (viewMode === "day") {
+    const ticks: AxisTick[] = [];
     const start = new Date(startMs);
     start.setMinutes(0, 0, 0);
     for (let ms = start.getTime(); ms <= endMs; ms += HOUR_MS) {
@@ -283,20 +378,40 @@ function getAxisTicks(viewMode: TimelineViewMode, startMs: number, endMs: number
     return ticks;
   }
 
+  if (viewMode === "quarter") {
+    const ticks: AxisTick[] = [];
+    let weekIndex = 1;
+    for (let ms = alignToWeek(startMs); ms <= endMs; ms += 7 * DAY_MS) {
+      const start = new Date(ms);
+      const end = new Date(ms + 6 * DAY_MS);
+      ticks.push({
+        position: start.getTime(),
+        label: `Week ${weekIndex}`,
+        subLabel: `${formatCompactDate(start)} – ${formatCompactDate(end)}`,
+        weekNumber: getWeekNumber(start),
+      });
+      weekIndex += 1;
+      if (weekIndex > 13) break;
+    }
+    return ticks;
+  }
+
   const cursor = new Date(startMs);
   cursor.setHours(0, 0, 0, 0);
-  let step = 7 * DAY_MS;
-  if (viewMode === "week") step = DAY_MS;
-  if (viewMode === "quarter") step = 14 * DAY_MS;
+  const step = DAY_MS;
+  const ticks: AxisTick[] = [];
   for (let ms = cursor.getTime(); ms <= endMs; ms += step) {
     const date = new Date(ms);
-    const labelOptions =
-      viewMode === "week"
-        ? { weekday: "short", month: "short", day: "numeric" }
-        : viewMode === "quarter"
-        ? { month: "short", day: "numeric" }
-        : { month: "short", day: "numeric" };
-    ticks.push({ position: ms, label: date.toLocaleDateString(undefined, labelOptions) });
+    const label = date.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    ticks.push({
+      position: ms,
+      label,
+      weekNumber: viewMode === "month" ? getWeekNumber(date) : undefined,
+    });
   }
   return ticks;
 }
@@ -541,15 +656,21 @@ export function TimelineStudio({
       sortOrder: lane.sortOrder,
     }));
   }, [lanes, laneMetadata]);
+  const laneDefinitionMap = useMemo(() => {
+    const map = new Map<TimelineLane, TimelineLaneDefinition>();
+    if (laneDefinitions) {
+      for (const definition of laneDefinitions) {
+        const key = (definition.slug || definition.id) as TimelineLane;
+        map.set(key, definition);
+      }
+    }
+    return map;
+  }, [laneDefinitions]);
   const positionedLayouts = useMemo<LaneLayout[]>(() => {
     let offset = 0;
     const layouts: LaneLayout[] = [];
 
     for (const lane of laneStateList) {
-      if (!lane.visible) {
-        continue;
-      }
-
       const laneItems = localItems.filter((item) => item.lane === lane.id);
       const sorted = laneItems
         .map((item) => {
@@ -616,13 +737,13 @@ export function TimelineStudio({
     return layouts;
   }, [laneStateList, localItems, pxPerMs, startMs]);
 
-  const visibleLaneCount = useMemo(() => laneStateList.filter((lane) => lane.visible).length, [laneStateList]);
+  const laneCount = laneStateList.length;
 
   const totalHeight = useMemo(() => {
-    if (!positionedLayouts.length) return Math.max(visibleLaneCount, 1) * LANE_HEADER_HEIGHT;
+    if (!positionedLayouts.length) return Math.max(laneCount, 1) * LANE_HEADER_HEIGHT;
     const last = positionedLayouts[positionedLayouts.length - 1];
     return last.offsetTop + last.height;
-  }, [positionedLayouts, visibleLaneCount]);
+  }, [positionedLayouts, laneCount]);
 
   const conflictIndex = useMemo(() => {
     const conflicts = detectTimelineConflicts(localItems, { bufferHours: 4 });
@@ -642,7 +763,7 @@ export function TimelineStudio({
     const minX = scrollLeft - VIRTUALIZATION_BUFFER;
     const maxX = scrollLeft + viewportWidth + VIRTUALIZATION_BUFFER;
     return positionedLayouts.map((layout) => {
-      if (!layout.lane.visible || layout.lane.collapsed) {
+      if (layout.lane.collapsed) {
         return { ...layout, visibleItems: [] };
       }
       const visibleItems = layout.items.filter((item) => {
@@ -707,7 +828,7 @@ export function TimelineStudio({
   const positionLookup = useMemo(() => {
     const map = new Map<string, { x: number; y: number; width: number; height: number }>();
     for (const layout of positionedLayouts) {
-      if (!layout.lane.visible || layout.lane.collapsed) continue;
+      if (layout.lane.collapsed) continue;
       for (const item of layout.items) {
         map.set(item.item.id, {
           x: item.left,
@@ -735,23 +856,35 @@ export function TimelineStudio({
   }, [dependencies, positionLookup]);
 
   const renderItem = useCallback(
-    (positioned: PositionedItem) => {
+    (positioned: PositionedItem, laneActive: boolean) => {
       const { item } = positioned;
       const typeStyle = TYPE_COLORS[item.type];
       const statusDecoration = STATUS_DECORATION[item.status];
       const priorityMeta = getPriorityMeta(item.priorityScore);
       const conflicted = conflictIndex.has(item.id);
+      const conflictDetails = conflictIndex.get(item.id);
+      const conflictMessage = conflictDetails?.[0]?.message;
       const overdue = isOverdue(item);
       const attachments = hasAttachments(item);
+      const statusMeta = getStatusMeta(item.status);
+      const locationSummary = [item.labels?.city, item.labels?.territory].filter(Boolean).join(" · ");
+      const priorityBadgeClass =
+        priorityMeta.id === "HIGH"
+          ? "border-rose-400/80 bg-rose-500/20 text-rose-100"
+          : priorityMeta.id === "MEDIUM"
+          ? "border-amber-400/70 bg-amber-500/20 text-amber-100"
+          : "border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
+
       const classes = [
-        "group absolute rounded-md border px-3 py-2 text-xs shadow transition-all duration-200",
+        "group absolute rounded-2xl border-2 px-4 pb-8 pt-4 text-sm shadow transition-all duration-200 backdrop-blur-sm",
         typeStyle.base,
         typeStyle.text,
         typeStyle.border,
         statusDecoration ?? "",
-        conflicted ? "ring-2 ring-offset-1 ring-offset-slate-900/60 ring-red-500" : "",
-        overdue ? "shadow-[0_0_12px_rgba(239,68,68,0.45)]" : "",
-        positioned.isPin ? "flex items-center justify-center" : "flex flex-col",
+        conflicted ? "ring-2 ring-offset-2 ring-offset-slate-950 ring-rose-400/80" : "",
+        overdue ? "shadow-[0_0_18px_rgba(248,113,113,0.45)]" : "",
+        positioned.isPin ? "flex items-center gap-3" : "flex flex-col",
+        laneActive ? "" : "opacity-55",
       ]
         .filter(Boolean)
         .join(" ");
@@ -761,6 +894,11 @@ export function TimelineStudio({
         top: positioned.top,
         width: positioned.width,
         height: positioned.height,
+      };
+      const timeSummary = formatTimeRange(item);
+
+      const handleQuickAction = () => {
+        onSelectItem?.(item);
       };
 
       return (
@@ -782,31 +920,55 @@ export function TimelineStudio({
             aria-hidden
           />
           {positioned.isPin ? (
-            <div className="flex items-center gap-2">
-              <span className="text-[0.65rem] uppercase tracking-wide">{item.type.replace(/_/g, " ")}</span>
-              <span className="font-semibold text-sm">{item.title}</span>
+            <div className="flex w-full items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-200">
+                <span className="text-base">{statusMeta.icon}</span>
+                <span>{statusMeta.label}</span>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="truncate text-sm font-semibold text-white">{item.title}</span>
+                {timeSummary ? <span className="text-[0.65rem] text-slate-300">{timeSummary}</span> : null}
+              </div>
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between gap-2 text-[0.65rem] uppercase tracking-wide">
-                <span>{item.type.replace(/_/g, " ")}</span>
-                <span className="font-semibold">{priorityMeta.label}</span>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-200">
+                    <span className="text-base">{statusMeta.icon}</span>
+                    <span>{statusMeta.label}</span>
+                    <span className="text-[0.65rem] text-slate-400">{item.type.replace(/_/g, " ")}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-white">{item.title}</p>
+                </div>
+                <span className={`rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold ${priorityBadgeClass}`}>
+                  {priorityMeta.label}
+                </span>
               </div>
-              <p className="mt-1 truncate text-sm font-semibold leading-tight">{item.title}</p>
-              <p className="mt-1 text-[0.65rem] text-slate-200/80">{formatTimeRange(item)}</p>
-              <div className="mt-1 flex items-center gap-2 text-[0.65rem] text-slate-100/80">
-                {item.labels?.city ? <span>{item.labels.city}</span> : null}
-                {item.labels?.territory ? <span>{item.labels.territory}</span> : null}
-                {attachments ? <span className="flex items-center gap-1">📎<span>files</span></span> : null}
-                {item.status === "tentative" ? <span>tentative</span> : null}
-                {item.status === "done" ? <span>done</span> : null}
+              {locationSummary ? (
+                <p className="mt-2 text-xs text-slate-300">📍 {locationSummary}</p>
+              ) : null}
+              {timeSummary ? <p className="mt-1 text-xs text-slate-400">{timeSummary}</p> : null}
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-[0.7rem] text-slate-300">
+                {attachments ? <span className="flex items-center gap-1">📎<span>Files</span></span> : null}
+                {item.labels?.artist ? <span>🎤 {item.labels.artist}</span> : null}
+                {item.labels?.venue ? <span>{item.labels.venue}</span> : null}
               </div>
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1 rounded-b-md bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 transition group-hover:opacity-100" />
+              {conflicted ? (
+                <div className="mt-2 rounded-md border border-rose-400/60 bg-rose-500/10 px-2 py-1 text-[0.7rem] text-rose-200">
+                  ⚠ {conflictMessage ?? "Timeline conflict detected"}
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2 text-[0.7rem]">
+                <QuickActionButton label="Accept" tone="positive" onClick={handleQuickAction} />
+                <QuickActionButton label="Info" tone="neutral" onClick={handleQuickAction} />
+                <QuickActionButton label="Decline" tone="negative" onClick={handleQuickAction} />
+              </div>
             </>
           )}
 
           {!positioned.isPin ? (
-            <div className="absolute inset-x-0 bottom-0 flex justify-between px-1 text-[0.65rem]">
+            <div className="absolute inset-x-0 bottom-0 flex justify-between px-1 pb-1 text-[0.65rem]">
               <div
                 className="cursor-ew-resize rounded px-1 py-0.5 text-slate-100/80"
                 onPointerDown={(event) => handleDragStart(event, "resize-start", positioned)}
@@ -869,10 +1031,13 @@ export function TimelineStudio({
           <div className="relative" style={{ height: totalHeight }}>
             {positionedLayouts.map((layout) => {
               const visuals = buildLaneVisual(layout.lane.color);
+              const dimmed = !layout.lane.visible;
+              const definition = laneDefinitionMap.get(layout.lane.id) ?? null;
+              const autoAssignSummary = describeAutoAssignRules(definition?.autoAssignRules ?? null);
               return (
                 <div
                   key={layout.lane.id}
-                  className="flex items-start justify-between border-b px-4"
+                  className={`flex h-full flex-col justify-between border-b px-4 transition ${dimmed ? "opacity-50" : ""}`}
                   style={{
                     height: layout.height,
                     borderColor: visuals.border,
@@ -890,14 +1055,25 @@ export function TimelineStudio({
                     <p className="mt-1 text-xs text-slate-400">
                       {layout.rowCount > 0 ? `${layout.items.length} scheduled` : "Collapsed"}
                     </p>
+                    <p className="mt-2 text-[0.65rem] text-slate-500">Auto-assigns: {autoAssignSummary}</p>
+                    <p className="mt-1 text-[0.65rem] text-slate-500">Manual override: drag any item into this lane.</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onToggleLaneCollapse?.(layout.lane.id)}
-                    className="mt-4 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
-                  >
-                    {layout.lane.collapsed ? "Expand" : "Collapse"}
-                  </button>
+                  <div className="mb-4 flex items-center justify-between gap-2 text-xs">
+                    <Link
+                      href="/settings/lanes"
+                      className="inline-flex items-center gap-1 text-indigo-300 transition hover:text-indigo-100"
+                    >
+                      Edit rules
+                      <span aria-hidden>↗</span>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => onToggleLaneCollapse?.(layout.lane.id)}
+                      className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
+                    >
+                      {layout.lane.collapsed ? "Expand" : "Collapse"}
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -915,11 +1091,21 @@ export function TimelineStudio({
                       return (
                         <div
                           key={tick.position}
-                          className="absolute flex -translate-x-1/2 flex-col items-center text-sm text-slate-200"
+                          className="absolute -translate-x-1/2 text-sm text-slate-200"
                           style={{ left }}
                         >
-                          <span className="rounded bg-slate-900/80 px-2 py-0.5 shadow">{tick.label}</span>
-                          <span className="mt-2 h-6 w-px bg-slate-700/60" />
+                          <div className="flex flex-col items-center gap-1 rounded bg-slate-900/85 px-3 py-1.5 shadow">
+                            <span className="font-medium">{tick.label}</span>
+                            {tick.subLabel ? (
+                              <span className="text-xs text-slate-400">{tick.subLabel}</span>
+                            ) : null}
+                            {tick.weekNumber && viewMode !== "week" ? (
+                              <span className="text-[0.65rem] uppercase tracking-wide text-slate-500">
+                                W{tick.weekNumber}
+                              </span>
+                            ) : null}
+                          </div>
+                          <span className="mt-2 block h-6 w-px bg-slate-700/60" />
                         </div>
                       );
                     })}
@@ -940,23 +1126,36 @@ export function TimelineStudio({
                     );
                   })}
                   {todayPosition != null ? (
-                    <div
-                      className="absolute inset-y-0 w-px bg-red-400"
-                      style={{ left: todayPosition }}
-                    />
+                    <>
+                      <div
+                        className="absolute inset-y-0 w-1 bg-red-500/90 shadow-[0_0_12px_rgba(248,113,113,0.6)]"
+                        style={{ left: todayPosition }}
+                      />
+                      <div
+                        className="absolute top-0 -translate-x-1/2"
+                        style={{ left: todayPosition }}
+                      >
+                        <span className="pointer-events-none rounded-b-full bg-red-500 px-3 py-1 text-xs font-semibold text-white shadow">
+                          TODAY
+                        </span>
+                      </div>
+                    </>
                   ) : null}
                 </div>
 
                 {positionedLayouts.map((layout) => {
-                  if (!layout.lane.visible) {
-                    return null;
-                  }
                   const visuals = buildLaneVisual(layout.lane.color);
+                  const dimmed = !layout.lane.visible;
                   return (
                     <div
                       key={layout.lane.id}
-                      className="absolute inset-x-0"
-                      style={{ top: layout.offsetTop, height: layout.height, background: visuals.background }}
+                      className="absolute inset-x-0 transition"
+                      style={{
+                        top: layout.offsetTop,
+                        height: layout.height,
+                        background: visuals.background,
+                        opacity: dimmed ? 0.45 : 1,
+                      }}
                     >
                       <div
                         className="pointer-events-none absolute inset-x-0 top-0 h-1"
@@ -981,7 +1180,7 @@ export function TimelineStudio({
                       className="absolute"
                       style={{ top: layout.offsetTop, height: layout.height, insetInline: 0 }}
                     >
-                      {layout.visibleItems.map((positioned) => renderItem(positioned))}
+                      {layout.visibleItems.map((positioned) => renderItem(positioned, layout.lane.visible))}
                     </div>
                   );
                 })}
