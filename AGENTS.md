@@ -161,4 +161,4 @@ With this guide, contributors should be able to navigate the codebase, identify 
 =======
 - **2025-12-05T05:30:00Z** – Hardened the server auth helper so it falls back to public Supabase env vars, forwards bearer tokens for RLS-aware queries, and decodes JWT payloads when Supabase auth is unreachable, unblocking `/settings/lanes` locally.
 - **2025-12-05T06:45:00Z** – Relaxed the lane definition RLS policies so service-role clients can insert, update, and delete user-scoped lanes while preserving owner visibility rules, fixing creation errors on `/settings/lanes`.
-
+- **2025-12-05T07:30:00Z** – Expanded the Timeline Command Center with a full-width layout, quarter view preset, range navigation controls, true lane filtering, and zoom centering polish to better match Oran's workflow expectations.

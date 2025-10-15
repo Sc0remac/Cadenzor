@@ -14,7 +14,7 @@ import { useAuth } from "../../../components/AuthProvider";
 import { TimelineStudio } from "../../../components/projects/TimelineStudio";
 import { fetchProjects, fetchTimelineExplorer, type ProjectListItem } from "../../../lib/supabaseClient";
 
-type TimelineViewMode = "day" | "week" | "month";
+type TimelineViewMode = "day" | "week" | "month" | "quarter";
 type PriorityBand = "HIGH" | "MEDIUM" | "LOW";
 
 type DrawerMode = "view" | "create" | null;
@@ -23,6 +23,7 @@ const VIEW_OPTIONS: Array<{ value: TimelineViewMode; label: string }> = [
   { value: "day", label: "Day" },
   { value: "week", label: "Week" },
   { value: "month", label: "Month" },
+  { value: "quarter", label: "Quarter" },
 ];
 
 const STATUS_OPTIONS: Array<{ id: TimelineItemStatus; label: string }> = [
@@ -103,10 +104,20 @@ function computeViewRange(view: TimelineViewMode, anchor: Date): { start: Date; 
       end.setHours(23, 59, 59, 999);
       return { start, end };
     }
-    case "month":
-    default: {
+    case "month": {
       const start = new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0, 0);
       const end = new Date(base.getFullYear(), base.getMonth() + 1, 0, 23, 59, 59, 999);
+      return { start, end };
+    }
+    case "quarter": {
+      const quarterIndex = Math.floor(base.getMonth() / 3);
+      const start = new Date(base.getFullYear(), quarterIndex * 3, 1, 0, 0, 0, 0);
+      const end = new Date(base.getFullYear(), quarterIndex * 3 + 3, 0, 23, 59, 59, 999);
+      return { start, end };
+    }
+    default: {
+      const start = new Date(base);
+      const end = new Date(base);
       return { start, end };
     }
   }
@@ -382,9 +393,42 @@ export default function TimelinePage() {
   };
 
   const handleViewChange = (mode: TimelineViewMode) => {
+    const startMs = startDate.getTime();
+    const endMs = endDate.getTime();
+    const anchorMs = startMs + Math.max(0, endMs - startMs) / 2;
+    setAnchorDate(new Date(anchorMs));
     setViewMode(mode);
-    setAnchorDate(new Date());
   };
+
+  const handleJumpToToday = useCallback(() => {
+    setAnchorDate(new Date());
+  }, []);
+
+  const shiftAnchor = useCallback(
+    (direction: number) => {
+      setAnchorDate((previous) => {
+        const next = new Date(previous);
+        switch (viewMode) {
+          case "day":
+            next.setDate(next.getDate() + direction);
+            break;
+          case "week":
+            next.setDate(next.getDate() + direction * 7);
+            break;
+          case "month":
+            next.setMonth(next.getMonth() + direction);
+            break;
+          case "quarter":
+            next.setMonth(next.getMonth() + direction * 3);
+            break;
+          default:
+            break;
+        }
+        return next;
+      });
+    },
+    [viewMode]
+  );
 
   const handleStartDateChange = (event: ChangeEvent<HTMLInputElement>) => {
     const next = parseDateInput(event.target.value);
@@ -601,6 +645,19 @@ export default function TimelinePage() {
   }, [dependencies, filteredItemIds]);
 
   const summary = useMemo(() => summarizeTimeline(filteredItems), [filteredItems]);
+  const rangeLabel = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    if (viewMode === "day") {
+      return formatter.format(startDate);
+    }
+    const startText = formatter.format(startDate);
+    const endText = formatter.format(endDate);
+    return `${startText} – ${endText}`;
+  }, [endDate, startDate, viewMode]);
 
   const realtimeLabel = useMemo(() => {
     if (!lastRefreshed) return undefined;
@@ -650,7 +707,7 @@ export default function TimelinePage() {
   return (
     <div className="flex h-full min-h-screen flex-col bg-slate-950 text-slate-100">
       <header className="sticky top-0 z-40 border-b border-slate-900 bg-slate-950/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-6 py-6">
+        <div className="flex w-full flex-col gap-5 px-4 py-6 lg:px-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h1 className="text-3xl font-semibold text-white">Timeline Command Center</h1>
@@ -676,22 +733,50 @@ export default function TimelinePage() {
               </label>
               <div className="flex flex-col text-xs uppercase tracking-wide text-slate-400">
                 View
-                <div className="mt-1 flex overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-sm font-medium text-slate-200">
-                  {VIEW_OPTIONS.map((option) => (
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <div className="flex overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-sm font-medium text-slate-200">
+                    {VIEW_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => handleViewChange(option.value)}
+                        className={`px-4 py-2 transition ${
+                          viewMode === option.value
+                            ? "bg-indigo-500 text-white shadow"
+                            : "hover:bg-slate-800"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1">
                     <button
-                      key={option.value}
                       type="button"
-                      onClick={() => handleViewChange(option.value)}
-                      className={`px-4 py-2 transition ${
-                        viewMode === option.value
-                          ? "bg-indigo-500 text-white shadow"
-                          : "hover:bg-slate-800"
-                      }`}
+                      onClick={() => shiftAnchor(-1)}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-base text-slate-200 shadow-sm transition hover:border-slate-600 hover:text-white"
+                      aria-label="Previous range"
                     >
-                      {option.label}
+                      ‹
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      onClick={handleJumpToToday}
+                      className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-200 shadow-sm transition hover:border-indigo-400 hover:text-white"
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => shiftAnchor(1)}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-base text-slate-200 shadow-sm transition hover:border-slate-600 hover:text-white"
+                      aria-label="Next range"
+                    >
+                      ›
+                    </button>
+                  </div>
                 </div>
+                <p className="mt-1 text-[0.65rem] tracking-wide text-slate-500">{rangeLabel}</p>
               </div>
               <label className="flex flex-col text-xs uppercase tracking-wide text-slate-400">
                 Start
@@ -784,7 +869,7 @@ export default function TimelinePage() {
       </header>
 
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-7xl space-y-6 px-6 py-6">
+        <div className="w-full space-y-6 px-4 py-6 lg:px-6">
           <section className="rounded-3xl border border-slate-900 bg-slate-900/70 p-6 shadow-2xl">
             <div className="flex flex-col gap-6 lg:flex-row lg:justify-between">
               <div>

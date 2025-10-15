@@ -74,6 +74,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setSigningOut(false);
   };
 
+  const isTimelinePage = pathname.startsWith("/timeline");
+
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white shadow-sm">
@@ -194,7 +196,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         ) : null}
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
+      <main className={isTimelinePage ? "px-0 py-0" : "mx-auto max-w-6xl px-6 py-8"}>{children}</main>
     </div>
   );
 }

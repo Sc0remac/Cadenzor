@@ -136,7 +136,7 @@ const PRIORITY_LEVELS = [
   { id: "LOW", label: "Low", min: 0, color: "bg-emerald-500" },
 ];
 
-type TimelineViewMode = "day" | "week" | "month";
+type TimelineViewMode = "day" | "week" | "month" | "quarter";
 
 type ContextAction = "edit" | "attach" | "convert";
 
@@ -236,8 +236,14 @@ function describeRange(viewMode: TimelineViewMode, start: Date, end: Date) {
       case "week":
         endMs = startMs + 7 * DAY_MS;
         break;
-      default:
+      case "month":
         endMs = startMs + 30 * DAY_MS;
+        break;
+      case "quarter":
+        endMs = startMs + 90 * DAY_MS;
+        break;
+      default:
+        endMs = startMs + 7 * DAY_MS;
     }
   }
   return { startMs, endMs };
@@ -250,6 +256,10 @@ function getPxPerMs(viewMode: TimelineViewMode, zoom: number): number {
       return (z * 160) / HOUR_MS;
     case "week":
       return (z * 220) / DAY_MS;
+    case "month":
+      return (z * 140) / DAY_MS;
+    case "quarter":
+      return (z * 80) / DAY_MS;
     default:
       return (z * 140) / DAY_MS;
   }
@@ -275,25 +285,28 @@ function getAxisTicks(viewMode: TimelineViewMode, startMs: number, endMs: number
 
   const cursor = new Date(startMs);
   cursor.setHours(0, 0, 0, 0);
-  const step = viewMode === "week" ? DAY_MS : 7 * DAY_MS;
+  let step = 7 * DAY_MS;
+  if (viewMode === "week") step = DAY_MS;
+  if (viewMode === "quarter") step = 14 * DAY_MS;
   for (let ms = cursor.getTime(); ms <= endMs; ms += step) {
     const date = new Date(ms);
-    ticks.push({
-      position: ms,
-      label:
-        viewMode === "week"
-          ? date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
-          : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-    });
+    const labelOptions =
+      viewMode === "week"
+        ? { weekday: "short", month: "short", day: "numeric" }
+        : viewMode === "quarter"
+        ? { month: "short", day: "numeric" }
+        : { month: "short", day: "numeric" };
+    ticks.push({ position: ms, label: date.toLocaleDateString(undefined, labelOptions) });
   }
   return ticks;
 }
 
-function getGridlines(startMs: number, endMs: number) {
+function getGridlines(viewMode: TimelineViewMode, startMs: number, endMs: number) {
   const lines: number[] = [];
   const cursor = new Date(startMs);
   cursor.setHours(0, 0, 0, 0);
-  for (let ms = cursor.getTime(); ms <= endMs; ms += DAY_MS) {
+  const step = viewMode === "quarter" ? 7 * DAY_MS : DAY_MS;
+  for (let ms = cursor.getTime(); ms <= endMs; ms += step) {
     lines.push(ms);
   }
   return lines;
@@ -467,7 +480,7 @@ export function TimelineStudio({
   const pxPerMs = useMemo(() => getPxPerMs(viewMode, zoom), [viewMode, zoom]);
   const timelineWidth = Math.max((endMs - startMs) * pxPerMs, viewportWidth);
   const axisTicks = useMemo(() => getAxisTicks(viewMode, startMs, endMs), [viewMode, startMs, endMs]);
-  const gridlines = useMemo(() => getGridlines(startMs, endMs), [startMs, endMs]);
+  const gridlines = useMemo(() => getGridlines(viewMode, startMs, endMs), [startMs, endMs, viewMode]);
   const today = Date.now();
   const todayPosition = today >= startMs && today <= endMs ? (today - startMs) * pxPerMs : null;
 
@@ -534,15 +547,6 @@ export function TimelineStudio({
 
     for (const lane of laneStateList) {
       if (!lane.visible) {
-        const height = lane.collapsed ? LANE_HEADER_HEIGHT : LANE_HEADER_HEIGHT;
-        layouts.push({
-          lane,
-          items: [],
-          height,
-          rowCount: 0,
-          offsetTop: offset,
-        });
-        offset += height;
         continue;
       }
 
@@ -612,11 +616,13 @@ export function TimelineStudio({
     return layouts;
   }, [laneStateList, localItems, pxPerMs, startMs]);
 
+  const visibleLaneCount = useMemo(() => laneStateList.filter((lane) => lane.visible).length, [laneStateList]);
+
   const totalHeight = useMemo(() => {
-    if (!positionedLayouts.length) return laneStateList.length * LANE_HEADER_HEIGHT;
+    if (!positionedLayouts.length) return Math.max(visibleLaneCount, 1) * LANE_HEADER_HEIGHT;
     const last = positionedLayouts[positionedLayouts.length - 1];
     return last.offsetTop + last.height;
-  }, [positionedLayouts, laneStateList.length]);
+  }, [positionedLayouts, visibleLaneCount]);
 
   const conflictIndex = useMemo(() => {
     const conflicts = detectTimelineConflicts(localItems, { bufferHours: 4 });
@@ -679,10 +685,24 @@ export function TimelineStudio({
 
   const handleZoom = useCallback(
     (delta: number) => {
-      if (!onZoomChange) return;
-      onZoomChange(clampZoom(zoom + delta));
+      if (!onZoomChange || !scrollRef.current) return;
+      const container = scrollRef.current;
+      const previousPxPerMs = getPxPerMs(viewMode, zoom);
+      const nextZoom = clampZoom(zoom + delta);
+      if (nextZoom === zoom) return;
+      const centerMs = startMs + (container.scrollLeft + container.clientWidth / 2) / previousPxPerMs;
+
+      onZoomChange(nextZoom);
+
+      requestAnimationFrame(() => {
+        const node = scrollRef.current;
+        if (!node) return;
+        const nextPxPerMs = getPxPerMs(viewMode, nextZoom);
+        const nextScrollLeft = (centerMs - startMs) * nextPxPerMs - node.clientWidth / 2;
+        node.scrollLeft = Math.max(0, nextScrollLeft);
+      });
     },
-    [onZoomChange, zoom]
+    [onZoomChange, scrollRef, startMs, viewMode, zoom]
   );
   const positionLookup = useMemo(() => {
     const map = new Map<string, { x: number; y: number; width: number; height: number }>();
@@ -895,10 +915,10 @@ export function TimelineStudio({
                       return (
                         <div
                           key={tick.position}
-                          className="absolute flex -translate-x-1/2 flex-col items-center text-xs text-slate-300"
+                          className="absolute flex -translate-x-1/2 flex-col items-center text-sm text-slate-200"
                           style={{ left }}
                         >
-                          <span className="rounded bg-slate-900/80 px-2 py-0.5 text-slate-200 shadow">{tick.label}</span>
+                          <span className="rounded bg-slate-900/80 px-2 py-0.5 shadow">{tick.label}</span>
                           <span className="mt-2 h-6 w-px bg-slate-700/60" />
                         </div>
                       );
@@ -928,6 +948,9 @@ export function TimelineStudio({
                 </div>
 
                 {positionedLayouts.map((layout) => {
+                  if (!layout.lane.visible) {
+                    return null;
+                  }
                   const visuals = buildLaneVisual(layout.lane.color);
                   return (
                     <div
