@@ -154,7 +154,11 @@ With this guide, contributors should be able to navigate the codebase, identify 
 - **2025-12-05T00:00:00Z** – Corrected the `schema_lane_definitions.sql` policy helpers to embed terminating semicolons so the script executes without syntax errors in Supabase SQL editors.
 - **2025-12-05T02:30:00Z** – Reworked the lane policy creation blocks to call `format(...)` in `schema_lane_definitions.sql`, avoiding Supabase SQL editor parsing errors around nested dollar-quoted strings.
 - **2025-12-05T03:45:00Z** – Corrected the `pg_policies` lookups in `schema_lane_definitions.sql` to reference the `policyname` column so Supabase migration checks run without column errors.
-<<<<<<< ours
+
 =======
 - **2025-12-05T05:30:00Z** – Hardened the server auth helper so it falls back to public Supabase env vars, forwards bearer tokens for RLS-aware queries, and decodes JWT payloads when Supabase auth is unreachable, unblocking `/settings/lanes` locally.
->>>>>>> theirs
+
+=======
+- **2025-12-05T05:30:00Z** – Hardened the server auth helper so it falls back to public Supabase env vars, forwards bearer tokens for RLS-aware queries, and decodes JWT payloads when Supabase auth is unreachable, unblocking `/settings/lanes` locally.
+- **2025-12-05T06:45:00Z** – Relaxed the lane definition RLS policies so service-role clients can insert, update, and delete user-scoped lanes while preserving owner visibility rules, fixing creation errors on `/settings/lanes`.
+
