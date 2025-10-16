@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict GXSETxy5xvei4iP1Be8m4dfTbtT3uxpabarUH5hHqWKOkjWRDM1EbrIWdmor90c
+\restrict pUbqdYVhzQBHJDHfKhjRXUhPl8XSZoRFkoqBagEf3aBH6h98xlSbAJBsztHVd7a
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -2568,10 +2568,10 @@ CREATE TABLE public.project_tasks (
     due_at timestamp with time zone,
     priority integer DEFAULT 0 NOT NULL,
     assignee_id uuid,
-    lane_id uuid,
     created_by uuid,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    lane_id uuid
 );
 
 
@@ -4111,12 +4111,17 @@ CREATE UNIQUE INDEX project_sources_unique_external ON public.project_sources US
 
 
 --
+-- Name: project_tasks_lane_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX project_tasks_lane_id_idx ON public.project_tasks USING btree (lane_id);
+
+
+--
 -- Name: project_tasks_project_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX project_tasks_project_status_idx ON public.project_tasks USING btree (project_id, status);
--- Name: project_tasks_lane_id_idx; Type: INDEX; Schema: public; Owner: -
-CREATE INDEX project_tasks_lane_id_idx ON public.project_tasks USING btree (lane_id);
 
 
 --
@@ -5769,4 +5774,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict GXSETxy5xvei4iP1Be8m4dfTbtT3uxpabarUH5hHqWKOkjWRDM1EbrIWdmor90c
+\unrestrict pUbqdYVhzQBHJDHfKhjRXUhPl8XSZoRFkoqBagEf3aBH6h98xlSbAJBsztHVd7a
+

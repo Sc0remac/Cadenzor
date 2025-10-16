@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../../lib/serverAuth";
+import { createServerSupabaseClient } from "../../../../lib/serverSupabase";
 import { mapLaneDefinitionRow } from "../../../../lib/projectMappers";
 import type { TimelineLaneDefinition } from "@kazador/shared";
 
@@ -70,6 +71,24 @@ export async function PATCH(request: Request, { params }: Params) {
       return formatError("You cannot modify this lane", 403);
     }
     return formatError(laneLookup.error, 500);
+  }
+
+  const laneRow = laneLookup.row;
+  const requiresAdminClient = laneRow.user_id == null;
+
+  let targetClient = supabase;
+  if (requiresAdminClient) {
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return formatError(
+        "Workspace lanes can only be updated when SUPABASE_SERVICE_ROLE_KEY is configured on the server.",
+        500
+      );
+    }
+    const adminClientResult = createServerSupabaseClient();
+    if (!adminClientResult.ok) {
+      return formatError(adminClientResult.error, 500);
+    }
+    targetClient = adminClientResult.supabase;
   }
 
   let payload: Partial<TimelineLaneDefinition> & {
@@ -145,7 +164,7 @@ export async function PATCH(request: Request, { params }: Params) {
     return formatError("No changes provided", 400);
   }
 
-  const { data: updateRow, error: updateError } = await supabase
+  const { data: updateRow, error: updateError } = await targetClient
     .from("lane_definitions")
     .update(updates)
     .eq("id", laneId)

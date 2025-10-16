@@ -579,7 +579,7 @@ function sanitizeCrossLabelRules(
 }
 
 function sanitizeEmailConfig(
-  input: PriorityConfigInput["email"],
+  input: Exclude<PriorityConfigInput, null>["email"],
   base: PriorityEmailConfig
 ): PriorityEmailConfig {
   if (!input) {
@@ -652,7 +652,7 @@ function sanitizeEmailConfig(
   } satisfies PriorityEmailConfig;
 }
 
-function sanitizeTimeConfig(input: PriorityConfigInput["time"], base: PriorityTimeConfig): PriorityTimeConfig {
+function sanitizeTimeConfig(input: Exclude<PriorityConfigInput, null>["time"], base: PriorityTimeConfig): PriorityTimeConfig {
   if (!input) {
     return clone(base);
   }
@@ -669,7 +669,7 @@ function sanitizeTimeConfig(input: PriorityConfigInput["time"], base: PriorityTi
   } satisfies PriorityTimeConfig;
 }
 
-function sanitizeTaskConfig(input: PriorityConfigInput["tasks"], base: PriorityTaskConfig): PriorityTaskConfig {
+function sanitizeTaskConfig(input: Exclude<PriorityConfigInput, null>["tasks"], base: PriorityTaskConfig): PriorityTaskConfig {
   if (!input) {
     return clone(base);
   }
@@ -692,7 +692,7 @@ function sanitizeTaskConfig(input: PriorityConfigInput["tasks"], base: PriorityT
   } satisfies PriorityTaskConfig;
 }
 
-function sanitizeTimelineConfig(input: PriorityConfigInput["timeline"], base: PriorityTimelineConfig): PriorityTimelineConfig {
+function sanitizeTimelineConfig(input: Exclude<PriorityConfigInput, null>["timeline"], base: PriorityTimelineConfig): PriorityTimelineConfig {
   if (!input) {
     return clone(base);
   }
@@ -727,7 +727,7 @@ function sanitizeTimelineConfig(input: PriorityConfigInput["timeline"], base: Pr
   } satisfies PriorityTimelineConfig;
 }
 
-function sanitizeHealthConfig(input: PriorityConfigInput["health"], base: PriorityHealthConfig): PriorityHealthConfig {
+function sanitizeHealthConfig(input: Exclude<PriorityConfigInput, null>["health"], base: PriorityHealthConfig): PriorityHealthConfig {
   if (!input) {
     return clone(base);
   }
@@ -773,7 +773,7 @@ export function normalizePriorityConfigInput(
     return workingBase;
   }
 
-  const configInput = input as PriorityConfigInput;
+  const configInput = input as Exclude<PriorityConfigInput, null>;
   return {
     time: sanitizeTimeConfig(configInput.time, workingBase.time),
     email: sanitizeEmailConfig(configInput.email, workingBase.email),

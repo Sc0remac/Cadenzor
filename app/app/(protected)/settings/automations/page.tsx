@@ -113,11 +113,11 @@ export default function AutomationSettingsPage() {
           type,
           options: {
             categories: isEmailTrigger(prev.trigger)
-              ? [...prev.trigger.options.categories]
+              ? [...(prev.trigger.options.categories ?? [])]
               : [],
-            labels: isEmailTrigger(prev.trigger) ? [...prev.trigger.options.labels] : [],
+            labels: isEmailTrigger(prev.trigger) ? [...(prev.trigger.options.labels ?? [])] : [],
             triageStates: isEmailTrigger(prev.trigger)
-              ? [...prev.trigger.options.triageStates]
+              ? [...(prev.trigger.options.triageStates ?? [])]
               : ["unassigned"],
           },
         } as AutomationRule["trigger"];
@@ -413,7 +413,7 @@ export default function AutomationSettingsPage() {
                 {filteredCategories.map((category) => {
                   const checked =
                     isEmailTrigger(draft.trigger) &&
-                    draft.trigger.options.categories.includes(category);
+                    (draft.trigger.options.categories ?? []).includes(category);
                   return (
                     <label key={category} className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
                       <input

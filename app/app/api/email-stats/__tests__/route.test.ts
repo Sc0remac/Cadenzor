@@ -6,7 +6,7 @@ import {
 } from "@kazador/shared";
 
 let GET: typeof import("../route").GET;
-let serverAuthModule: typeof import("../../../lib/serverAuth");
+let serverAuthModule: typeof import("../../../../lib/serverAuth");
 let requireAuthenticatedUserSpy: ReturnType<typeof vi.spyOn>;
 
 type QueryResult = {
@@ -65,7 +65,7 @@ describe("GET /api/email-stats", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    requireAuthenticatedUserSpy = vi.spyOn(serverAuthModule, "requireAuthenticatedUser");
+    requireAuthenticatedUserSpy = vi.spyOn(serverAuthModule, "requireAuthenticatedUser") as any;
   });
 
   afterEach(() => {

@@ -1,46 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { TimelineLaneDefinition } from "@kazador/shared";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  createLaneDefinition,
   deleteLaneDefinition,
   fetchLaneDefinitions,
-  updateLaneDefinition,
-  type LaneDefinitionInput,
 } from "@/lib/laneDefinitionsClient";
-import LaneAutomationModal from "@/components/settings/LaneAutomationModal";
+import LaneMetadataModal from "@/components/settings/LaneMetadataModal";
+import LaneAutomationPanel from "@/components/settings/LaneAutomationPanel";
 import { summariseAutoAssignRules } from "@/components/settings/AutoAssignRuleBuilder";
 
-interface LaneFormState {
-  id: string | null;
-  name: string;
-  description: string;
-  color: string;
-  slug: string;
-  sortOrder: number;
-  isDefault: boolean;
-  scope: "global" | "user";
-}
-
-function createEmptyForm(nextSortOrder: number): LaneFormState {
-  return {
-    id: null,
-    name: "",
-    description: "",
-    color: "",
-    slug: "",
-    sortOrder: nextSortOrder,
-    isDefault: true,
-    scope: "user",
-  };
-}
-
-function normaliseColorInput(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+interface MetadataModalState {
+  open: boolean;
+  mode: "create" | "edit";
+  lane: TimelineLaneDefinition | null;
 }
 
 export default function LaneSettingsPage() {
@@ -50,22 +24,15 @@ export default function LaneSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<LaneFormState>(() => createEmptyForm(100));
-  const [automationLane, setAutomationLane] = useState<TimelineLaneDefinition | null>(null);
-  const [automationOpen, setAutomationOpen] = useState(false);
+  const [metadataState, setMetadataState] = useState<MetadataModalState>({ open: false, mode: "create", lane: null });
+  const [selectedAutomationLaneId, setSelectedAutomationLaneId] = useState<string | null>(null);
+  const [deletingLaneId, setDeletingLaneId] = useState<string | null>(null);
 
   const nextSortOrder = useMemo(() => {
     if (lanes.length === 0) return 100;
     const maxOrder = lanes.reduce((max, lane) => Math.max(max, lane.sortOrder ?? 0), 0);
     return maxOrder + 100;
   }, [lanes]);
-
-  useEffect(() => {
-    if (form.id === null) {
-      setForm((prev) => ({ ...prev, sortOrder: nextSortOrder }));
-    }
-  }, [nextSortOrder, form.id]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -98,6 +65,25 @@ export default function LaneSettingsPage() {
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    if (selectedAutomationLaneId && lanes.some((lane) => lane.id === selectedAutomationLaneId)) {
+      return;
+    }
+    const defaultLane = lanes
+      .slice()
+      .sort((a, b) => {
+        const orderA = a.sortOrder ?? 0;
+        const orderB = b.sortOrder ?? 0;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name);
+      })[0];
+    if (defaultLane) {
+      setSelectedAutomationLaneId(defaultLane.id);
+    } else {
+      setSelectedAutomationLaneId(null);
+    }
+  }, [lanes, selectedAutomationLaneId]);
+
   const globalLanes = useMemo(
     () =>
       lanes
@@ -120,55 +106,32 @@ export default function LaneSettingsPage() {
     [lanes]
   );
 
-  const editingLane = form.id ? lanes.find((lane) => lane.id === form.id) ?? null : null;
-
-  const openAutomationModal = (lane: TimelineLaneDefinition) => {
-    setAutomationLane(lane);
-    setAutomationOpen(true);
+  const handleOpenCreate = () => {
+    setMetadataState({ open: true, mode: "create", lane: null });
   };
 
-  const closeAutomationModal = () => {
-    setAutomationOpen(false);
-    setAutomationLane(null);
+  const handleOpenEdit = (lane: TimelineLaneDefinition) => {
+    setMetadataState({ open: true, mode: "edit", lane });
   };
 
-  const handleAutomationSaved = (lane: TimelineLaneDefinition) => {
-    setLanes((prev) => prev.map((entry) => (entry.id === lane.id ? lane : entry)));
-    if (form.id === lane.id) {
-      setForm((prev) => ({
-        ...prev,
-        name: lane.name,
-        description: lane.description ?? "",
-        color: lane.color ?? "",
-        slug: lane.slug,
-        sortOrder: lane.sortOrder ?? prev.sortOrder,
-        isDefault: lane.isDefault,
-      }));
-    }
-    setSuccess(`Saved automation rules for “${lane.name}”.`);
+  const closeMetadataModal = () => {
+    setMetadataState((prev) => ({ ...prev, open: false }));
   };
 
-  const resetForm = () => {
-    setForm(createEmptyForm(nextSortOrder));
-    setSuccess(null);
-    setError(null);
-    closeAutomationModal();
-  };
-
-  const handleEdit = (lane: TimelineLaneDefinition) => {
-    setForm({
-      id: lane.id,
-      name: lane.name,
-      description: lane.description ?? "",
-      color: lane.color ?? "",
-      slug: lane.slug,
-      sortOrder: lane.sortOrder ?? nextSortOrder,
-      isDefault: lane.isDefault,
-      scope: lane.userId ? "user" : "global",
+  const handleLaneSaved = (lane: TimelineLaneDefinition, mode: "create" | "edit") => {
+    setLanes((prev) => {
+      if (mode === "create") {
+        return [...prev, lane];
+      }
+      return prev.map((entry) => (entry.id === lane.id ? lane : entry));
     });
-    setSuccess(null);
-    setError(null);
-    openAutomationModal(lane);
+
+    setSuccess(mode === "create" ? `Created lane “${lane.name}”.` : `Updated lane “${lane.name}”.`);
+    closeMetadataModal();
+
+    if (mode === "create") {
+      setSelectedAutomationLaneId(lane.id);
+    }
   };
 
   const handleDelete = async (lane: TimelineLaneDefinition) => {
@@ -179,78 +142,25 @@ export default function LaneSettingsPage() {
     if (!confirm(`Delete lane "${lane.name}"? Items using it will need to be reassigned.`)) {
       return;
     }
+
+    setDeletingLaneId(lane.id);
     try {
       await deleteLaneDefinition(lane.id, accessToken);
-      setSuccess(`Deleted lane “${lane.name}”.`);
       setLanes((prev) => prev.filter((entry) => entry.id !== lane.id));
-      if (form.id === lane.id) {
-        resetForm();
-      }
-      if (automationLane?.id === lane.id) {
-        closeAutomationModal();
+      setSuccess(`Deleted lane “${lane.name}”.`);
+      if (selectedAutomationLaneId === lane.id) {
+        setSelectedAutomationLaneId(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete lane");
+    } finally {
+      setDeletingLaneId(null);
     }
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!accessToken) {
-      setError("Missing access token – sign in again to continue.");
-      return;
-    }
-    if (!form.name.trim()) {
-      setError("Lane name is required.");
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-
-    const payload: LaneDefinitionInput = {
-      name: form.name.trim(),
-      description: form.description.trim() ? form.description.trim() : null,
-      color: form.color.trim() ? normaliseColorInput(form.color) : null,
-      slug: form.slug.trim() ? form.slug.trim().toUpperCase() : undefined,
-      sortOrder: Number.isFinite(form.sortOrder) ? Math.trunc(form.sortOrder) : undefined,
-      isDefault: form.isDefault,
-    };
-
-    if (!form.id) {
-      payload.scope = form.scope;
-    }
-
-    try {
-      if (form.id) {
-        const updated = await updateLaneDefinition(form.id, payload, accessToken);
-        setLanes((prev) => prev.map((lane) => (lane.id === updated.id ? updated : lane)));
-        setSuccess(`Updated lane “${updated.name}”.`);
-        setForm((prev) => ({
-          ...prev,
-          name: updated.name,
-          description: updated.description ?? "",
-          color: updated.color ?? "",
-          slug: updated.slug,
-          sortOrder: updated.sortOrder ?? prev.sortOrder,
-          isDefault: updated.isDefault,
-        }));
-      } else {
-        const created = await createLaneDefinition(
-          payload as Required<Pick<LaneDefinitionInput, "name">> & LaneDefinitionInput,
-          accessToken
-        );
-        setLanes((prev) => [...prev, created]);
-        setSuccess(`Created lane “${created.name}”. Configure automation rules (optional).`);
-        setForm(createEmptyForm(nextSortOrder));
-        openAutomationModal(created);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save lane");
-    } finally {
-      setSaving(false);
-    }
+  const handleAutomationUpdated = (lane: TimelineLaneDefinition) => {
+    setLanes((prev) => prev.map((entry) => (entry.id === lane.id ? lane : entry)));
+    setSuccess(`Saved automation rules for “${lane.name}”.`);
   };
 
   return (
@@ -264,10 +174,10 @@ export default function LaneSettingsPage() {
         </div>
         <button
           type="button"
-          onClick={resetForm}
-          className="self-start rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 shadow-sm transition hover:bg-gray-100"
+          onClick={handleOpenCreate}
+          className="inline-flex items-center justify-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-700"
         >
-          {form.id ? "Cancel editing" : "Reset form"}
+          Create new lane
         </button>
       </div>
 
@@ -281,7 +191,7 @@ export default function LaneSettingsPage() {
       {loading ? (
         <p className="mt-8 text-sm text-gray-500">Loading lanes…</p>
       ) : (
-        <div className="mt-8 space-y-10">
+        <div className="mt-8 space-y-12">
           <section>
             <h2 className="text-lg font-semibold text-gray-900">Workspace defaults</h2>
             <p className="mt-1 text-sm text-gray-500">
@@ -311,7 +221,7 @@ export default function LaneSettingsPage() {
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => handleEdit(lane)}
+                          onClick={() => handleOpenEdit(lane)}
                           className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
                         >
                           Edit lane
@@ -378,7 +288,7 @@ export default function LaneSettingsPage() {
                     <div className="flex items-center gap-2 self-end md:self-auto">
                       <button
                         type="button"
-                        onClick={() => handleEdit(lane)}
+                        onClick={() => handleOpenEdit(lane)}
                         className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
                       >
                         Edit
@@ -386,9 +296,10 @@ export default function LaneSettingsPage() {
                       <button
                         type="button"
                         onClick={() => handleDelete(lane)}
-                        className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                        disabled={deletingLaneId === lane.id}
+                        className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Delete
+                        {deletingLaneId === lane.id ? "Deleting…" : "Delete"}
                       </button>
                     </div>
                   </li>
@@ -397,127 +308,24 @@ export default function LaneSettingsPage() {
             )}
           </section>
 
-          <section>
-            <h2 className="text-lg font-semibold text-gray-900">
-              {form.id ? "Edit lane" : "Create new lane"}
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Define lane metadata so new timeline items and automations can target it.
-            </p>
-            {editingLane && !editingLane.userId ? (
-              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                You are updating a workspace lane. Changes will apply to everyone who uses this workspace.
-              </div>
-            ) : null}
-
-            <form onSubmit={handleSubmit} className="mt-6 grid gap-6 md:grid-cols-2">
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="font-medium text-gray-700">Name</span>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                  required
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="font-medium text-gray-700">Slug</span>
-                <input
-                  type="text"
-                  value={form.slug}
-                  onChange={(event) => setForm((prev) => ({ ...prev, slug: event.target.value }))}
-                  placeholder="Optional override (e.g. FINANCE)"
-                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm md:col-span-2">
-                <span className="font-medium text-gray-700">Description</span>
-                <textarea
-                  value={form.description}
-                  onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                  rows={3}
-                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                  placeholder="Explain when to use this lane"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="font-medium text-gray-700">Color</span>
-                <input
-                  type="text"
-                  value={form.color}
-                  onChange={(event) => setForm((prev) => ({ ...prev, color: event.target.value }))}
-                  placeholder="#7c3aed"
-                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="font-medium text-gray-700">Sort order</span>
-                <input
-                  type="number"
-                  value={form.sortOrder}
-                  onChange={(event) => setForm((prev) => ({ ...prev, sortOrder: Number(event.target.value) }))}
-                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="font-medium text-gray-700">Default visibility</span>
-                <select
-                  value={form.isDefault ? "true" : "false"}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, isDefault: event.target.value === "true" }))
-                  }
-                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                >
-                  <option value="true">Show by default</option>
-                  <option value="false">Hide until toggled on</option>
-                </select>
-              </label>
-              {!form.id ? (
-                <label className="flex flex-col gap-2 text-sm">
-                  <span className="font-medium text-gray-700">Scope</span>
-                  <select
-                    value={form.scope}
-                    onChange={(event) => setForm((prev) => ({ ...prev, scope: event.target.value as "global" | "user" }))}
-                    className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                  >
-                    <option value="user">Only visible to me</option>
-                    <option value="global">Share with everyone</option>
-                  </select>
-                </label>
-              ) : (
-                <div className="flex flex-col gap-1 text-sm text-gray-500">
-                  <span className="font-medium text-gray-700">Scope</span>
-                  <span>{editingLane?.userId ? "Personal" : "Workspace"}</span>
-                </div>
-              )}
-              <div className="md:col-span-2 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-                >
-                  {saving ? "Saving…" : form.id ? "Save changes" : "Create lane"}
-                </button>
-              </div>
-            </form>
-          </section>
+          <LaneAutomationPanel
+            lanes={lanes}
+            selectedLaneId={selectedAutomationLaneId}
+            onSelectLane={setSelectedAutomationLaneId}
+            accessToken={accessToken}
+            onLaneUpdated={handleAutomationUpdated}
+          />
         </div>
       )}
 
-      <LaneAutomationModal
-        open={automationOpen}
-        lane={automationLane}
+      <LaneMetadataModal
+        open={metadataState.open}
+        mode={metadataState.mode}
+        lane={metadataState.lane}
         accessToken={accessToken}
-        onClose={closeAutomationModal}
-        onSaved={handleAutomationSaved}
+        onClose={closeMetadataModal}
+        onSaved={handleLaneSaved}
+        suggestedSortOrder={nextSortOrder}
       />
     </div>
   );

@@ -124,7 +124,7 @@ export async function fetchPriorityConfigPresets(
       recommendedScenarios: normalizeStringArray(preset?.recommendedScenarios),
       adjustments: normalizeStringArray(preset?.adjustments),
     }))
-    .filter((preset) => preset.slug.length > 0 && preset.name.length > 0);
+    .filter((preset: PriorityConfigPresetSummary) => preset.slug.length > 0 && preset.name.length > 0);
 }
 
 export async function applyPriorityPreset(

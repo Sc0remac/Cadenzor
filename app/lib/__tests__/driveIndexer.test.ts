@@ -35,19 +35,22 @@ describe("indexDriveFolder", () => {
     ];
 
     vi.mocked(listFolderTree).mockResolvedValue(entries as any);
-    vi.mocked(toAssetInsertPayload).mockImplementation((args: any) => {
+    vi.mocked(toAssetInsertPayload).mockImplementation((args: any): any => {
       if (args.entry.mimeType === folderMime) {
         return null;
       }
       return {
-        projectId: args.projectId,
-        projectSourceId: args.projectSourceId,
-        externalId: args.entry.id,
+        project_id: args.projectId,
+        project_source_id: args.projectSourceId,
+        external_id: args.entry.id,
+        source: "drive",
+        title: args.entry.name,
         path: `${args.pathSegments.join("/")}/${args.entry.name}`,
+        mime_type: args.entry.mimeType,
       };
     });
-    vi.mocked(suggestLabelsFromPath).mockImplementation((path: string) => {
-      if (path.includes("File 0")) {
+    vi.mocked(suggestLabelsFromPath).mockImplementation((path: string | null): any => {
+      if (path && path.includes("File 0")) {
         return [{ labelKey: "key", labelValue: "value", evidence: [path] }];
       }
       return [];
@@ -121,15 +124,15 @@ describe("queueDerivedLabelApprovals", () => {
       { payload: { labelKey: "new", labelValue: "value" } },
     ];
 
-    const approvalsQuery = {
-      eq: vi.fn((field: string) => {
+    const approvalsQuery: any = {
+      eq: vi.fn((field: string): any => {
         if (field === "status") {
           return Promise.resolve({ data: pendingRows, error: null });
         }
         return approvalsQuery;
       }),
     };
-    const approvalsSelect = vi.fn(() => approvalsQuery);
+    const approvalsSelect = vi.fn((): any => approvalsQuery);
     const approvalsInsert = vi.fn().mockResolvedValue({ error: null });
 
     const supabase = {
@@ -148,9 +151,9 @@ describe("queueDerivedLabelApprovals", () => {
       projectId: "proj",
       requestedBy: "user",
       suggestions: [
-        { labelKey: "existing", labelValue: "keep", evidence: ["a"] },
-        { labelKey: "new", labelValue: "value", evidence: ["b", "c"] },
-        { labelKey: "fresh", labelValue: "v2", evidence: ["d"] },
+        { labelKey: "existing", labelValue: "keep", evidence: ["a"] } as any,
+        { labelKey: "new", labelValue: "value", evidence: ["b", "c"] } as any,
+        { labelKey: "fresh", labelValue: "v2", evidence: ["d"] } as any,
       ],
     });
 

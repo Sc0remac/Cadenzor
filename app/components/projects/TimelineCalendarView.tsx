@@ -80,7 +80,7 @@ export function TimelineCalendarView({
       map.set(item.lane, list);
     }
     for (const [, list] of map) {
-      list.sort((a, b) => getItemStartMs(a) - getItemStartMs(b));
+      list.sort((a: TimelineItemRecord, b: TimelineItemRecord) => getItemStartMs(a) - getItemStartMs(b));
     }
     return map;
   }, [items]);
@@ -171,7 +171,7 @@ export function TimelineCalendarView({
 
 function CalendarCell({ column, lane, items, onSelectItem, onCreateItem }: CalendarCellProps) {
   const conflicts = useMemo(() => (items.length > 1 ? detectTimelineConflicts(items, { bufferHours: 4 }) : []), [items]);
-  const conflictItemIds = useMemo(() => new Set(conflicts.flatMap((entry) => entry.items ?? [])), [conflicts]);
+  const conflictItemIds = useMemo(() => new Set(conflicts.flatMap((entry) => (entry.items ?? []).map(item => typeof item === 'string' ? item : item.id))), [conflicts]);
 
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!onCreateItem) return;
@@ -200,7 +200,7 @@ function CalendarCell({ column, lane, items, onSelectItem, onCreateItem }: Calen
       </div>
       {conflicts.length > 0 ? (
         <div className="pointer-events-none mt-3 rounded-md border border-rose-500/50 bg-rose-500/10 px-2 py-1 text-[0.7rem] text-rose-200">
-          ⚠️ {conflicts[0]?.reason ?? "Conflict detected"}
+          ⚠️ {conflicts[0]?.message ?? "Conflict detected"}
         </div>
       ) : null}
     </div>

@@ -2,8 +2,8 @@ import { describe, expect, it, vi, beforeEach, beforeAll, afterEach } from "vite
 
 let GET: typeof import("../route").GET;
 let POST: typeof import("../route").POST;
-let serverAuthModule: typeof import("../../../lib/serverAuth");
-let projectMappersModule: typeof import("../../../lib/projectMappers");
+let serverAuthModule: typeof import("../../../../lib/serverAuth");
+let projectMappersModule: typeof import("../../../../lib/projectMappers");
 let requireAuthenticatedUserSpy: ReturnType<typeof vi.spyOn>;
 let mapProjectRowSpy: ReturnType<typeof vi.spyOn>;
 
@@ -121,8 +121,8 @@ describe("/api/projects route", () => {
   });
 
   beforeEach(() => {
-    requireAuthenticatedUserSpy = vi.spyOn(serverAuthModule, "requireAuthenticatedUser");
-    mapProjectRowSpy = vi.spyOn(projectMappersModule, "mapProjectRow");
+    requireAuthenticatedUserSpy = vi.spyOn(serverAuthModule, "requireAuthenticatedUser") as any;
+    mapProjectRowSpy = vi.spyOn(projectMappersModule, "mapProjectRow") as any;
     mapProjectRowSpy.mockImplementation((row: any) => ({
       id: row.id,
       name: row.name,
@@ -304,6 +304,7 @@ describe("/api/projects route", () => {
     const insertedRow = {
       id: "proj-42",
       name: "Seeded",
+      status: "active",
       start_date: "2025-01-10T00:00:00.000Z",
     };
 

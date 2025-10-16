@@ -55,9 +55,9 @@ describe("requireAuthenticatedUser", () => {
   it("rejects when Supabase reports auth error", async () => {
     vi.mocked(createServerSupabaseClient).mockReturnValue({
       ok: true,
-      supabase: { auth: { getUser: getUserMock } },
-    });
-    getUserMock.mockResolvedValue({ data: { user: null }, error: { message: "expired" } });
+      supabase: { auth: { getUser: getUserMock } } as any,
+    } as any);
+    getUserMock.mockResolvedValue({ data: { user: null }, error: { message: "expired" } } as any);
 
     const result = await requireAuthenticatedUser(
       buildRequest({ Authorization: "Bearer token" })
@@ -73,8 +73,8 @@ describe("requireAuthenticatedUser", () => {
 
   it("returns the user when validation succeeds", async () => {
     const supabase = { auth: { getUser: getUserMock } } as any;
-    vi.mocked(createServerSupabaseClient).mockReturnValue({ ok: true, supabase });
-    getUserMock.mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
+    vi.mocked(createServerSupabaseClient).mockReturnValue({ ok: true, supabase } as any);
+    getUserMock.mockResolvedValue({ data: { user: { id: "user-1" } }, error: null } as any);
 
     const result = await requireAuthenticatedUser(
       buildRequest({ Authorization: "Bearer token" })
@@ -87,7 +87,7 @@ describe("requireAuthenticatedUser", () => {
 
   it("decodes fallback user when auth request fails", async () => {
     const supabase = { auth: { getUser: getUserMock } } as any;
-    vi.mocked(createServerSupabaseClient).mockReturnValue({ ok: true, supabase });
+    vi.mocked(createServerSupabaseClient).mockReturnValue({ ok: true, supabase } as any);
     getUserMock.mockRejectedValue(new Error("fetch failed"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 

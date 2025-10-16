@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     .from("lane_definitions")
     .select("*")
     .or(`user_id.eq.${user.id},user_id.is.null`)
-    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
 
   if (error) {
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       .from("lane_definitions")
       .select("sort_order")
       .or(`user_id.eq.${user.id},user_id.is.null`)
-      .order("sort_order", { ascending: false, nullsLast: false })
+      .order("sort_order", { ascending: false })
       .limit(1);
 
     if (orderError) {

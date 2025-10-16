@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { Session } from "@supabase/supabase-js";
+import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import AuthGuard from "../AuthGuard";
 import { useAuth } from "../AuthProvider";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
@@ -31,9 +32,13 @@ describe("AuthGuard", () => {
     mockedUseRouter.mockReturnValue({
       replace: replaceMock,
       refresh: vi.fn(),
-    });
+      push: vi.fn(),
+      back: vi.fn(),
+      forward: vi.fn(),
+      prefetch: vi.fn(),
+    } as AppRouterInstance);
     mockedUsePathname.mockReturnValue("/projects");
-    mockedUseSearchParams.mockReturnValue(new URLSearchParams());
+    mockedUseSearchParams.mockReturnValue(new URLSearchParams() as any);
   });
 
   afterEach(() => {
@@ -62,7 +67,7 @@ describe("AuthGuard", () => {
       loading: false,
     } as any);
     mockedUsePathname.mockReturnValue("/projects");
-    mockedUseSearchParams.mockReturnValue(new URLSearchParams("filter=active"));
+    mockedUseSearchParams.mockReturnValue(new URLSearchParams("filter=active") as any);
 
     render(
       <AuthGuard>
