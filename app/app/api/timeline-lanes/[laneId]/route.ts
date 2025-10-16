@@ -39,9 +39,6 @@ async function loadLane(
   if (data.user_id && data.user_id !== userId) {
     return { row: null, error: "FORBIDDEN" };
   }
-  if (!data.user_id) {
-    return { row: null, error: "FORBIDDEN" };
-  }
   return { row: data, error: null };
 }
 

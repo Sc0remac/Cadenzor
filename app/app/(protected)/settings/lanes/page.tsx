@@ -10,6 +10,8 @@ import {
   updateLaneDefinition,
   type LaneDefinitionInput,
 } from "@/lib/laneDefinitionsClient";
+import LaneAutomationModal from "@/components/settings/LaneAutomationModal";
+import { summariseAutoAssignRules } from "@/components/settings/AutoAssignRuleBuilder";
 
 interface LaneFormState {
   id: string | null;
@@ -50,6 +52,8 @@ export default function LaneSettingsPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<LaneFormState>(() => createEmptyForm(100));
+  const [automationLane, setAutomationLane] = useState<TimelineLaneDefinition | null>(null);
+  const [automationOpen, setAutomationOpen] = useState(false);
 
   const nextSortOrder = useMemo(() => {
     if (lanes.length === 0) return 100;
@@ -116,12 +120,39 @@ export default function LaneSettingsPage() {
     [lanes]
   );
 
-  const editingLane = form.id ? personalLanes.find((lane) => lane.id === form.id) ?? null : null;
+  const editingLane = form.id ? lanes.find((lane) => lane.id === form.id) ?? null : null;
+
+  const openAutomationModal = (lane: TimelineLaneDefinition) => {
+    setAutomationLane(lane);
+    setAutomationOpen(true);
+  };
+
+  const closeAutomationModal = () => {
+    setAutomationOpen(false);
+    setAutomationLane(null);
+  };
+
+  const handleAutomationSaved = (lane: TimelineLaneDefinition) => {
+    setLanes((prev) => prev.map((entry) => (entry.id === lane.id ? lane : entry)));
+    if (form.id === lane.id) {
+      setForm((prev) => ({
+        ...prev,
+        name: lane.name,
+        description: lane.description ?? "",
+        color: lane.color ?? "",
+        slug: lane.slug,
+        sortOrder: lane.sortOrder ?? prev.sortOrder,
+        isDefault: lane.isDefault,
+      }));
+    }
+    setSuccess(`Saved automation rules for “${lane.name}”.`);
+  };
 
   const resetForm = () => {
     setForm(createEmptyForm(nextSortOrder));
     setSuccess(null);
     setError(null);
+    closeAutomationModal();
   };
 
   const handleEdit = (lane: TimelineLaneDefinition) => {
@@ -137,6 +168,7 @@ export default function LaneSettingsPage() {
     });
     setSuccess(null);
     setError(null);
+    openAutomationModal(lane);
   };
 
   const handleDelete = async (lane: TimelineLaneDefinition) => {
@@ -153,6 +185,9 @@ export default function LaneSettingsPage() {
       setLanes((prev) => prev.filter((entry) => entry.id !== lane.id));
       if (form.id === lane.id) {
         resetForm();
+      }
+      if (automationLane?.id === lane.id) {
+        closeAutomationModal();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete lane");
@@ -192,14 +227,24 @@ export default function LaneSettingsPage() {
         const updated = await updateLaneDefinition(form.id, payload, accessToken);
         setLanes((prev) => prev.map((lane) => (lane.id === updated.id ? updated : lane)));
         setSuccess(`Updated lane “${updated.name}”.`);
+        setForm((prev) => ({
+          ...prev,
+          name: updated.name,
+          description: updated.description ?? "",
+          color: updated.color ?? "",
+          slug: updated.slug,
+          sortOrder: updated.sortOrder ?? prev.sortOrder,
+          isDefault: updated.isDefault,
+        }));
       } else {
         const created = await createLaneDefinition(
           payload as Required<Pick<LaneDefinitionInput, "name">> & LaneDefinitionInput,
           accessToken
         );
         setLanes((prev) => [...prev, created]);
-        setSuccess(`Created lane “${created.name}”.`);
-        resetForm();
+        setSuccess(`Created lane “${created.name}”. Configure automation rules (optional).`);
+        setForm(createEmptyForm(nextSortOrder));
+        openAutomationModal(created);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save lane");
@@ -240,7 +285,7 @@ export default function LaneSettingsPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900">Workspace defaults</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Global lanes are shared across every manager and cannot be edited here.
+              Global lanes are shared across every manager. Edits here update the workspace for everyone.
             </p>
             {globalLanes.length === 0 ? (
               <p className="mt-4 text-sm text-gray-500">No global lanes have been published yet.</p>
@@ -248,21 +293,30 @@ export default function LaneSettingsPage() {
               <ul className="mt-4 grid gap-4 md:grid-cols-2">
                 {globalLanes.map((lane) => (
                   <li key={lane.id} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                    <div className="flex items-start justify-between">
-                      <div>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
                         <p className="text-sm font-semibold text-gray-900">{lane.name}</p>
                         <p className="text-xs uppercase tracking-wide text-gray-400">Slug: {lane.slug}</p>
                         {lane.description ? (
                           <p className="mt-2 text-sm text-gray-600">{lane.description}</p>
                         ) : null}
                       </div>
-                      {lane.color ? (
-                        <span
-                          className="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200"
-                          style={{ backgroundColor: lane.color }}
-                          aria-hidden
-                        />
-                      ) : null}
+                      <div className="flex flex-col items-end gap-3">
+                        {lane.color ? (
+                          <span
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200"
+                            style={{ backgroundColor: lane.color }}
+                            aria-hidden
+                          />
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(lane)}
+                          className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                        >
+                          Edit lane
+                        </button>
+                      </div>
                     </div>
                     <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-500">
                       <div>
@@ -274,6 +328,7 @@ export default function LaneSettingsPage() {
                         <dd>{lane.isDefault ? "Shown" : "Hidden"}</dd>
                       </div>
                     </dl>
+                    <p className="mt-3 text-xs text-gray-500">Auto-assigns: {summariseAutoAssignRules(lane.autoAssignRules ?? null)}</p>
                   </li>
                 ))}
               </ul>
@@ -315,6 +370,9 @@ export default function LaneSettingsPage() {
                         <p className="mt-2 text-xs text-gray-500">
                           Sort order {lane.sortOrder} · {lane.isDefault ? "Shown by default" : "Hidden by default"}
                         </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          Auto-assigns: {summariseAutoAssignRules(lane.autoAssignRules ?? null)}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 self-end md:self-auto">
@@ -346,6 +404,11 @@ export default function LaneSettingsPage() {
             <p className="mt-1 text-sm text-gray-500">
               Define lane metadata so new timeline items and automations can target it.
             </p>
+            {editingLane && !editingLane.userId ? (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                You are updating a workspace lane. Changes will apply to everyone who uses this workspace.
+              </div>
+            ) : null}
 
             <form onSubmit={handleSubmit} className="mt-6 grid gap-6 md:grid-cols-2">
               <label className="flex flex-col gap-2 text-sm">
@@ -428,7 +491,6 @@ export default function LaneSettingsPage() {
                   <span>{editingLane?.userId ? "Personal" : "Workspace"}</span>
                 </div>
               )}
-
               <div className="md:col-span-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -449,6 +511,14 @@ export default function LaneSettingsPage() {
           </section>
         </div>
       )}
+
+      <LaneAutomationModal
+        open={automationOpen}
+        lane={automationLane}
+        accessToken={accessToken}
+        onClose={closeAutomationModal}
+        onSaved={handleAutomationSaved}
+      />
     </div>
   );
 }
