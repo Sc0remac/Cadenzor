@@ -1,3 +1,4 @@
+import { google, calendar_v3 } from "googleapis";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OAuthAccountRecord } from "@kazador/shared";
 import {
@@ -8,6 +9,7 @@ import {
   deleteGoogleAccount,
 } from "./googleAccount";
 import { CALENDAR_SCOPES } from "./googleOAuth";
+import type { OAuth2Client } from "google-auth-library";
 
 const REQUIRED_CALENDAR_SCOPES = new Set(CALENDAR_SCOPES);
 
@@ -47,6 +49,81 @@ export async function ensureCalendarOAuthClient(
     throw new Error("Google account does not include Calendar scopes");
   }
   return ensureGoogleOAuthClient(supabase, account);
+}
+
+export function createCalendarClient(auth: OAuth2Client) {
+  return google.calendar({ version: "v3", auth });
+}
+
+export interface GoogleCalendarSummary {
+  id: string;
+  summary: string;
+  primary: boolean;
+  timeZone: string | null;
+  accessRole: string | null;
+}
+
+export async function listCalendars(calendar: calendar_v3.Calendar): Promise<GoogleCalendarSummary[]> {
+  const calendars: GoogleCalendarSummary[] = [];
+  let pageToken: string | undefined;
+  do {
+    const response = await calendar.calendarList.list({
+      pageToken,
+      maxResults: 100,
+      minAccessRole: "writer",
+      showHidden: false,
+    });
+    for (const entry of response.data.items ?? []) {
+      if (!entry.id) continue;
+      calendars.push({
+        id: entry.id,
+        summary: entry.summary ?? entry.id,
+        primary: Boolean(entry.primary),
+        timeZone: entry.timeZone ?? null,
+        accessRole: entry.accessRole ?? null,
+      });
+    }
+    pageToken = response.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return calendars;
+}
+
+export interface CalendarEventListOptions {
+  timeMin?: string | null;
+  timeMax?: string | null;
+  maxResults?: number;
+  singleEvents?: boolean;
+}
+
+export async function listCalendarEvents(
+  calendar: calendar_v3.Calendar,
+  calendarId: string,
+  options: CalendarEventListOptions = {}
+): Promise<calendar_v3.Schema$Event[]> {
+  const events: calendar_v3.Schema$Event[] = [];
+  let pageToken: string | undefined;
+  const { timeMin, timeMax, maxResults = 200, singleEvents = true } = options;
+
+  do {
+    const response = await calendar.events.list({
+      calendarId,
+      pageToken,
+      timeMin: timeMin ?? undefined,
+      timeMax: timeMax ?? undefined,
+      maxResults,
+      singleEvents,
+      orderBy: "startTime",
+      showDeleted: true,
+    });
+
+    for (const event of response.data.items ?? []) {
+      events.push(event);
+    }
+
+    pageToken = response.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  return events;
 }
 
 export async function disconnectCalendarAccount(

@@ -8,6 +8,7 @@ import type {
   DigestProjectSnapshot,
   UserPreferenceRecord,
   EmailRecord,
+  TimelineItemRecord,
 } from "@kazador/shared";
 import { useAuth } from "../AuthProvider";
 import {
@@ -67,6 +68,86 @@ function formatTrend(trend: ProjectDigestMetrics["trend"]): string {
     default:
       return trend;
   }
+}
+
+function getMeetingUrl(item: TimelineItemRecord): string | null {
+  const links = item.links ?? {};
+  const labels = item.labels ?? {};
+  const link = (links as Record<string, any>).meetingUrl || (labels as Record<string, any>).meetingUrl;
+  return typeof link === "string" ? link : null;
+}
+
+function formatMeetingTime(value: string | null): string {
+  if (!value) return "TBC";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+interface UpcomingMeeting {
+  id: string;
+  title: string;
+  projectName: string;
+  startsAt: string | null;
+  meetingUrl: string | null;
+  lane?: string | null;
+  status: string;
+}
+
+function MeetingsSnapshot({ meetings, loading }: { meetings: UpcomingMeeting[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <h3 className="text-lg font-semibold text-gray-900">Today's meetings</h3>
+        <p className="mt-2 text-sm text-gray-500">Loading calendar data…</p>
+      </div>
+    );
+  }
+
+  if (meetings.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-gray-300 bg-white p-5 text-center text-gray-500 shadow-sm">
+        <h3 className="text-lg font-semibold text-gray-900">Today's meetings</h3>
+        <p className="mt-2 text-sm">No calendar events on the horizon. Pull a calendar to keep this view populated.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <h3 className="text-lg font-semibold text-gray-900">Today's meetings</h3>
+      <ul className="mt-4 space-y-3">
+        {meetings.map((meeting) => (
+          <li key={meeting.id} className="flex flex-col gap-2 rounded border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold text-gray-900">{meeting.title}</p>
+                <p className="text-xs text-gray-500">
+                  {meeting.projectName} • {formatMeetingTime(meeting.startsAt)}
+                </p>
+              </div>
+              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600 uppercase">
+                {meeting.status}
+              </span>
+            </div>
+            {meeting.meetingUrl ? (
+              <div>
+                <a
+                  href={meeting.meetingUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-700"
+                >
+                  Join meeting
+                  <span aria-hidden>↗</span>
+                </a>
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function DigestSummary({
@@ -327,28 +408,6 @@ function EmailWidget({
   );
 }
 
-function CalendarPlaceholder() {
-  return (
-    <div className="rounded-lg border border-dashed border-gray-300 bg-white p-5 text-gray-500 shadow-sm h-full">
-      <h3 className="text-lg font-semibold text-gray-900">Calendar snapshot</h3>
-      <p className="mt-2 text-sm">
-        Calendar integrations are on deck. Upcoming meetings, holds, and travel windows will populate this panel once
-        connected.
-      </p>
-      <div className="mt-4 space-y-2 text-sm">
-        <div className="flex items-center gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          <span>Hook up Google Calendar to surface interviews, travel holds, and rehearsals.</span>
-        </div>
-        <div className="flex items-center gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
-          <span>Link agency itineraries to blend external invites alongside Kazador deadlines.</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function HomeDashboard() {
   const { session } = useAuth();
   const accessToken = session?.access_token ?? null;
@@ -453,6 +512,43 @@ export default function HomeDashboard() {
       .slice(0, 10);
   }, [emailsState.items, emailWindow, selectedLabel]);
 
+  const calendarMeetings = useMemo(() => {
+    const digestProjects = digestState.digest?.projects ?? [];
+    if (digestProjects.length === 0) return [];
+    const now = Date.now();
+    const windowEnd = now + 24 * 60 * 60 * 1000; // next 24h
+
+    const meetings: UpcomingMeeting[] = [];
+    for (const snapshot of digestProjects) {
+      const projectName = snapshot.project.name;
+      for (const item of snapshot.timelineItems ?? []) {
+        const meetingUrl = getMeetingUrl(item);
+        const hasCalendarLink = Boolean((item.links as Record<string, any>)?.calendarId);
+        if (!hasCalendarLink) continue;
+        if (!item.startsAt) continue;
+        const startMs = Date.parse(item.startsAt);
+        if (Number.isNaN(startMs)) continue;
+        if (startMs < now - 60 * 60 * 1000) continue; // ignore items older than 1h
+        if (startMs > windowEnd) continue;
+        meetings.push({
+          id: item.id,
+          title: item.title,
+          projectName,
+          startsAt: item.startsAt,
+          meetingUrl,
+          lane: item.lane,
+          status: item.status,
+        });
+      }
+    }
+
+    return meetings.sort((a, b) => {
+      const aMs = a.startsAt ? Date.parse(a.startsAt) : Number.POSITIVE_INFINITY;
+      const bMs = b.startsAt ? Date.parse(b.startsAt) : Number.POSITIVE_INFINITY;
+      return aMs - bMs;
+    }).slice(0, 5);
+  }, [digestState.digest]);
+
   return (
     <section className="space-y-8">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -490,7 +586,7 @@ export default function HomeDashboard() {
           <TopPriorityGrid actions={topActions} />
           <UpcomingDeadlines actions={timelineActions} />
         </div>
-        <CalendarPlaceholder />
+        <MeetingsSnapshot meetings={calendarMeetings} loading={digestLoading} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

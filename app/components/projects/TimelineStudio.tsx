@@ -80,6 +80,13 @@ function buildLaneVisual(color?: string | null) {
   };
 }
 
+function extractMeetingUrlFromItem(item: TimelineItemRecord): string | null {
+  const links = (item.links ?? {}) as Record<string, any>;
+  const labels = (item.labels ?? {}) as Record<string, any>;
+  const url = links.meetingUrl ?? labels.meetingUrl;
+  return typeof url === "string" ? url : null;
+}
+
 function formatLaneLabel(slug: string): string {
   return slug
     .toLowerCase()
@@ -879,6 +886,8 @@ export function TimelineStudio({
           : priorityMeta.id === "MEDIUM"
           ? "border-amber-400/70 bg-amber-500/20 text-amber-100"
           : "border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
+      const isCalendarEvent = Boolean((item.links as Record<string, any>)?.calendarId);
+      const meetingUrl = isCalendarEvent ? extractMeetingUrlFromItem(item) : null;
 
       const classes = [
         "group absolute rounded-2xl border-2 px-4 pb-8 pt-4 text-sm shadow transition-all duration-200 backdrop-blur-sm",
@@ -890,6 +899,7 @@ export function TimelineStudio({
         overdue ? "shadow-[0_0_18px_rgba(248,113,113,0.45)]" : "",
         positioned.isPin ? "flex items-center gap-3" : "flex flex-col",
         laneActive ? "" : "opacity-55",
+        isCalendarEvent ? "ring-1 ring-sky-500/50" : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -929,6 +939,7 @@ export function TimelineStudio({
               <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-200">
                 <span className="text-base">{statusMeta.icon}</span>
                 <span>{statusMeta.label}</span>
+                {isCalendarEvent ? <span className="rounded bg-sky-500/20 px-2 py-0.5 text-[0.6rem] font-semibold text-sky-100">Calendar</span> : null}
               </div>
               <div className="flex flex-col items-end">
                 <span className="truncate text-sm font-semibold text-white">{item.title}</span>
@@ -943,6 +954,11 @@ export function TimelineStudio({
                     <span className="text-base">{statusMeta.icon}</span>
                     <span>{statusMeta.label}</span>
                     <span className="text-[0.65rem] text-slate-400">{item.type.replace(/_/g, " ")}</span>
+                    {isCalendarEvent ? (
+                      <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[0.6rem] font-semibold text-sky-100">
+                        Calendar
+                      </span>
+                    ) : null}
                   </div>
                   <p className="text-sm font-semibold text-white">{item.title}</p>
                 </div>
@@ -950,6 +966,20 @@ export function TimelineStudio({
                   {priorityMeta.label}
                 </span>
               </div>
+              {meetingUrl ? (
+                <div className="mt-2">
+                  <a
+                    href={meetingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(event) => event.stopPropagation()}
+                    className="inline-flex items-center gap-1 rounded bg-sky-500 px-2 py-1 text-[0.7rem] font-semibold text-white transition hover:bg-sky-400"
+                  >
+                    Join meeting
+                    <span aria-hidden>↗</span>
+                  </a>
+                </div>
+              ) : null}
               {locationSummary ? (
                 <p className="mt-2 text-xs text-slate-300">📍 {locationSummary}</p>
               ) : null}

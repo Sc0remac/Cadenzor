@@ -11,6 +11,7 @@ const BASE_NAV_LINKS = [
   { href: "/today", label: "Today" },
   { href: "/projects", label: "Projects" },
   { href: "/timeline", label: "Timeline" },
+  { href: "/calendar", label: "Calendar" },
 ];
 
 const PLACEHOLDER_BUTTONS = ["Clients", "Reports"];

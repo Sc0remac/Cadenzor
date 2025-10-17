@@ -763,6 +763,103 @@ export async function reindexDriveSource(
   return payload as { assetCount: number; indexedAt: string };
 }
 
+export interface CalendarSummaryDto {
+  id: string;
+  summary: string;
+  primary: boolean;
+  timeZone: string | null;
+  accessRole: string | null;
+}
+
+export async function fetchAvailableCalendars(
+  accessToken?: string
+): Promise<{ calendars: CalendarSummaryDto[]; accountEmail: string | null }> {
+  const response = await fetch("/api/integrations/google-calendar/calendars", {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load calendars");
+  }
+
+  return {
+    calendars: Array.isArray(payload?.calendars) ? (payload.calendars as CalendarSummaryDto[]) : [],
+    accountEmail: typeof payload?.accountEmail === "string" ? payload.accountEmail : null,
+  };
+}
+
+export interface ConnectCalendarSourcePayload {
+  calendarId: string;
+  calendarSummary?: string | null;
+  calendarTimezone?: string | null;
+}
+
+export async function connectCalendarSource(
+  projectId: string,
+  payload: ConnectCalendarSourcePayload,
+  accessToken?: string
+): Promise<ProjectSourceRecord> {
+  const response = await fetch(`/api/projects/${projectId}/sources/calendar/connect`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to connect calendar");
+  }
+
+  return body.source as ProjectSourceRecord;
+}
+
+export interface PullCalendarEventsResponse {
+  source: ProjectSourceRecord;
+  summary: {
+    processed: number;
+    inserted: number;
+    updated: number;
+    skipped: number;
+    cancelled: number;
+    rangeStart: string;
+    rangeEnd: string;
+  };
+  items: TimelineItemRecord[];
+}
+
+export async function pullCalendarEvents(
+  projectId: string,
+  sourceId: string,
+  payload: { rangeStart?: string | null; rangeEnd?: string | null; maxEvents?: number; includeCancelled?: boolean } = {},
+  accessToken?: string
+): Promise<PullCalendarEventsResponse> {
+  const response = await fetch(`/api/projects/${projectId}/sources/calendar/${sourceId}/pull`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to pull calendar events");
+  }
+
+  return {
+    source: body.source as ProjectSourceRecord,
+    summary: body.summary as PullCalendarEventsResponse["summary"],
+    items: Array.isArray(body.items) ? (body.items as TimelineItemRecord[]) : [],
+  };
+}
+
 export interface AssetListOptions {
   sourceId?: string | null;
   type?: string | null;

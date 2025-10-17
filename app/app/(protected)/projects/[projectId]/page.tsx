@@ -27,6 +27,9 @@ import {
   updateProject,
   updateProjectTask,
   respondToApproval,
+  connectCalendarSource,
+  pullCalendarEvents,
+  fetchAvailableCalendars,
   type ProjectHubResponse,
   fetchEmailAttachments,
   fileEmailAttachmentsToDrive,
@@ -35,6 +38,7 @@ import {
   removeProjectMember,
   searchProfiles,
   type ProfileSummary,
+  type CalendarSummaryDto,
 } from "../../../../lib/supabaseClient";
 import { createLaneDefinition } from "../../../../lib/laneDefinitionsClient";
 import { useAuth } from "../../../../components/AuthProvider";
@@ -139,6 +143,18 @@ export default function ProjectHubPage() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [calendarOptions, setCalendarOptions] = useState<CalendarSummaryDto[]>([]);
+  const [calendarOptionsLoading, setCalendarOptionsLoading] = useState(false);
+  const [calendarOptionsError, setCalendarOptionsError] = useState<string | null>(null);
+  const [calendarAccountEmail, setCalendarAccountEmail] = useState<string | null>(null);
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string>("");
+  const [calendarConnectLoading, setCalendarConnectLoading] = useState(false);
+  const [calendarConnectError, setCalendarConnectError] = useState<string | null>(null);
+  const [calendarConnectSuccess, setCalendarConnectSuccess] = useState<string | null>(null);
+  const [calendarPullingId, setCalendarPullingId] = useState<string | null>(null);
+  const [calendarPullError, setCalendarPullError] = useState<string | null>(null);
+  const [calendarPullMessage, setCalendarPullMessage] = useState<string | null>(null);
   const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
   const [filingContext, setFilingContext] = useState<{ emailId: string; subject: string } | null>(null);
   const [filingAttachments, setFilingAttachments] = useState<EmailAttachmentRecord[]>([]);
@@ -297,6 +313,11 @@ export default function ProjectHubPage() {
 
   const driveSources = useMemo(
     () => (hub?.sources ?? []).filter((source) => source.kind === "drive_folder"),
+    [hub?.sources]
+  );
+
+  const calendarSources = useMemo(
+    () => (hub?.sources ?? []).filter((source) => source.kind === "calendar"),
     [hub?.sources]
   );
 
@@ -722,6 +743,109 @@ export default function ProjectHubPage() {
       setSettingsError(err?.message || "Failed to update project");
     } finally {
       setSettingsSaving(false);
+    }
+  };
+
+  const loadCalendarOptions = useCallback(async () => {
+    if (!accessToken) {
+      setCalendarOptionsError("Sign in again to browse calendars.");
+      setCalendarOptions([]);
+      return;
+    }
+
+    setCalendarOptionsLoading(true);
+    setCalendarOptionsError(null);
+    try {
+      const response = await fetchAvailableCalendars(accessToken);
+      setCalendarOptions(response.calendars);
+      setCalendarAccountEmail(response.accountEmail);
+      setSelectedCalendarId((prev) =>
+        prev && response.calendars.some((entry) => entry.id === prev)
+          ? prev
+          : response.calendars[0]?.id ?? ""
+      );
+      if (response.calendars.length === 0) {
+        setCalendarOptionsError("No writable calendars available on the connected Google account.");
+      }
+    } catch (err: any) {
+      setCalendarOptions([]);
+      setCalendarOptionsError(err?.message || "Failed to load calendars");
+    } finally {
+      setCalendarOptionsLoading(false);
+    }
+  }, [accessToken]);
+
+  const openCalendarModal = () => {
+    setCalendarConnectError(null);
+    setCalendarConnectSuccess(null);
+    setCalendarPullMessage(null);
+    setCalendarModalOpen(true);
+    void loadCalendarOptions();
+  };
+
+  const closeCalendarModal = () => {
+    if (!calendarConnectLoading) {
+      setCalendarModalOpen(false);
+    }
+  };
+
+  const handleCalendarConnect = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!projectId || !accessToken) {
+      setCalendarConnectError("Authentication expired. Please sign in again.");
+      return;
+    }
+    if (!selectedCalendarId) {
+      setCalendarConnectError("Select a calendar to continue.");
+      return;
+    }
+
+    const selected = calendarOptions.find((calendar) => calendar.id === selectedCalendarId);
+
+    setCalendarConnectLoading(true);
+    setCalendarConnectError(null);
+    setCalendarConnectSuccess(null);
+    try {
+      await connectCalendarSource(
+        projectId,
+        {
+          calendarId: selectedCalendarId,
+          calendarSummary: selected?.summary ?? selectedCalendarId,
+          calendarTimezone: selected?.timeZone ?? null,
+        },
+        accessToken
+      );
+      setCalendarConnectSuccess(`Connected ${selected?.summary ?? selectedCalendarId}`);
+      setCalendarModalOpen(false);
+      await loadHub();
+    } catch (err: any) {
+      setCalendarConnectError(err?.message || "Failed to connect calendar");
+    } finally {
+      setCalendarConnectLoading(false);
+    }
+  };
+
+  const handlePullCalendar = async (sourceId: string) => {
+    if (!projectId || !accessToken) {
+      setCalendarPullError("Authentication expired. Please sign in again.");
+      return;
+    }
+
+    setCalendarPullingId(sourceId);
+    setCalendarPullError(null);
+    setCalendarPullMessage(null);
+    try {
+      const response = await pullCalendarEvents(projectId, sourceId, {}, accessToken);
+      const { inserted, updated } = response.summary;
+      const message = inserted + updated > 0
+        ? `Calendar sync complete (${inserted} new, ${updated} updated).`
+        : "Calendar sync complete (no changes).";
+      setCalendarPullMessage(message);
+      await loadHub();
+    } catch (err: any) {
+      setCalendarPullError(err?.message || "Failed to pull events");
+    } finally {
+      setCalendarPullingId(null);
     }
   };
 
@@ -1384,6 +1508,94 @@ export default function ProjectHubPage() {
         </div>
       </form>
 
+      <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Calendar sources</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Pull events from connected Google calendars to keep this project’s timeline aligned with external meetings.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={openCalendarModal}
+            className="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+          >
+            Connect calendar
+          </button>
+        </div>
+
+        {calendarConnectSuccess ? (
+          <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {calendarConnectSuccess}
+          </div>
+        ) : null}
+        {calendarPullMessage ? (
+          <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {calendarPullMessage}
+          </div>
+        ) : null}
+        {calendarConnectError ? (
+          <div className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {calendarConnectError}
+          </div>
+        ) : null}
+        {calendarPullError ? (
+          <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {calendarPullError}
+          </div>
+        ) : null}
+
+        <div className="mt-4 space-y-4">
+          {calendarSources.length === 0 ? (
+            <p className="rounded border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+              No calendars connected yet. Connect a calendar to sync meetings and holds onto the timeline.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {calendarSources.map((source) => {
+                const meta = (source.metadata as Record<string, any>) ?? {};
+                const lastSynced = (meta.lastSyncedAt as string | undefined) ?? source.lastIndexedAt;
+                const counts = (meta.lastSyncCounts as Record<string, number> | undefined) ?? undefined;
+                const accountEmail = (meta.accountEmail as string | undefined) ?? calendarAccountEmail;
+                return (
+                  <li
+                    key={source.id}
+                    className="flex flex-col gap-3 rounded border border-gray-200 px-4 py-3 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{source.title || meta.calendarId || "Unnamed calendar"}</p>
+                      <p className="text-xs text-gray-500">
+                        Google account {accountEmail ?? "Unknown"}
+                        {meta.calendarTimezone ? ` • ${meta.calendarTimezone}` : ""}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Last sync: {lastSynced ? new Date(lastSynced).toLocaleString() : "Never"}
+                      </p>
+                      {counts ? (
+                        <p className="text-xs text-gray-500">
+                          Last run processed {counts.processed ?? 0} events ({counts.inserted ?? 0} new, {counts.updated ?? 0} updated)
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handlePullCalendar(source.id)}
+                        disabled={calendarPullingId === source.id}
+                        className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
+                      >
+                        {calendarPullingId === source.id ? "Syncing…" : "Pull events"}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </section>
+
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900">Members &amp; roles</h3>
         <p className="mt-1 text-sm text-gray-600">
@@ -1708,6 +1920,79 @@ export default function ProjectHubPage() {
                     {filingLoading ? "Filing…" : "File to Drive"}
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {calendarModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Connect Google Calendar</h3>
+                <p className="text-sm text-gray-600">
+                  Choose a calendar from your connected Google account. Events will appear on this project’s timeline.
+                </p>
+                {calendarAccountEmail ? (
+                  <p className="mt-1 text-xs text-gray-500">Account: {calendarAccountEmail}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={closeCalendarModal}
+                className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+              >
+                Close
+              </button>
+            </div>
+
+            {calendarOptionsError ? (
+              <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {calendarOptionsError}
+              </div>
+            ) : null}
+
+            <form onSubmit={handleCalendarConnect} className="space-y-4">
+              <label className="block text-xs font-semibold uppercase text-gray-500">
+                Calendar
+                <select
+                  value={selectedCalendarId}
+                  onChange={(event) => setSelectedCalendarId(event.target.value)}
+                  disabled={calendarOptionsLoading || calendarConnectLoading}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  {calendarOptionsLoading ? (
+                    <option>Loading calendars…</option>
+                  ) : calendarOptions.length === 0 ? (
+                    <option value="">No calendars available</option>
+                  ) : (
+                    calendarOptions.map((calendar) => (
+                      <option key={calendar.id} value={calendar.id}>
+                        {calendar.summary} {calendar.primary ? "(Primary)" : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeCalendarModal}
+                  className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-100"
+                  disabled={calendarConnectLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={calendarConnectLoading || calendarOptions.length === 0 || !selectedCalendarId}
+                  className="rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                >
+                  {calendarConnectLoading ? "Connecting…" : "Connect"}
+                </button>
               </div>
             </form>
           </div>
