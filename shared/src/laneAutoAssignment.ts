@@ -87,7 +87,11 @@ function compareValue(actual: unknown, expected: unknown): boolean {
 
 function normaliseValue(value: unknown): string {
   if (value == null) return "";
-  return String(value).trim().toLowerCase();
+  return String(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function evaluateOperator(value: unknown, operator: string, expected: unknown): boolean {

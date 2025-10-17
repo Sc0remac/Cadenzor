@@ -11,7 +11,7 @@ interface AutoAssignRuleBuilderProps {
   disabled?: boolean;
 }
 
-interface ParsedState {
+export interface ParsedRuleSet {
   matchType: MatchType;
   conditions: RuleCondition[];
 }
@@ -22,9 +22,17 @@ interface ConditionPayload extends Record<string, unknown> {
   value: RuleCondition["value"];
 }
 
-const MATCH_TYPE_OPTIONS: Array<{ value: MatchType; label: string }> = [
-  { value: "all", label: "Match ALL conditions (AND)" },
-  { value: "any", label: "Match ANY condition (OR)" },
+const MATCH_TYPE_OPTIONS: Array<{ value: MatchType; label: string; description: string }> = [
+  {
+    value: "all",
+    label: "Require every condition",
+    description: "Only assign when all of the rules below are true.",
+  },
+  {
+    value: "any",
+    label: "Match any condition",
+    description: "Assign as soon as one of the rules below is true.",
+  },
 ];
 
 function createConditionId() {
@@ -59,7 +67,7 @@ function toRuleCondition(node: Record<string, unknown>): RuleCondition | null {
   return condition;
 }
 
-function parseRules(raw: Record<string, unknown> | null | undefined): ParsedState {
+export function parseRuleSet(raw: Record<string, unknown> | null | undefined): ParsedRuleSet {
   if (!raw || Object.keys(raw).length === 0) {
     return { matchType: "all", conditions: [] };
   }
@@ -188,23 +196,30 @@ export default function AutoAssignRuleBuilder({ value, onChange, disabled = fals
   const valueSignature = useMemo(() => JSON.stringify(value ?? null), [value]);
   const lastSignatureRef = useRef<string | null>(null);
   const onChangeRef = useRef(onChange);
+  const pendingSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
 
   useEffect(() => {
+    if (pendingSignatureRef.current && pendingSignatureRef.current === valueSignature) {
+      lastSignatureRef.current = valueSignature;
+      pendingSignatureRef.current = null;
+      return;
+    }
     if (lastSignatureRef.current === valueSignature) {
       return;
     }
     lastSignatureRef.current = valueSignature;
-    const parsed = parseRules(value ?? null);
+    const parsed = parseRuleSet(value ?? null);
     setMatchType(parsed.matchType);
     setConditions(parsed.conditions);
   }, [valueSignature, value]);
 
   useEffect(() => {
     const rules = buildRuleTree(matchType, conditions);
+    pendingSignatureRef.current = JSON.stringify(rules ?? null);
     onChangeRef.current(rules);
   }, [conditions, matchType]);
 
@@ -234,7 +249,10 @@ export default function AutoAssignRuleBuilder({ value, onChange, disabled = fals
           <div>
             <h3 className="text-base font-semibold text-gray-900">Auto-assignment rules</h3>
             <p className="text-sm text-gray-600">
-              Teach Kazador how to place new tasks and timeline entries into this lane automatically.
+              Give the lane a playbook. Whenever a new task matches the rules, it will land here automatically.
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              Tip: if more than one lane matches, the lane with the lowest sort order wins.
             </p>
           </div>
           <button
@@ -278,6 +296,9 @@ export default function AutoAssignRuleBuilder({ value, onChange, disabled = fals
                       </option>
                     ))}
                   </select>
+                  <span className="text-xs text-gray-500">
+                    {MATCH_TYPE_OPTIONS.find((option) => option.value === matchType)?.description}
+                  </span>
                 </label>
               </div>
               <div className="flex items-center gap-3">

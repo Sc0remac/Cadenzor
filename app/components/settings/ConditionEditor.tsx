@@ -134,7 +134,13 @@ export default function ConditionEditor({
     const nextField = event.target.value;
     const fieldType = getFieldType(nextField);
     const nextOperators = getAllowedOperators(nextField);
-    const defaultOperator = nextOperators[0]?.value ?? "equals";
+    const defaultOperator = (() => {
+      if (nextOperators.length === 0) return "equals";
+      if (getFieldType(nextField) === "text") {
+        return nextOperators.find((option) => option.value === "contains")?.value ?? nextOperators[0].value;
+      }
+      return nextOperators[0].value;
+    })();
 
     const nextValue = fieldType === "number" ? null : "";
 
@@ -207,6 +213,36 @@ export default function ConditionEditor({
                 </option>
               ))}
             </select>
+            {hasFieldSelected ? (
+              <span className="text-xs text-gray-500">
+                {(() => {
+                  switch (condition.operator) {
+                    case "contains":
+                      return "Matches when the value includes the text you provide.";
+                    case "equals":
+                      return "Matches when it exactly equals the text you provide (not case sensitive).";
+                    case "matches_regex":
+                      return "Uses regular expressions. Only recommended for power users.";
+                    case "in":
+                      return "Matches any of the comma-separated values.";
+                    case "not_in":
+                      return "Matches when none of the comma-separated values apply.";
+                    case "gt":
+                    case "greater_than":
+                    case "gte":
+                    case "greater_than_or_equal":
+                      return "Works with numbers. Use it for priority scoring or dates (as timestamps).";
+                    case "lt":
+                    case "less_than":
+                    case "lte":
+                    case "less_than_or_equal":
+                      return "Works with numbers. Set upper bounds for a rule.";
+                    default:
+                      return "";
+                  }
+                })()}
+              </span>
+            ) : null}
           </label>
         </div>
       </div>
@@ -232,7 +268,7 @@ export default function ConditionEditor({
               </datalist>
             ) : null}
             {condition.operator === "in" || condition.operator === "not_in" ? (
-              <span className="text-xs text-gray-500">Separate values with commas.</span>
+              <span className="text-xs text-gray-500">Press enter or use commas to add multiple options.</span>
             ) : null}
           </label>
         </div>
