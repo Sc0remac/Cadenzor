@@ -498,6 +498,130 @@ export async function startDriveOAuth(
   return payload as { authUrl: string; state: string };
 }
 
+export interface GmailAccountStatus {
+  connected: boolean;
+  account?: {
+    id: string;
+    email: string;
+    scopes: string[];
+    expiresAt: string;
+  };
+}
+
+export async function fetchGmailAccountStatus(accessToken?: string): Promise<GmailAccountStatus> {
+  const response = await fetch("/api/integrations/gmail/account", {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  if (response.status === 404) {
+    return { connected: false };
+  }
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load Gmail account");
+  }
+
+  return payload as GmailAccountStatus;
+}
+
+export async function disconnectGmailAccount(accessToken?: string): Promise<void> {
+  const response = await fetch("/api/integrations/gmail/account", {
+    method: "DELETE",
+    headers: buildHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json();
+    throw new Error(payload?.error || "Failed to disconnect Gmail");
+  }
+}
+
+export async function startGmailOAuth(
+  options: { redirectTo?: string } = {},
+  accessToken?: string
+): Promise<{ authUrl: string; state: string }> {
+  const response = await fetch("/api/integrations/gmail/oauth/start", {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ redirectTo: options.redirectTo ?? null }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to initiate Gmail OAuth");
+  }
+
+  return payload as { authUrl: string; state: string };
+}
+
+export interface CalendarAccountStatus {
+  connected: boolean;
+  account?: {
+    id: string;
+    email: string;
+    scopes: string[];
+    expiresAt: string;
+  };
+}
+
+export async function fetchCalendarAccountStatus(accessToken?: string): Promise<CalendarAccountStatus> {
+  const response = await fetch("/api/integrations/google-calendar/account", {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  if (response.status === 404) {
+    return { connected: false };
+  }
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load Calendar account");
+  }
+
+  return payload as CalendarAccountStatus;
+}
+
+export async function disconnectCalendarAccount(accessToken?: string): Promise<void> {
+  const response = await fetch("/api/integrations/google-calendar/account", {
+    method: "DELETE",
+    headers: buildHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json();
+    throw new Error(payload?.error || "Failed to disconnect Calendar");
+  }
+}
+
+export async function startCalendarOAuth(
+  options: { redirectTo?: string } = {},
+  accessToken?: string
+): Promise<{ authUrl: string; state: string }> {
+  const response = await fetch("/api/integrations/google-calendar/oauth/start", {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ redirectTo: options.redirectTo ?? null }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to initiate Calendar OAuth");
+  }
+
+  return payload as { authUrl: string; state: string };
+}
+
 export interface DriveFolderSummaryDto {
   id: string;
   name: string;

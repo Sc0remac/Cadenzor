@@ -11,17 +11,12 @@ import {
   EMAIL_FALLBACK_LABEL,
 } from "@kazador/shared";
 import type { EmailLabel } from "@kazador/shared";
+import { getGmailAccount, ensureGmailOAuthClient } from "@/lib/googleGmailClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const REQUIRED_ENV = [
-  "SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
-  "GMAIL_REFRESH_TOKEN",
-] as const;
+const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
 
 function validateEnv() {
   const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
@@ -37,10 +32,6 @@ function validateEnv() {
     values: {
       supabaseUrl: process.env.SUPABASE_URL!,
       supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      googleClientId: process.env.GOOGLE_CLIENT_ID!,
-      googleClientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      googleRedirectUri: process.env.GOOGLE_REDIRECT_URI,
-      gmailRefreshToken: process.env.GMAIL_REFRESH_TOKEN!,
     },
   };
 }
@@ -124,20 +115,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: env.error }, { status: 500 });
   }
 
-  const {
-    supabaseUrl,
-    supabaseServiceKey,
-    googleClientId,
-    googleClientSecret,
-    googleRedirectUri,
-    gmailRefreshToken,
-  } = env.values;
+  const { supabaseUrl, supabaseServiceKey } = env.values;
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const oauth2Client = googleRedirectUri
-    ? new google.auth.OAuth2(googleClientId, googleClientSecret, googleRedirectUri)
-    : new google.auth.OAuth2(googleClientId, googleClientSecret);
-  oauth2Client.setCredentials({ refresh_token: gmailRefreshToken });
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  let gmailAccount;
+  try {
+    gmailAccount = await getGmailAccount(supabase, { userId: requester.id });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Failed to load Gmail connection" }, { status: 500 });
+  }
+
+  if (!gmailAccount) {
+    return NextResponse.json(
+      { error: "Connect Gmail in settings before running classification." },
+      { status: 409 }
+    );
+  }
+
+  let oauth2Client;
+  try {
+    oauth2Client = await ensureGmailOAuthClient(supabase, gmailAccount);
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Failed to prepare Gmail client" }, { status: 500 });
+  }
+
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
   const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 10);

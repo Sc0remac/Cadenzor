@@ -26,6 +26,7 @@ describe("automationRules", () => {
         options: {
           categories: ["BOOKING/Offer"],
           labels: ["risk/high"],
+          triageStates: ["unassigned"],
         },
       },
       actions: [
@@ -40,7 +41,9 @@ describe("automationRules", () => {
     expect(rule.name).toBe("Booking offers to tasks");
     expect(rule.isEnabled).toBe(false);
     expect(rule.trigger.type).toBe("email_received");
-    expect(rule.trigger.options.categories).toEqual(["BOOKING/Offer"]);
+    expect(rule.trigger.type).toBe("email_received");
+    const emailOptions = rule.trigger.options;
+    expect("categories" in emailOptions ? emailOptions.categories : []).toEqual(["BOOKING/Offer"]);
     expect(rule.actions[0].type).toBe("assign_timeline_lane");
     expect(rule.actions[0].params).toEqual({ lane: "Promo" });
   });

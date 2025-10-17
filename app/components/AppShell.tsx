@@ -155,6 +155,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   Priority settings
                 </Link>
                 <Link
+                  href="/settings/integrations"
+                  className="block px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-100"
+                  role="menuitem"
+                >
+                  Integrations
+                </Link>
+                <Link
                   href="/settings/automations"
                   className="block px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-100"
                   role="menuitem"

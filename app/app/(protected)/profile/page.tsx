@@ -1,66 +1,5 @@
 import ProfileForm from "../../../components/ProfileForm";
 import ProfileSnapshot from "../../../components/ProfileSnapshot";
-import ProfileDriveIntegration from "../../../components/ProfileDriveIntegration";
-
-const G_SUITE_INTEGRATIONS = [
-  {
-    name: "Gmail",
-    description: "Bring your Gmail inbox into Kazador for faster triage.",
-  },
-];
-
-const CALENDAR_INTEGRATIONS = [
-  {
-    name: "Google Calendar",
-    description: "Sync upcoming holds and release schedules automatically.",
-  },
-  {
-    name: "Outlook Calendar",
-    description: "Coordinate touring and promo schedules from Outlook.",
-  },
-  {
-    name: "Apple Calendar",
-    description: "Keep personal availability aligned with the team view.",
-  },
-];
-
-interface IntegrationGroupProps {
-  title: string;
-  description: string;
-  items: Array<{ name: string; description: string }>;
-}
-
-function IntegrationGroup({ title, description, items }: IntegrationGroupProps) {
-  return (
-    <section className="space-y-4">
-      <header className="space-y-1">
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-        <p className="text-sm text-gray-600">{description}</p>
-      </header>
-      <div className="space-y-3">
-        {items.map((item) => (
-          <article
-            key={item.name}
-            className="flex items-start justify-between gap-4 rounded-lg border border-dashed border-gray-300 bg-white p-4 shadow-sm"
-          >
-            <div className="space-y-1">
-              <h3 className="text-sm font-medium text-gray-900">{item.name}</h3>
-              <p className="text-sm text-gray-600">{item.description}</p>
-            </div>
-            <button
-              type="button"
-              disabled
-              className="whitespace-nowrap rounded-md bg-gray-200 px-3 py-1 text-xs font-medium text-gray-600 disabled:cursor-not-allowed"
-            >
-              Coming soon
-            </button>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 export default function ProfilePage() {
   return (
     <section className="space-y-8">
@@ -78,17 +17,20 @@ export default function ProfilePage() {
         </div>
 
         <aside className="space-y-6">
-          <ProfileDriveIntegration />
-          <IntegrationGroup
-            title="Connect G Suite"
-            description="Link Gmail to keep conversations and files in one place."
-            items={G_SUITE_INTEGRATIONS}
-          />
-          <IntegrationGroup
-            title="Calendar integrations"
-            description="Choose the calendars you want to keep in sync with campaigns."
-            items={CALENDAR_INTEGRATIONS}
-          />
+          <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+            <header className="mb-3 space-y-1">
+              <h2 className="text-lg font-semibold text-gray-900">Google integrations</h2>
+              <p className="text-sm text-gray-600">
+                Connect Gmail, Drive, and Calendar from the integrations settings page to unlock syncing across the workspace.
+              </p>
+            </header>
+            <a
+              href="/settings/integrations"
+              className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+            >
+              Manage integrations
+            </a>
+          </section>
         </aside>
       </div>
     </section>

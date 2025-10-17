@@ -5266,6 +5266,9 @@ ALTER TABLE public.oauth_sessions ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY oauth_sessions_service_role_only ON public.oauth_sessions USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+-- Name: oauth_sessions oauth_sessions_owner_insert; Type: POLICY; Schema: public; Owner: -
+
+CREATE POLICY oauth_sessions_owner_insert ON public.oauth_sessions FOR INSERT TO authenticated WITH CHECK ((auth.uid() = user_id));
 
 
 --
@@ -5775,4 +5778,3 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 --
 
 \unrestrict pUbqdYVhzQBHJDHfKhjRXUhPl8XSZoRFkoqBagEf3aBH6h98xlSbAJBsztHVd7a
-
