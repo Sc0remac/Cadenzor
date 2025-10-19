@@ -358,9 +358,25 @@ export interface ProjectSourceRecord {
   updatedAt: string;
 }
 
+export interface UserCalendarSourceRecord {
+  id: string;
+  userId: string;
+  calendarId: string;
+  accountId: string;
+  summary: string;
+  timezone: string | null;
+  primaryCalendar: boolean;
+  accessRole: string | null;
+  metadata: Record<string, unknown> | null;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CalendarEventRecord {
   id: string;
-  sourceId: string;
+  sourceId: string | null;
+  userSourceId: string | null;
   calendarId: string;
   eventId: string;
   summary: string | null;
@@ -383,6 +399,7 @@ export interface CalendarEventRecord {
   createdAt: string;
   updatedAt: string;
   source?: ProjectSourceRecord;
+  userSource?: UserCalendarSourceRecord;
 }
 
 export type ProjectLinkSource = "manual" | "ai" | "rule";

@@ -126,6 +126,63 @@ export async function listCalendarEvents(
   return events;
 }
 
+export interface UpsertUserCalendarSourcesParams {
+  supabase: SupabaseClient;
+  userId: string;
+  accountId: string;
+  calendars: GoogleCalendarSummary[];
+}
+
+export async function upsertUserCalendarSources({
+  supabase,
+  userId,
+  accountId,
+  calendars,
+}: UpsertUserCalendarSourcesParams): Promise<any[]> {
+  if (!calendars || calendars.length === 0) {
+    return [];
+  }
+
+  const timestamp = new Date().toISOString();
+  const rows = calendars.map((calendar) => ({
+    user_id: userId,
+    calendar_id: calendar.id,
+    account_id: accountId,
+    summary: calendar.summary ?? calendar.id,
+    timezone: calendar.timeZone ?? null,
+    primary_calendar: calendar.primary,
+    access_role: calendar.accessRole ?? null,
+    metadata: {},
+    updated_at: timestamp,
+  }));
+
+  const { data, error } = await supabase
+    .from("user_calendar_sources")
+    .upsert(rows, { onConflict: "user_id,calendar_id" })
+    .select("*");
+
+  if (error) {
+    throw error;
+  }
+
+  if (data && data.length > 0) {
+    return data;
+  }
+
+  const calendarIds = calendars.map((calendar) => calendar.id);
+  const { data: fallback, error: fetchError } = await supabase
+    .from("user_calendar_sources")
+    .select("*")
+    .eq("user_id", userId)
+    .in("calendar_id", calendarIds);
+
+  if (fetchError) {
+    throw fetchError;
+  }
+
+  return fallback ?? [];
+}
+
 export async function disconnectCalendarAccount(
   supabase: SupabaseClient,
   accountId: string

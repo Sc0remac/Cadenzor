@@ -2,28 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import {
-  fetchCalendarEvents,
-  fetchCalendarSources,
-  fetchProjects,
-  pullCalendarEvents,
-  assignCalendarEvent,
-  setCalendarEventIgnored,
-  type CalendarEventsResponse,
-} from "@/lib/supabaseClient";
-import type { CalendarEventRecord, ProjectRecord } from "@kazador/shared";
-import type { CalendarSourceSummary } from "@/lib/supabaseClient";
+import { fetchCalendarEvents, fetchCalendarSources, type CalendarEventsResponse } from "@/lib/supabaseClient";
+import type { CalendarEventRecord, UserCalendarSourceRecord } from "@kazador/shared";
 
 interface FilterState {
-  assigned: "all" | "assigned" | "unassigned";
   sourceId: string;
-  includeIgnored: boolean;
-}
-
-interface EventActionState {
-  loadingIds: Set<string>;
-  errorMessage: string | null;
-  successMessage: string | null;
 }
 
 function compactDateTime(value: string | null, options: Intl.DateTimeFormatOptions = {}) {
@@ -52,39 +35,15 @@ export default function CalendarInboxPage() {
   const accessToken = session?.access_token ?? null;
 
   const [filters, setFilters] = useState<FilterState>({
-    assigned: "all",
     sourceId: "all",
-    includeIgnored: false,
   });
   const [events, setEvents] = useState<CalendarEventRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [sources, setSources] = useState<CalendarSourceSummary[]>([]);
-  const [actionState, setActionState] = useState<EventActionState>({
-    loadingIds: new Set<string>(),
-    errorMessage: null,
-    successMessage: null,
-  });
+  const [sources, setSources] = useState<UserCalendarSourceRecord[]>([]);
   const [syncing, setSyncing] = useState(false);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    let cancelled = false;
-    fetchProjects({ accessToken })
-      .then((payload) => {
-        if (cancelled) return;
-        setProjects(payload.map((entry) => entry.project));
-      })
-      .catch((err: any) => {
-        if (cancelled) return;
-        console.error("Failed to load projects", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken]);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -115,9 +74,7 @@ export default function CalendarInboxPage() {
     setError(null);
     try {
       const response: CalendarEventsResponse = await fetchCalendarEvents({
-        assigned: filters.assigned,
         sourceId: filters.sourceId !== "all" ? filters.sourceId : undefined,
-        includeIgnored: filters.includeIgnored,
         accessToken,
         limit: 500,
       });
@@ -130,113 +87,58 @@ export default function CalendarInboxPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, filters.assigned, filters.sourceId, filters.includeIgnored]);
+  }, [accessToken, filters.sourceId]);
 
   useEffect(() => {
     void reloadEvents();
   }, [reloadEvents]);
 
   const calendarSourceOptions = useMemo(() => {
-    return sources.map(({ source, project }) => {
-      const metadata = (source.metadata ?? {}) as Record<string, unknown>;
-      const summary = (metadata.calendarSummary as string | undefined) ?? source.title ?? source.externalId;
-      return {
-        id: source.id,
-        name: summary ?? "Calendar",
-        projectId: project?.id ?? source.projectId ?? null,
-      };
-    });
+    return sources.map((source: any) => ({
+      id: source.id,
+      name: source.summary ?? source.calendarId ?? "Calendar",
+      calendarId: source.calendarId,
+    }));
   }, [sources]);
 
-  const setFilterValue = (key: keyof FilterState, value: string | boolean) => {
-    setFilters((prev) => ({ ...prev, [key]: value } as FilterState));
-  };
-
-  const updateEventActionState = (updater: (prev: EventActionState) => EventActionState) => {
-    setActionState((prev) => updater(prev));
-  };
-
-  const handleAssign = async (event: CalendarEventRecord, projectId: string | null) => {
-    if (!accessToken) return;
-    updateEventActionState((prev) => {
-      const next = new Set(prev.loadingIds);
-      next.add(event.id);
-      return { ...prev, loadingIds: next, errorMessage: null, successMessage: null };
-    });
-
-    try {
-      const updated = await assignCalendarEvent(event.id, projectId, accessToken);
-      setEvents((prev) => prev.map((item) => (item.id === event.id ? updated : item)));
-      updateEventActionState((prev) => ({
-        ...prev,
-        loadingIds: new Set(Array.from(prev.loadingIds).filter((id) => id !== event.id)),
-        successMessage: projectId ? "Event assigned to project" : "Event set to unassigned",
-      }));
-    } catch (err: any) {
-      updateEventActionState((prev) => ({
-        ...prev,
-        loadingIds: new Set(Array.from(prev.loadingIds).filter((id) => id !== event.id)),
-        errorMessage: err?.message || "Failed to update event",
-      }));
-    }
-  };
-
-  const handleIgnore = async (event: CalendarEventRecord, ignore: boolean) => {
-    if (!accessToken) return;
-    updateEventActionState((prev) => {
-      const next = new Set(prev.loadingIds);
-      next.add(event.id);
-      return { ...prev, loadingIds: next, errorMessage: null, successMessage: null };
-    });
-
-    try {
-      await setCalendarEventIgnored(event.id, ignore, accessToken);
-      setEvents((prev) =>
-        prev.map((item) => (item.id === event.id ? { ...item, ignore } : item))
-      );
-      updateEventActionState((prev) => ({
-        ...prev,
-        loadingIds: new Set(Array.from(prev.loadingIds).filter((id) => id !== event.id)),
-        successMessage: ignore ? "Event ignored" : "Event unignored",
-      }));
-    } catch (err: any) {
-      updateEventActionState((prev) => ({
-        ...prev,
-        loadingIds: new Set(Array.from(prev.loadingIds).filter((id) => id !== event.id)),
-        errorMessage: err?.message || "Failed to update event",
-      }));
-    }
+  const setFilterValue = (key: keyof FilterState, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleSyncAll = async () => {
     if (!accessToken) return;
     if (sources.length === 0) {
-      updateEventActionState((prev) => ({
-        ...prev,
-        errorMessage: "No calendars are connected yet.",
-      }));
+      setError("No calendars are connected yet. Connect Google Calendar from Settings → Integrations.");
       return;
     }
 
     setSyncing(true);
-    updateEventActionState((prev) => ({ ...prev, errorMessage: null, successMessage: null }));
+    setError(null);
+    setSyncMessage(null);
 
     try {
-      for (const entry of sources) {
-        const projectId = entry.project?.id ?? entry.source.projectId;
-        if (!projectId) continue;
-        await pullCalendarEvents(projectId, entry.source.id, {}, accessToken);
+      const response = await fetch("/api/integrations/google-calendar/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to sync calendars");
       }
+
       await reloadEvents();
-      updateEventActionState((prev) => ({
-        ...prev,
-        successMessage: "Calendars synced",
-      }));
+
+      const summary = data.summary || {};
+      const message = `Calendars synced: ${summary.inserted || 0} new, ${summary.updated || 0} updated`;
+
+      setSyncMessage(message);
     } catch (err: any) {
-      updateEventActionState((prev) => ({
-        ...prev,
-        errorMessage: err?.message || "Failed to sync calendars",
-      }));
+      setError(err?.message || "Failed to sync calendars");
     } finally {
       setSyncing(false);
     }
@@ -247,24 +149,11 @@ export default function CalendarInboxPage() {
       <header>
         <h1 className="text-3xl font-semibold text-gray-900">Calendar inbox</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Review every Google Calendar event we've imported. Tag them to projects so they appear on timelines, or keep them unassigned.
+          Review every Google Calendar event we've imported. Use sync to refresh and open events in Google for details.
         </p>
       </header>
 
       <div className="flex flex-wrap items-center gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          Status
-          <select
-            value={filters.assigned}
-            onChange={(event) => setFilterValue("assigned", event.target.value)}
-            className="rounded-md border border-gray-300 px-2 py-1 text-sm"
-          >
-            <option value="all">All events</option>
-            <option value="assigned">Assigned</option>
-            <option value="unassigned">Unassigned</option>
-          </select>
-        </label>
-
         <label className="flex items-center gap-2 text-sm text-gray-700">
           Calendar
           <select
@@ -281,16 +170,6 @@ export default function CalendarInboxPage() {
           </select>
         </label>
 
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={filters.includeIgnored}
-            onChange={(event) => setFilterValue("includeIgnored", event.target.checked)}
-            className="h-4 w-4 rounded border-gray-300"
-          />
-          Show ignored
-        </label>
-
         <div className="text-sm text-gray-500">
           Showing {events.length} of {totalCount} events
         </div>
@@ -304,14 +183,9 @@ export default function CalendarInboxPage() {
         </button>
       </div>
 
-      {actionState.errorMessage ? (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {actionState.errorMessage}
-        </div>
-      ) : null}
-      {actionState.successMessage ? (
+      {syncMessage ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          {actionState.successMessage}
+          {syncMessage}
         </div>
       ) : null}
       {error ? (
@@ -334,8 +208,7 @@ export default function CalendarInboxPage() {
                 <th className="px-4 py-3">Event</th>
                 <th className="px-4 py-3">When</th>
                 <th className="px-4 py-3">Calendar</th>
-                <th className="px-4 py-3">Project</th>
-                <th className="px-4 py-3">Actions</th>
+                <th className="px-4 py-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-sm text-gray-700">
@@ -345,8 +218,6 @@ export default function CalendarInboxPage() {
                     event.source.title ??
                     event.source.externalId
                   : "Calendar";
-                const projectId = event.assignedProjectId ?? "";
-                const loadingEvent = actionState.loadingIds.has(event.id);
                 const htmlLink = getEventLink(event);
                 return (
                   <tr key={event.id} className={event.ignore ? "bg-gray-100 text-gray-400" : ""}>
@@ -376,36 +247,10 @@ export default function CalendarInboxPage() {
                     </td>
                     <td className="px-4 py-3 align-top">
                       <div>{sourceName}</div>
-                      {event.source?.projectId ? (
-                        <div className="text-xs text-gray-500">Default project: {projects.find((p) => p.id === event.source?.projectId)?.name ?? event.source?.projectId}</div>
-                      ) : null}
                     </td>
                     <td className="px-4 py-3 align-top">
-                      <select
-                        value={projectId}
-                        onChange={(evt) => handleAssign(event, evt.target.value === "" ? null : evt.target.value)}
-                        disabled={loadingEvent}
-                        className="mt-1 w-56 rounded-md border border-gray-300 px-3 py-1 text-sm disabled:bg-gray-100"
-                      >
-                        <option value="">Unassigned</option>
-                        {projectOptions.map((project) => (
-                          <option key={project.id} value={project.id}>
-                            {project.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex flex-col gap-2 text-xs">
-                        <button
-                          type="button"
-                          onClick={() => handleIgnore(event, !event.ignore)}
-                          disabled={loadingEvent}
-                          className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:bg-gray-100"
-                        >
-                          {event.ignore ? "Stop ignoring" : "Ignore"}
-                        </button>
-                      </div>
+                      <div className="font-medium text-gray-900">{event.status ?? "—"}</div>
+                      {event.ignore ? <div className="text-xs text-gray-500">Ignored</div> : null}
                     </td>
                   </tr>
                 );

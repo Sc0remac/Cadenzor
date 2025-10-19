@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { createOAuthClient, CALENDAR_SCOPES } from "@/lib/googleOAuth";
 import { createServerSupabaseClient } from "@/lib/serverSupabase";
 import { recordAuditLog } from "@/lib/auditLog";
+import { listCalendars, upsertUserCalendarSources } from "@/lib/googleCalendarClient";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -261,17 +262,59 @@ export async function GET(request: Request) {
     return renderMessage(script, "Failed to save Google Calendar credentials.");
   }
 
+  let accountId: string | undefined = typeof upserted?.id === "string" ? upserted.id : undefined;
+  if (!accountId && typeof existingAccount?.id === "string") {
+    accountId = existingAccount.id as string;
+  }
+
+  if (!accountId) {
+    try {
+      const { data: fallbackAccount } = await supabase
+        .from("oauth_accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("provider", "google")
+        .maybeSingle();
+      if (fallbackAccount?.id) {
+        accountId = fallbackAccount.id as string;
+      }
+    } catch (err) {
+      console.error("Failed to locate Google account id after OAuth", err);
+    }
+  }
+
   await recordAuditLog(supabase, {
     projectId: null,
     userId,
     action: "calendar.oauth.connected",
     entity: "oauth_account",
-    refId: upserted?.id ?? null,
+    refId: accountId ?? null,
     metadata: {
       accountEmail,
       scopes: combinedScopes,
     },
   });
+
+  // Auto-connect user calendars after OAuth
+  if (!accountId) {
+    console.error("Skipping calendar auto-connect; missing Google account id", { userId });
+  } else {
+    try {
+      const calendar = google.calendar({ version: "v3", auth: oauthClient });
+      const summaries = await listCalendars(calendar);
+      if (summaries.length > 0) {
+        await upsertUserCalendarSources({
+          supabase,
+          userId,
+          accountId,
+          calendars: summaries,
+        });
+      }
+    } catch (err) {
+      // Log but don't fail - user can manually connect calendars later
+      console.error("Failed to auto-connect calendars:", err);
+    }
+  }
 
   const payload = {
     source: "kazador-calendar",
@@ -282,5 +325,5 @@ export async function GET(request: Request) {
   };
 
   const script = `window.opener?.postMessage(${JSON.stringify(payload)}, '*'); window.close();`;
-  return renderMessage(script, "Google Calendar connected. You can close this window.");
+  return renderMessage(script, "Google Calendar connected! Your calendars are now syncing. You can close this window.");
 }

@@ -1259,11 +1259,6 @@ export interface CalendarEventsResponse {
   };
 }
 
-export interface CalendarSourceSummary {
-  source: ProjectSourceRecord;
-  project: ProjectRecord | null;
-}
-
 export async function fetchCalendarEvents(
   options: FetchCalendarEventsOptions = {}
 ): Promise<CalendarEventsResponse> {
@@ -1352,7 +1347,7 @@ export async function setCalendarEventIgnored(
 
 export async function fetchCalendarSources(
   accessToken?: string
-): Promise<CalendarSourceSummary[]> {
+): Promise<import("@kazador/shared").UserCalendarSourceRecord[]> {
   const response = await fetch("/api/calendar/sources", {
     method: "GET",
     headers: buildHeaders(accessToken),
@@ -1364,7 +1359,7 @@ export async function fetchCalendarSources(
     throw new Error(payload?.error || "Failed to load calendar sources");
   }
 
-  return Array.isArray(payload?.sources) ? (payload.sources as CalendarSourceSummary[]) : [];
+  return Array.isArray(payload?.sources) ? payload.sources : [];
 }
 
 export async function fetchProjectSources(

@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/serverAuth";
-import { mapProjectSourceRow, mapProjectRow } from "@/lib/projectMappers";
-import type { CalendarSourceSummary } from "@/lib/supabaseClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +8,10 @@ function formatError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
+/**
+ * GET /api/calendar/sources
+ * Returns user-level calendar sources
+ */
 export async function GET(request: Request) {
   const auth = await requireAuthenticatedUser(request);
   if (!auth.ok) {
@@ -19,22 +21,29 @@ export async function GET(request: Request) {
   const { supabase, user } = auth;
 
   const { data: sourceRows, error } = await supabase
-    .from("project_sources")
-    .select("*, projects:projects(*)")
-    .eq("kind", "calendar");
+    .from("user_calendar_sources")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true });
 
   if (error) {
     return formatError(error.message, 500);
   }
 
-  const sources: CalendarSourceSummary[] = (sourceRows ?? []).map((row: any) => {
-    const source = mapProjectSourceRow(row);
-    const projectRow = row.projects ?? null;
-    return {
-      source,
-      project: projectRow ? mapProjectRow(projectRow) : null,
-    };
-  });
+  const sources = (sourceRows ?? []).map((row: any) => ({
+    id: row.id,
+    userId: row.user_id,
+    calendarId: row.calendar_id,
+    accountId: row.account_id,
+    summary: row.summary,
+    timezone: row.timezone,
+    primaryCalendar: row.primary_calendar,
+    accessRole: row.access_role,
+    metadata: row.metadata,
+    lastSyncedAt: row.last_synced_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
 
   return NextResponse.json({ sources });
 }
