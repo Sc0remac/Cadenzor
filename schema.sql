@@ -581,8 +581,71 @@ CREATE FUNCTION public.ensure_project_owner() RETURNS trigger
     AS $$
 begin
   insert into public.project_members (project_id, user_id, role)
-  values (new.id, new.created_by, 'owner')
+  values (new.id, coalesce(new.created_by, public.current_auth_user_id()), 'owner')
   on conflict (project_id, user_id) do update set role = excluded.role;
+  return new;
+end;
+$$;
+
+
+--
+-- Name: current_auth_user_id(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE OR REPLACE FUNCTION public.current_auth_user_id() RETURNS uuid
+    LANGUAGE plpgsql STABLE
+    AS $$
+declare
+  claim_sub text;
+begin
+  if auth.uid() is not null then
+    return auth.uid();
+  end if;
+
+  claim_sub := nullif(current_setting('request.jwt.claim.sub', true), '');
+  if claim_sub is not null then
+    begin
+      return claim_sub::uuid;
+    exception when others then
+      -- fall through to other claim sources when cast fails
+      null;
+    end;
+  end if;
+
+  if auth.jwt() ? 'sub' then
+    begin
+      return (auth.jwt() ->> 'sub')::uuid;
+    exception when others then
+      return null;
+    end;
+  end if;
+
+  return null;
+end;
+$$;
+
+
+--
+-- Name: set_project_creator(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_project_creator() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  creator uuid;
+begin
+  if new.created_by is not null then
+    return new;
+  end if;
+
+  creator := public.current_auth_user_id();
+  if creator is null then
+    raise exception 'Cannot determine authenticated user for project insert';
+  end if;
+
+  new.created_by := creator;
   return new;
 end;
 $$;
@@ -5610,10 +5673,10 @@ CREATE POLICY project_members_owner_delete ON public.project_members FOR DELETE 
 
 
 --
--- Name: project_members project_members_owner_modify; Type: POLICY; Schema: public; Owner: -
+-- Name: project_members project_members_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY project_members_owner_modify ON public.project_members FOR INSERT WITH CHECK (public.is_project_member(project_id, ARRAY['owner'::public.project_member_role]));
+CREATE POLICY project_members_insert ON public.project_members FOR INSERT TO authenticated WITH CHECK ((EXISTS (SELECT 1 FROM public.projects p WHERE ((p.id = project_members.project_id) AND (p.created_by = public.current_auth_user_id()))) OR public.is_project_member(project_id, ARRAY['owner'::public.project_member_role])));
 
 
 --
@@ -5776,7 +5839,7 @@ CREATE POLICY projects_owner_delete ON public.projects FOR DELETE USING (public.
 -- Name: projects projects_owner_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY projects_owner_insert ON public.projects FOR INSERT WITH CHECK ((auth.uid() = created_by));
+CREATE POLICY projects_authenticated_insert ON public.projects FOR INSERT TO authenticated WITH CHECK (true);
 
 
 --
@@ -5791,6 +5854,22 @@ CREATE POLICY projects_owner_modify ON public.projects FOR UPDATE USING (public.
 --
 
 CREATE POLICY projects_service_role_all ON public.projects USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: projects created_by; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.projects ALTER COLUMN created_by SET DEFAULT public.current_auth_user_id();
+
+
+--
+-- Name: projects projects_set_creator; Type: TRIGGER; Schema: public; Owner: -
+--
+
+DROP TRIGGER IF EXISTS projects_set_creator ON public.projects;
+
+CREATE TRIGGER projects_set_creator BEFORE INSERT ON public.projects FOR EACH ROW EXECUTE FUNCTION public.set_project_creator();
 
 
 --

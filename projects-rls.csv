@@ -1,0 +1,6 @@
+schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check
+public,projects,projects_authenticated_insert,PERMISSIVE,{authenticated},INSERT,null,true
+public,projects,projects_member_select,PERMISSIVE,{public},SELECT,is_project_member(id),null
+public,projects,projects_owner_delete,PERMISSIVE,{public},DELETE,"is_project_member(id, ARRAY['owner'::project_member_role])",null
+public,projects,projects_owner_modify,PERMISSIVE,{public},UPDATE,"is_project_member(id, ARRAY['owner'::project_member_role])","is_project_member(id, ARRAY['owner'::project_member_role])"
+public,projects,projects_service_role_all,PERMISSIVE,{public},ALL,(auth.role() = 'service_role'::text),(auth.role() = 'service_role'::text)

@@ -1263,6 +1263,23 @@ export interface CalendarEventsResponse {
   };
 }
 
+export interface CreateCalendarEventInput {
+  summary: string;
+  date: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  description?: string | null;
+  location?: string | null;
+  projectId?: string | null;
+  projectSourceId?: string | null;
+  userSourceId?: string | null;
+}
+
+export interface CreateCalendarEventResult {
+  event: CalendarEventRecord;
+  timelineItem: TimelineItemRecord | null;
+}
+
 export async function fetchCalendarEvents(
   options: FetchCalendarEventsOptions = {}
 ): Promise<CalendarEventsResponse> {
@@ -1311,6 +1328,30 @@ export async function fetchCalendarEvents(
   }
 
   return payload as CalendarEventsResponse;
+}
+
+export async function createCalendarEvent(
+  input: CreateCalendarEventInput,
+  accessToken?: string
+): Promise<CreateCalendarEventResult> {
+  const response = await fetch("/api/calendar/events", {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to create calendar event");
+  }
+
+  return {
+    event: payload?.event as CalendarEventRecord,
+    timelineItem: (payload?.timelineItem as TimelineItemRecord | null) ?? null,
+  };
 }
 
 export async function assignCalendarEvent(

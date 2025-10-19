@@ -183,6 +183,23 @@ export async function POST(request: Request) {
 
   const project = mapProjectRow(projectRow);
 
+  // Note: Database trigger 'projects_insert_owner' automatically creates owner membership
+  // This upsert ensures the membership exists (idempotent)
+  const { error: memberError } = await supabase
+    .from("project_members")
+    .upsert(
+      {
+        project_id: project.id,
+        user_id: user.id,
+        role: "owner",
+      },
+      { onConflict: "project_id,user_id" }
+    );
+
+  if (memberError) {
+    console.error("Failed to add creator as project owner", memberError);
+  }
+
   if (payload.templateSlug) {
     try {
       await seedProjectFromTemplate(supabase, project, payload.templateSlug);

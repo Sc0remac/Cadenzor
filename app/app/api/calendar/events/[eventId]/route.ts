@@ -9,11 +9,8 @@ import {
 } from "@/lib/googleCalendarClient";
 import { mapGoogleEventToTimelineItem } from "@/lib/calendarMapper";
 import { mapProjectSourceRow } from "@/lib/projectMappers";
-import type {
-  CalendarEventRecord,
-  TimelineItemRecord,
-  UserCalendarSourceRecord,
-} from "@kazador/shared";
+import { deleteTimelineItem, ensureProjectTimelineItem, mapCalendarEventRow } from "@/lib/calendarEventUtils";
+import type { TimelineItemRecord, UserCalendarSourceRecord } from "@kazador/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,85 +36,6 @@ function normalisePrivateMetadata(existing: Record<string, unknown> | null | und
     return {} as Record<string, unknown>;
   }
   return { ...existing } as Record<string, unknown>;
-}
-
-async function ensureProjectTimelineItem(
-  supabase: any,
-  eventRow: any,
-  mapping: TimelineItemRecord,
-  projectId: string,
-  sourceId: string,
-  userId: string
-): Promise<string | null> {
-  if (!mapping) return null;
-
-  if (eventRow.assigned_timeline_item_id) {
-    const nextLabels = { ...(mapping.labels ?? {}), lane: mapping.lane };
-    const nextLinks = {
-      ...(mapping.links ?? {}),
-      calendarSourceId: sourceId,
-    };
-
-    const { error: updateError } = await supabase
-      .from("project_items")
-      .update({
-        type: mapping.type,
-        kind: "calendar_event",
-        title: mapping.title,
-        description: mapping.description,
-        start_at: mapping.startsAt,
-        end_at: mapping.endsAt,
-        due_at: null,
-        tz: mapping.timezone,
-        status: mapping.status,
-        priority_score: mapping.priorityScore,
-        priority_components: mapping.priorityComponents ?? { source: "calendar" },
-        labels: nextLabels,
-        links: nextLinks,
-      })
-      .eq("id", eventRow.assigned_timeline_item_id)
-      .eq("project_id", projectId);
-
-    if (updateError) {
-      throw new Error(updateError.message);
-    }
-    return eventRow.assigned_timeline_item_id as string;
-  }
-
-  const insertPayload = {
-    project_id: projectId,
-    type: mapping.type,
-    kind: "calendar_event",
-    title: mapping.title,
-    description: mapping.description,
-    start_at: mapping.startsAt,
-    end_at: mapping.endsAt,
-    due_at: null,
-    tz: mapping.timezone,
-    status: mapping.status,
-    priority_score: mapping.priorityScore,
-    priority_components: mapping.priorityComponents ?? { source: "calendar" },
-    labels: { ...(mapping.labels ?? {}), lane: mapping.lane },
-    links: { ...(mapping.links ?? {}), calendarSourceId: sourceId },
-    created_by: userId,
-  } satisfies Record<string, unknown>;
-
-  const { data: insertRow, error: insertError } = await supabase
-    .from("project_items")
-    .insert(insertPayload)
-    .select("id")
-    .maybeSingle();
-
-  if (insertError) {
-    throw new Error(insertError.message);
-  }
-
-  return insertRow?.id ?? null;
-}
-
-async function deleteTimelineItem(supabase: any, timelineItemId: string | null, projectId: string | null) {
-  if (!timelineItemId || !projectId) return;
-  await supabase.from("project_items").delete().eq("id", timelineItemId).eq("project_id", projectId);
 }
 
 export async function PATCH(
@@ -233,49 +151,7 @@ export async function PATCH(
     }
 
     const refreshedEvent = refreshedRow ?? eventRow;
-    const pendingActionRaw =
-      typeof refreshedEvent.pending_action === "string" ? refreshedEvent.pending_action : null;
-    const pendingAction =
-      pendingActionRaw === "create" || pendingActionRaw === "update" || pendingActionRaw === "delete"
-        ? pendingActionRaw
-        : null;
-
-    const mappedEvent: CalendarEventRecord = {
-      id: refreshedEvent.id as string,
-      sourceId: refreshedEvent.source_id ?? null,
-      userSourceId: refreshedEvent.user_source_id ?? null,
-      calendarId: refreshedEvent.calendar_id as string,
-      eventId: refreshedEvent.event_id as string,
-      summary: refreshedEvent.summary ?? null,
-      description: refreshedEvent.description ?? null,
-      location: refreshedEvent.location ?? null,
-      status: refreshedEvent.status ?? null,
-      startAt: refreshedEvent.start_at ?? null,
-      endAt: refreshedEvent.end_at ?? null,
-      isAllDay: Boolean(refreshedEvent.is_all_day),
-      timezone: refreshedEvent.timezone ?? null,
-      organizer: refreshedEvent.organizer ?? null,
-      attendees: refreshedEvent.attendees ?? null,
-      hangoutLink: refreshedEvent.hangout_link ?? null,
-      raw: refreshedEvent.raw as Record<string, unknown>,
-      assignedProjectId: refreshedEvent.assigned_project_id ?? null,
-      assignedTimelineItemId: refreshedEvent.assigned_timeline_item_id ?? null,
-      assignedBy: refreshedEvent.assigned_by ?? null,
-      assignedAt: refreshedEvent.assigned_at ?? null,
-      ignore: Boolean(refreshedEvent.ignore),
-      origin: (refreshedEvent.origin as string | undefined) === "kazador" ? "kazador" : "google",
-      syncStatus: (refreshedEvent.sync_status as string | undefined) ?? "pending",
-      syncError: refreshedEvent.sync_error ?? null,
-      lastSyncedAt: refreshedEvent.last_synced_at ?? null,
-      lastGoogleUpdatedAt: refreshedEvent.last_google_updated_at ?? null,
-      lastKazadorUpdatedAt: refreshedEvent.last_kazador_updated_at ?? null,
-      googleEtag: refreshedEvent.google_etag ?? null,
-      pendingAction,
-      createdAt: refreshedEvent.created_at as string,
-      updatedAt: refreshedEvent.updated_at as string,
-      source: source ?? undefined,
-      userSource: userSource ?? undefined,
-    };
+    const mappedEvent = mapCalendarEventRow(refreshedEvent);
 
     return NextResponse.json({ success: true, event: mappedEvent });
   }
@@ -407,49 +283,7 @@ export async function PATCH(
 
   const refreshedEvent = refreshedRow ?? eventRow;
 
-  const pendingActionRaw =
-    typeof refreshedEvent.pending_action === "string" ? refreshedEvent.pending_action : null;
-  const pendingAction =
-    pendingActionRaw === "create" || pendingActionRaw === "update" || pendingActionRaw === "delete"
-      ? pendingActionRaw
-      : null;
-
-  const mappedEvent: CalendarEventRecord = {
-    id: refreshedEvent.id as string,
-    sourceId: refreshedEvent.source_id ?? null,
-    userSourceId: refreshedEvent.user_source_id ?? null,
-    calendarId: refreshedEvent.calendar_id as string,
-    eventId: refreshedEvent.event_id as string,
-    summary: refreshedEvent.summary ?? null,
-    description: refreshedEvent.description ?? null,
-    location: refreshedEvent.location ?? null,
-    status: refreshedEvent.status ?? null,
-    startAt: refreshedEvent.start_at ?? null,
-    endAt: refreshedEvent.end_at ?? null,
-    isAllDay: Boolean(refreshedEvent.is_all_day),
-    timezone: refreshedEvent.timezone ?? null,
-    organizer: refreshedEvent.organizer ?? null,
-    attendees: refreshedEvent.attendees ?? null,
-    hangoutLink: refreshedEvent.hangout_link ?? null,
-    raw: refreshedEvent.raw as Record<string, unknown>,
-    assignedProjectId: refreshedEvent.assigned_project_id ?? null,
-    assignedTimelineItemId: refreshedEvent.assigned_timeline_item_id ?? null,
-    assignedBy: refreshedEvent.assigned_by ?? null,
-    assignedAt: refreshedEvent.assigned_at ?? null,
-    ignore: Boolean(refreshedEvent.ignore),
-    origin: (refreshedEvent.origin as string | undefined) === "kazador" ? "kazador" : "google",
-    syncStatus: (refreshedEvent.sync_status as string | undefined) ?? "pending",
-    syncError: refreshedEvent.sync_error ?? null,
-    lastSyncedAt: refreshedEvent.last_synced_at ?? null,
-    lastGoogleUpdatedAt: refreshedEvent.last_google_updated_at ?? null,
-    lastKazadorUpdatedAt: refreshedEvent.last_kazador_updated_at ?? null,
-    googleEtag: refreshedEvent.google_etag ?? null,
-    pendingAction,
-    createdAt: refreshedEvent.created_at as string,
-    updatedAt: refreshedEvent.updated_at as string,
-    source: source ?? undefined,
-    userSource: userSource ?? undefined,
-  };
+  const mappedEvent = mapCalendarEventRow(refreshedEvent);
 
   return NextResponse.json({
     success: true,
