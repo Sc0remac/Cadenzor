@@ -19,7 +19,10 @@ type CalendarViewMode = (typeof VIEW_OPTIONS)[number]["value"];
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 <<<<<<< ours
+<<<<<<< ours
 =======
+=======
+>>>>>>> theirs
 const HOURS = Array.from({ length: 24 }, (_, index) => index);
 
 function formatHourLabel(hour: number): string {
@@ -27,6 +30,9 @@ function formatHourLabel(hour: number): string {
     hour: "numeric",
   });
 }
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
 
 function parseDate(value: string | null): Date | null {
@@ -46,13 +52,19 @@ function addDays(date: Date, amount: number): Date {
 }
 
 <<<<<<< ours
+<<<<<<< ours
 =======
+=======
+>>>>>>> theirs
 function addMinutes(date: Date, amount: number): Date {
   const clone = new Date(date);
   clone.setMinutes(clone.getMinutes() + amount);
   return clone;
 }
 
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
 function addMonths(date: Date, amount: number): Date {
   const clone = new Date(date);
@@ -189,7 +201,10 @@ function getEventLink(event: CalendarEventRecord): string | null {
 }
 
 <<<<<<< ours
+<<<<<<< ours
 =======
+=======
+>>>>>>> theirs
 function formatEventDateRange(event: CalendarEventRecord): string {
   const start = parseDate(event.startAt);
   const end = parseDate(event.endAt);
@@ -434,6 +449,7 @@ export default function CalendarPage() {
     return events.filter((event) => eventIntersectsRange(event, gridRange.start, gridRange.end));
   }, [events, gridRange]);
 <<<<<<< ours
+<<<<<<< ours
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEventRecord[]>();
@@ -453,6 +469,13 @@ export default function CalendarPage() {
     const map = new Map<string, { allDay: CalendarEventRecord[]; timed: CalendarEventRecord[] }>();
     const lastVisibleDay = addDays(gridRange.end, -1);
 
+=======
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, { allDay: CalendarEventRecord[]; timed: CalendarEventRecord[] }>();
+    const lastVisibleDay = addDays(gridRange.end, -1);
+
+>>>>>>> theirs
     for (const event of filteredEvents) {
       const startRaw = parseDate(event.startAt) ?? parseDate(event.endAt);
       const endRaw = parseDate(event.endAt) ?? parseDate(event.startAt) ?? startRaw;
@@ -461,6 +484,9 @@ export default function CalendarPage() {
       const eventStart = startOfDay(startRaw ?? gridRange.start);
       const eventEnd = startOfDay(endRaw ?? gridRange.start);
 
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
       const firstVisibleDay = startOfDay(eventStart < gridRange.start ? gridRange.start : eventStart);
       const finalVisibleDay = startOfDay(eventEnd > lastVisibleDay ? lastVisibleDay : eventEnd);
@@ -469,10 +495,13 @@ export default function CalendarPage() {
         const key = cursor.toISOString().slice(0, 10);
         if (!map.has(key)) {
 <<<<<<< ours
+<<<<<<< ours
           map.set(key, []);
         }
         map.get(key)!.push(event);
 =======
+=======
+>>>>>>> theirs
           map.set(key, { allDay: [], timed: [] });
         }
         const bucket = map.get(key)!;
@@ -481,26 +510,36 @@ export default function CalendarPage() {
         } else {
           bucket.timed.push(event);
         }
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
       }
     }
 
     for (const dayEvents of map.values()) {
 <<<<<<< ours
+<<<<<<< ours
       dayEvents.sort((a, b) => {
 =======
+=======
+>>>>>>> theirs
       dayEvents.allDay.sort((a, b) => {
         const aStart = parseDate(a.startAt) ?? parseDate(a.endAt) ?? new Date(0);
         const bStart = parseDate(b.startAt) ?? parseDate(b.endAt) ?? new Date(0);
         return aStart.getTime() - bStart.getTime();
       });
       dayEvents.timed.sort((a, b) => {
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
         const aStart = parseDate(a.startAt) ?? parseDate(a.endAt) ?? new Date(0);
         const bStart = parseDate(b.startAt) ?? parseDate(b.endAt) ?? new Date(0);
         return aStart.getTime() - bStart.getTime();
       });
     }
+<<<<<<< ours
 <<<<<<< ours
 
     return map;
@@ -509,6 +548,20 @@ export default function CalendarPage() {
   const visibleEventCount = filteredEvents.length;
   const today = useMemo(() => startOfDay(new Date()), []);
   const rangeLabel = useMemo(() => formatViewRangeLabel(currentDate, viewMode), [currentDate, viewMode]);
+=======
+
+    return map;
+  }, [filteredEvents, gridRange]);
+
+  const visibleEventCount = filteredEvents.length;
+  const today = useMemo(() => startOfDay(new Date()), []);
+  const rangeLabel = useMemo(() => formatViewRangeLabel(currentDate, viewMode), [currentDate, viewMode]);
+  const selectedEventCalendarName = selectedEvent ? resolveCalendarName(selectedEvent, sources) : null;
+  const selectedEventLink = selectedEvent ? getEventLink(selectedEvent) : null;
+  const selectedEventRangeLabel = selectedEvent ? formatEventDateRange(selectedEvent) : null;
+  const selectedEventStatus = selectedEvent?.status ? selectedEvent.status.replace(/_/g, " ") : null;
+  const selectedEventDescription = selectedEvent?.description?.trim() || null;
+>>>>>>> theirs
 
   const handlePrev = useCallback(() => {
     setCurrentDate((previous) => {
@@ -530,6 +583,7 @@ export default function CalendarPage() {
     setCurrentDate(startOfDay(new Date()));
   }, []);
 
+<<<<<<< ours
   const renderEventChip = useCallback(
     (event: CalendarEventRecord, muted: boolean, dayKey: string) => {
       const link = getEventLink(event);
@@ -861,6 +915,51 @@ export default function CalendarPage() {
     [handleEventSelect]
   );
 
+=======
+  const handleEventSelect = useCallback((event: CalendarEventRecord) => {
+    setSelectedEvent(event);
+  }, []);
+
+  const renderAllDayEvent = useCallback(
+    (event: CalendarEventRecord, muted: boolean, dayKey: string) => {
+      const key = `${event.id}-${dayKey}-all-day`;
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => handleEventSelect(event)}
+          className={`group inline-flex min-w-0 items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-left text-[11px] font-semibold text-slate-700 shadow-sm transition hover:border-sky-400 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 ${muted ? "opacity-70" : ""}`}
+        >
+          <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-sky-500" />
+          <span className="truncate">{event.summary ?? "Untitled event"}</span>
+        </button>
+      );
+    },
+    [handleEventSelect]
+  );
+
+  const renderTimedListEvent = useCallback(
+    (event: CalendarEventRecord, muted: boolean, dayKey: string) => {
+      const key = `${event.id}-${dayKey}-timed`;
+      const timeRange = formatTimeRange(event);
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => handleEventSelect(event)}
+          className={`group flex w-full items-start gap-2 rounded-md border border-slate-200/70 bg-white px-2 py-1 text-left text-[11px] transition hover:border-sky-400 hover:bg-sky-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 ${muted ? "opacity-70" : ""}`}
+        >
+          <span className="mt-0.5 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            {timeRange}
+          </span>
+          <span className="flex-1 truncate text-[12px] font-semibold text-slate-800">{event.summary ?? "Untitled event"}</span>
+        </button>
+      );
+    },
+    [handleEventSelect]
+  );
+
+>>>>>>> theirs
   const renderTimedBlock = useCallback(
     (event: CalendarEventRecord, day: Date, dayKey: string) => {
       const key = `${event.id}-${dayKey}-block`;
@@ -999,6 +1098,7 @@ export default function CalendarPage() {
               {formatHourLabel(hour)}
             </div>
           ))}
+<<<<<<< ours
 >>>>>>> theirs
         </div>
         {visibleDays.map((day) => {
@@ -1092,6 +1192,98 @@ export default function CalendarPage() {
     );
   })();
 
+=======
+        </div>
+        {visibleDays.map((day) => {
+          const key = day.toISOString().slice(0, 10);
+          const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
+          const isToday = isSameDay(day, today);
+
+          return (
+            <div key={key} className={`relative h-[720px] border-l border-slate-200 ${isToday ? "bg-sky-50" : "bg-white"}`}>
+              {HOURS.map((hour) => (
+                <div
+                  key={`grid-${key}-${hour}`}
+                  style={{ top: `${(hour / 24) * 100}%` }}
+                  className="absolute left-0 right-0 -mt-px border-t border-dashed border-slate-200/70"
+                />
+              ))}
+              {bucket.timed.length === 0 ? (
+                <span className="absolute left-1 right-1 top-1 text-[11px] text-slate-300">No scheduled events</span>
+              ) : null}
+              {bucket.timed.map((event) => renderTimedBlock(event, day, key))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const dayView = (() => {
+    const key = currentDate.toISOString().slice(0, 10);
+    const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
+
+    return (
+      <div className="overflow-hidden rounded-3xl border border-sky-200/70 bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-sky-200/70 bg-sky-50/70 px-6 py-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Focused day</p>
+            <h2 className="text-2xl font-semibold text-slate-900">
+              {currentDate.toLocaleDateString(undefined, {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </h2>
+          </div>
+          {isSameDay(currentDate, today) ? (
+            <span className="rounded-full bg-sky-500 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+              Today
+            </span>
+          ) : null}
+        </div>
+        <div className="border-b border-slate-200/70 px-6 py-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">All-day</h3>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {bucket.allDay.length > 0 ? (
+              bucket.allDay.map((event) => renderAllDayEvent(event, false, key))
+            ) : (
+              <span className="text-xs uppercase tracking-wide text-slate-300">No all-day events</span>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-[80px,1fr]">
+          <div className="relative h-[720px] border-r border-slate-200 bg-slate-50/60">
+            {HOURS.map((hour) => (
+              <div
+                key={`day-label-${hour}`}
+                style={{ top: `${(hour / 24) * 100}%` }}
+                className="absolute left-0 right-0 -mt-3 flex justify-end pr-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+              >
+                {formatHourLabel(hour)}
+              </div>
+            ))}
+          </div>
+          <div className="relative h-[720px]">
+            {HOURS.map((hour) => (
+              <div
+                key={`day-grid-${hour}`}
+                style={{ top: `${(hour / 24) * 100}%` }}
+                className="absolute left-0 right-0 -mt-px border-t border-dashed border-slate-200/70"
+              />
+            ))}
+            {bucket.timed.length === 0 ? (
+              <span className="absolute left-3 right-3 top-3 text-sm text-slate-300">No timed events scheduled</span>
+            ) : null}
+            {bucket.timed.map((event) => renderTimedBlock(event, currentDate, key))}
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+>>>>>>> theirs
   const eventModal = selectedEvent ? (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 py-8"
@@ -1222,6 +1414,9 @@ export default function CalendarPage() {
           </label>
         </div>
 
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 rounded-2xl bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
