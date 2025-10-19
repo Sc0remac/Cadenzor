@@ -250,12 +250,8 @@ export async function POST(request: Request) {
     return formatError("Select a project or personal calendar to create the event", 400);
   }
 
-  if (hasProject && !projectSourceId) {
-    return formatError("Select a connected calendar for the chosen project", 400);
-  }
-
-  if (!hasProject && !hasUserCalendar) {
-    return formatError("Select a personal calendar to create the event", 400);
+  if (hasProject && !projectSourceId && !hasUserCalendar) {
+    return formatError("Select a connected calendar for the chosen project or use your personal calendar", 400);
   }
 
   const startTime = normaliseTimeInput(payload.startTime);
@@ -287,32 +283,6 @@ export async function POST(request: Request) {
       return formatError(err?.message || "Forbidden", err?.status ?? 403);
     }
 
-    const { data: sourceRow, error: sourceError } = await supabase
-      .from("project_sources")
-      .select("*")
-      .eq("id", projectSourceId)
-      .eq("project_id", projectId)
-      .maybeSingle();
-
-    if (sourceError) {
-      return formatError(sourceError.message, 500);
-    }
-
-    if (!sourceRow || sourceRow.kind !== "calendar") {
-      return formatError("Project calendar source not found", 404);
-    }
-
-    source = mapProjectSourceRow(sourceRow);
-    const metadata = (source.metadata as Record<string, unknown> | null) ?? {};
-    accountId = metadata.accountId as string | undefined;
-    calendarId = metadata.calendarId as string | undefined;
-    calendarSummary = (metadata.calendarSummary as string | undefined) ?? source.title ?? "Calendar";
-    calendarTimezone = (metadata.calendarTimezone as string | undefined) ?? null;
-
-    if (!accountId || !calendarId) {
-      return formatError("Project calendar source is missing Google account linkage", 400);
-    }
-
     const { data: projectRowData, error: projectError } = await supabase
       .from("projects")
       .select("id, name")
@@ -328,7 +298,36 @@ export async function POST(request: Request) {
     }
 
     projectRow = projectRowData;
-  } else if (hasUserCalendar && userSourceId) {
+    if (projectSourceId) {
+      const { data: sourceRow, error: sourceError } = await supabase
+        .from("project_sources")
+        .select("*")
+        .eq("id", projectSourceId)
+        .eq("project_id", projectId)
+        .maybeSingle();
+
+      if (sourceError) {
+        return formatError(sourceError.message, 500);
+      }
+
+      if (!sourceRow || sourceRow.kind !== "calendar") {
+        return formatError("Project calendar source not found", 404);
+      }
+
+      source = mapProjectSourceRow(sourceRow);
+      const metadata = (source.metadata as Record<string, unknown> | null) ?? {};
+      accountId = metadata.accountId as string | undefined;
+      calendarId = metadata.calendarId as string | undefined;
+      calendarSummary = (metadata.calendarSummary as string | undefined) ?? source.title ?? "Calendar";
+      calendarTimezone = (metadata.calendarTimezone as string | undefined) ?? null;
+
+      if (!accountId || !calendarId) {
+        return formatError("Project calendar source is missing Google account linkage", 400);
+      }
+    }
+  }
+
+  if (!accountId && hasUserCalendar && userSourceId) {
     const { data: userSourceRow, error: userSourceError } = await supabase
       .from("user_calendar_sources")
       .select("*")
@@ -429,10 +428,12 @@ export async function POST(request: Request) {
   let timelineItem: TimelineItemRecord | null = null;
   let assignedTimelineItemId: string | null = null;
 
-  if (source && assignedProjectId) {
+  const timelineCalendarSourceId = resolvedProjectSourceId ?? userCalendarSourceId;
+
+  if (assignedProjectId) {
     const mapping = mapGoogleEventToTimelineItem(createdEvent, {
       projectId: assignedProjectId,
-      projectSourceId: source.id,
+      calendarSourceId: timelineCalendarSourceId ?? null,
       calendarSummary,
       calendarTimezone,
     });
@@ -445,7 +446,7 @@ export async function POST(request: Request) {
           { assigned_timeline_item_id: null },
           mapping,
           assignedProjectId,
-          source.id,
+          timelineCalendarSourceId ?? null,
           user.id
         );
       } catch (err: any) {
@@ -517,7 +518,7 @@ export async function POST(request: Request) {
       refId: mappedEvent.id,
       metadata: {
         calendarEventId: createdEvent.id,
-        calendarSourceId: resolvedProjectSourceId ?? null,
+        calendarSourceId: timelineCalendarSourceId ?? null,
         userCalendarSourceId,
         summary,
       },

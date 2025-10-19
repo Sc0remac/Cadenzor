@@ -180,7 +180,7 @@ export async function POST(
     if (timelineProjectId && !ignoreEvent) {
       const mapping = mapGoogleEventToTimelineItem(event, {
         projectId: timelineProjectId,
-        projectSourceId: sourceId,
+        calendarSourceId: sourceId,
         calendarSummary,
         calendarTimezone,
       });

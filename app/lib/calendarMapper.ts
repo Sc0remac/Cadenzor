@@ -15,7 +15,7 @@ import {
 
 interface MapOptions {
   projectId: string;
-  projectSourceId: string;
+  calendarSourceId: string | null;
   calendarSummary: string;
   calendarTimezone?: string | null;
 }
@@ -196,8 +196,11 @@ export function mapGoogleEventToTimelineItem(
     city: location.city ?? null,
     territory: location.territory ?? null,
     calendarTitle: options.calendarSummary,
-    calendarSourceId: options.projectSourceId,
   };
+
+  if (options.calendarSourceId) {
+    labels.calendarSourceId = options.calendarSourceId;
+  }
 
   if (meetingUrl) {
     labels.meetingUrl = meetingUrl;
@@ -214,8 +217,11 @@ export function mapGoogleEventToTimelineItem(
 
   const links: TimelineItemLinks = {
     calendarId: event.id,
-    calendarSourceId: options.projectSourceId,
   };
+
+  if (options.calendarSourceId) {
+    links.calendarSourceId = options.calendarSourceId;
+  }
 
   if (meetingUrl) {
     links.meetingUrl = meetingUrl;

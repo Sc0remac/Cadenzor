@@ -376,32 +376,36 @@ export default function CalendarPage() {
       setCreateError("Your session expired. Please sign in again.");
       return;
     }
-    if (projectsLoading || projects.length > 0) {
+    if (projects.length > 0) {
       return;
     }
 
-    let cancelled = false;
-    setProjectsLoading(true);
-    setProjectsError(null);
-    void fetchProjects({ accessToken })
-      .then((list) => {
-        if (cancelled) return;
-        setProjects(list);
-      })
-      .catch((err: any) => {
-        if (cancelled) return;
-        setProjectsError(err?.message || "Failed to load projects");
-      })
-      .finally(() => {
-        if (!cancelled) {
+    let ignore = false;
+    const loadProjects = async () => {
+      setProjectsLoading(true);
+      setProjectsError(null);
+      try {
+        const list = await fetchProjects({ accessToken });
+        if (!ignore) {
+          setProjects(list);
+        }
+      } catch (err: any) {
+        if (!ignore) {
+          setProjectsError(err?.message || "Failed to load projects");
+        }
+      } finally {
+        if (!ignore) {
           setProjectsLoading(false);
         }
-      });
+      }
+    };
+
+    loadProjects();
 
     return () => {
-      cancelled = true;
+      ignore = true;
     };
-  }, [createModalOpen, accessToken, projects.length, projectsLoading]);
+  }, [createModalOpen, accessToken, projects.length]);
 
   useEffect(() => {
     if (!createModalOpen) return;
@@ -425,10 +429,19 @@ export default function CalendarPage() {
         const nextSourceId = cached.some((source) => source.id === prev.projectSourceId)
           ? prev.projectSourceId
           : cached[0]?.id ?? "";
-        if (nextSourceId === prev.projectSourceId) {
+        const defaultUserSourceId = sources[0]?.id ?? "";
+        const nextUserSourceId =
+          cached.length === 0 ? prev.userSourceId || defaultUserSourceId : prev.userSourceId;
+
+        if (nextSourceId === prev.projectSourceId && nextUserSourceId === prev.userSourceId) {
           return prev;
         }
-        return { ...prev, projectSourceId: nextSourceId };
+
+        return {
+          ...prev,
+          projectSourceId: nextSourceId,
+          userSourceId: cached.length === 0 ? nextUserSourceId : prev.userSourceId,
+        };
       });
       return;
     }
@@ -437,11 +450,20 @@ export default function CalendarPage() {
     setProjectCalendarsLoading(true);
     setProjectCalendarsError(null);
     void fetchProjectSources(projectId, accessToken)
-      .then((sources) => {
+      .then((sourceList) => {
         if (cancelled) return;
-        const calendars = sources.filter((source) => source.kind === "calendar");
+        const calendars = sourceList.filter((source) => source.kind === "calendar");
         setProjectCalendars((prev) => ({ ...prev, [projectId]: calendars }));
-        setCreateForm((prev) => ({ ...prev, projectSourceId: calendars[0]?.id ?? "" }));
+        setCreateForm((prev) => {
+          const defaultUserSourceId = sources[0]?.id ?? "";
+          const nextUserSourceId =
+            calendars.length === 0 ? prev.userSourceId || defaultUserSourceId : prev.userSourceId;
+          return {
+            ...prev,
+            projectSourceId: calendars[0]?.id ?? "",
+            userSourceId: calendars.length === 0 ? nextUserSourceId : prev.userSourceId,
+          };
+        });
       })
       .catch((err: any) => {
         if (cancelled) return;
@@ -457,21 +479,26 @@ export default function CalendarPage() {
     return () => {
       cancelled = true;
     };
-  }, [createModalOpen, createForm.projectId, accessToken, projectCalendars]);
+  }, [createModalOpen, createForm.projectId, accessToken, projectCalendars, sources]);
 
   useEffect(() => {
     if (!createModalOpen) return;
-    if (createForm.projectId) return;
     if (createForm.userSourceId) return;
     if (sources.length === 0) return;
 
+    const projectId = createForm.projectId;
+    const projectHasCalendars = projectId ? (projectCalendars[projectId]?.length ?? 0) > 0 : false;
+    if (projectId && projectHasCalendars) {
+      return;
+    }
+
     setCreateForm((prev) => {
-      if (prev.projectId || prev.userSourceId) {
+      if (prev.userSourceId) {
         return prev;
       }
       return { ...prev, userSourceId: sources[0]!.id };
     });
-  }, [createModalOpen, createForm.projectId, createForm.userSourceId, sources]);
+  }, [createModalOpen, createForm.projectId, createForm.userSourceId, sources, projectCalendars]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -573,8 +600,14 @@ export default function CalendarPage() {
   }, [createForm.projectId, projectCalendars]);
 
   const isProjectSelected = createForm.projectId !== "";
-  const projectCalendarUnavailable = isProjectSelected && selectedProjectCalendars.length === 0;
-  const personalCalendarUnavailable = !isProjectSelected && (sources.length === 0 || createForm.userSourceId === "");
+  const projectHasCalendars = selectedProjectCalendars.length > 0;
+  const shouldUsePersonalCalendars = !isProjectSelected || !projectHasCalendars;
+  const missingProjectCalendarSelection =
+    isProjectSelected && projectHasCalendars && createForm.projectSourceId === "";
+  const missingPersonalCalendarSelection =
+    shouldUsePersonalCalendars && (sources.length === 0 || createForm.userSourceId === "");
+  const createButtonDisabled =
+    createSubmitting || projectCalendarsLoading || missingProjectCalendarSelection || missingPersonalCalendarSelection;
 
   const gridRange = useMemo(() => computeGridRange(currentDate, viewMode), [currentDate, viewMode]);
 
@@ -695,14 +728,20 @@ export default function CalendarPage() {
     (value: string) => {
       setCreateForm((prev) => {
         if (value) {
-          if (prev.projectId === value && prev.projectSourceId === "" && prev.userSourceId === "") {
+          const defaultUserSourceId = sources[0]?.id ?? "";
+          const nextUserSourceId = prev.userSourceId || defaultUserSourceId;
+          if (
+            prev.projectId === value &&
+            prev.projectSourceId === "" &&
+            prev.userSourceId === nextUserSourceId
+          ) {
             return prev;
           }
           return {
             ...prev,
             projectId: value,
             projectSourceId: "",
-            userSourceId: "",
+            userSourceId: nextUserSourceId,
           };
         }
 
@@ -743,13 +782,17 @@ export default function CalendarPage() {
       }
 
       const hasProject = createForm.projectId !== "";
+      const useProjectCalendar = hasProject && projectHasCalendars;
+      const needsUserCalendar = !useProjectCalendar;
 
-      if (hasProject) {
+      if (useProjectCalendar) {
         if (!createForm.projectSourceId) {
           setCreateError("Select which project calendar to use");
           return;
         }
-      } else {
+      }
+
+      if (needsUserCalendar) {
         if (!createForm.userSourceId) {
           if (sources.length === 0) {
             setCreateError("Connect a Google Calendar or link the event to a project.");
@@ -768,8 +811,8 @@ export default function CalendarPage() {
         description: createForm.description.trim() ? createForm.description.trim() : null,
         location: createForm.location.trim() ? createForm.location.trim() : null,
         projectId: hasProject ? createForm.projectId : null,
-        projectSourceId: hasProject ? createForm.projectSourceId : null,
-        userSourceId: hasProject ? null : createForm.userSourceId,
+        projectSourceId: useProjectCalendar ? createForm.projectSourceId : null,
+        userSourceId: needsUserCalendar ? createForm.userSourceId : null,
       };
 
       setCreateSubmitting(true);
@@ -787,7 +830,7 @@ export default function CalendarPage() {
         setCreateSubmitting(false);
       }
     },
-    [accessToken, createForm, handleCloseCreateModal, reloadEvents, sources]
+    [accessToken, createForm, handleCloseCreateModal, reloadEvents, sources, projectHasCalendars]
   );
 
   const renderAllDayEvent = useCallback(
@@ -1185,35 +1228,42 @@ export default function CalendarPage() {
             </label>
           </div>
 
-          {!createForm.projectId && (
-            <label className="space-y-1 text-sm font-medium text-slate-700">
-              Calendar
-              {sources.length > 0 ? (
-                <select
-                  value={createForm.userSourceId}
-                  onChange={(event) => handleCreateInputChange("userSourceId", event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                >
-                  {sources.map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.summary ?? source.calendarId ?? "Calendar"}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <p className="text-xs text-amber-600">
-                  No personal calendars are connected yet. Connect Google Calendar from Settings → Integrations.
+          {shouldUsePersonalCalendars && (
+            <div className="space-y-2">
+              {createForm.projectId && !projectHasCalendars && (
+                <p className="text-xs text-slate-500">
+                  This project doesn’t have its own Google Calendar yet. We’ll use your connected calendar below.
                 </p>
               )}
-            </label>
+              <label className="space-y-1 text-sm font-medium text-slate-700">
+                Calendar
+                {sources.length > 0 ? (
+                  <select
+                    value={createForm.userSourceId}
+                    onChange={(event) => handleCreateInputChange("userSourceId", event.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                  >
+                    {sources.map((source) => (
+                      <option key={source.id} value={source.id}>
+                        {source.summary ?? source.calendarId ?? "Calendar"}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-xs text-amber-600">
+                    No personal calendars are connected yet. Connect Google Calendar from Settings → Integrations.
+                  </p>
+                )}
+              </label>
+            </div>
           )}
 
-          {createForm.projectId && (
+          {isProjectSelected && projectHasCalendars && (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-slate-700">Project calendar</label>
               {projectCalendarsLoading ? (
                 <p className="text-xs text-slate-500">Loading calendars…</p>
-              ) : selectedProjectCalendars.length > 0 ? (
+              ) : (
                 <select
                   value={createForm.projectSourceId}
                   onChange={(event) => handleCreateInputChange("projectSourceId", event.target.value)}
@@ -1234,10 +1284,6 @@ export default function CalendarPage() {
                     );
                   })}
                 </select>
-              ) : (
-                <p className="text-xs text-amber-600">
-                  No Google Calendar is connected to this project yet. Connect one from the project hub to sync events.
-                </p>
               )}
               {projectCalendarsError && <span className="text-xs text-rose-600">{projectCalendarsError}</span>}
             </div>
@@ -1264,12 +1310,7 @@ export default function CalendarPage() {
             </button>
             <button
               type="submit"
-              disabled={
-                createSubmitting ||
-                projectCalendarsLoading ||
-                projectCalendarUnavailable ||
-                personalCalendarUnavailable
-              }
+              disabled={createButtonDisabled}
               className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
             >
               {createSubmitting ? "Creating…" : "Create event"}

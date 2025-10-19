@@ -98,15 +98,27 @@ export async function PATCH(
         updatedAt: userSourceRow.updated_at as string,
       }
     : null;
-  if (!source) {
+  if (!source && !userSource) {
     return formatError("Calendar source missing", 500);
   }
 
-  const metadata = (source.metadata as Record<string, unknown> | null) ?? {};
-  const accountId = metadata.accountId as string | undefined;
-  const calendarId = metadata.calendarId as string | undefined;
-  const calendarSummary = (metadata.calendarSummary as string | undefined) ?? source.title ?? "Calendar";
-  const calendarTimezone = (metadata.calendarTimezone as string | undefined) ?? null;
+  let accountId: string | undefined;
+  let calendarId: string | undefined;
+  let calendarSummary: string;
+  let calendarTimezone: string | null = null;
+
+  if (source) {
+    const metadata = (source.metadata as Record<string, unknown> | null) ?? {};
+    accountId = metadata.accountId as string | undefined;
+    calendarId = metadata.calendarId as string | undefined;
+    calendarSummary = (metadata.calendarSummary as string | undefined) ?? source.title ?? "Calendar";
+    calendarTimezone = (metadata.calendarTimezone as string | undefined) ?? null;
+  } else if (userSource) {
+    accountId = userSource.accountId ?? undefined;
+    calendarId = userSource.calendarId ?? undefined;
+    calendarSummary = userSource.summary ?? userSource.calendarId ?? "Calendar";
+    calendarTimezone = userSource.timezone ?? null;
+  }
 
   if (!accountId || !calendarId) {
     return formatError("Calendar source is missing account linkage", 400);
@@ -214,7 +226,7 @@ export async function PATCH(
   if (targetProjectId) {
     const mapping = mapGoogleEventToTimelineItem(patchedEvent, {
       projectId: targetProjectId,
-      projectSourceId: source.id,
+      calendarSourceId: (source?.id ?? userSource?.id) ?? null,
       calendarSummary,
       calendarTimezone,
     });
@@ -226,7 +238,7 @@ export async function PATCH(
           eventRow,
           mapping,
           targetProjectId,
-          source.id,
+          (source?.id ?? userSource?.id) ?? null,
           user.id
         );
         assignedTimelineItemId = timelineId;

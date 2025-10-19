@@ -97,17 +97,25 @@ export async function ensureProjectTimelineItem(
   eventRow: any,
   mapping: TimelineMapping,
   projectId: string,
-  sourceId: string,
+  sourceId: string | null,
   userId: string
 ): Promise<string | null> {
   if (!mapping) return null;
 
   if (eventRow.assigned_timeline_item_id) {
     const nextLabels = { ...(mapping.labels ?? {}), lane: mapping.lane };
-    const nextLinks = {
-      ...(mapping.links ?? {}),
-      calendarSourceId: sourceId,
-    };
+    if (sourceId) {
+      nextLabels.calendarSourceId = sourceId;
+    } else {
+      delete nextLabels.calendarSourceId;
+    }
+
+    const nextLinks = { ...(mapping.links ?? {}) };
+    if (sourceId) {
+      nextLinks.calendarSourceId = sourceId;
+    } else {
+      delete nextLinks.calendarSourceId;
+    }
 
     const { error: updateError } = await supabase
       .from("project_items")
@@ -135,6 +143,20 @@ export async function ensureProjectTimelineItem(
     return eventRow.assigned_timeline_item_id as string;
   }
 
+  const baseLinks = { ...(mapping.links ?? {}) };
+  if (sourceId) {
+    baseLinks.calendarSourceId = sourceId;
+  } else {
+    delete baseLinks.calendarSourceId;
+  }
+
+  const baseLabels = { ...(mapping.labels ?? {}), lane: mapping.lane };
+  if (sourceId) {
+    baseLabels.calendarSourceId = sourceId;
+  } else {
+    delete baseLabels.calendarSourceId;
+  }
+
   const insertPayload = {
     project_id: projectId,
     type: mapping.type,
@@ -148,8 +170,8 @@ export async function ensureProjectTimelineItem(
     status: mapping.status,
     priority_score: mapping.priorityScore,
     priority_components: mapping.priorityComponents ?? { source: "calendar" },
-    labels: { ...(mapping.labels ?? {}), lane: mapping.lane },
-    links: { ...(mapping.links ?? {}), calendarSourceId: sourceId },
+    labels: baseLabels,
+    links: baseLinks,
     created_by: userId,
   } satisfies Record<string, unknown>;
 
@@ -174,4 +196,3 @@ export async function deleteTimelineItem(
   if (!timelineItemId || !projectId) return;
   await supabase.from("project_items").delete().eq("id", timelineItemId).eq("project_id", projectId);
 }
-
