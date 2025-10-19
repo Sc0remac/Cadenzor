@@ -147,7 +147,7 @@ export async function GET(request: Request) {
   if (!preferences) {
     const { data: insertedPref, error: insertPrefError } = await supabase
       .from("user_preferences")
-      .insert({ user_id: user.id })
+      .upsert({ user_id: user.id }, { onConflict: "user_id" })
       .select("*")
       .maybeSingle();
     if (insertPrefError) {

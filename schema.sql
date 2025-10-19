@@ -2554,6 +2554,70 @@ CREATE TABLE public.project_sources (
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Name: calendar_events; Type: TABLE; Schema: public; Owner: -
+
+CREATE TABLE public.calendar_events (
+    id uuid DEFAULT public.gen_random_uuid() NOT NULL,
+    source_id uuid NOT NULL,
+    calendar_id text NOT NULL,
+    event_id text NOT NULL,
+    summary text,
+    description text,
+    location text,
+    status text,
+    start_at timestamp with time zone,
+    end_at timestamp with time zone,
+    is_all_day boolean DEFAULT false,
+    timezone text,
+    organizer jsonb,
+    attendees jsonb,
+    hangout_link text,
+    raw jsonb NOT NULL,
+    assigned_project_id uuid,
+    assigned_timeline_item_id uuid,
+    assigned_by uuid,
+    assigned_at timestamp with time zone,
+    ignore boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_unique_event UNIQUE (source_id, event_id);
+
+ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.project_sources(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_project_id_fkey FOREIGN KEY (assigned_project_id) REFERENCES public.projects(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_item_id_fkey FOREIGN KEY (assigned_timeline_item_id) REFERENCES public.project_items(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+CREATE INDEX calendar_events_source_id_idx ON public.calendar_events USING btree (source_id);
+
+CREATE INDEX calendar_events_assigned_project_idx ON public.calendar_events USING btree (assigned_project_id);
+
+CREATE INDEX calendar_events_ignore_idx ON public.calendar_events USING btree (ignore);
+
+CREATE TRIGGER calendar_events_set_updated_at BEFORE UPDATE ON public.calendar_events FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY calendar_events_project_member_select ON public.calendar_events FOR SELECT USING (public.is_project_member((SELECT project_id FROM public.project_sources WHERE project_sources.id = source_id)));
+
+CREATE POLICY calendar_events_project_member_modify ON public.calendar_events FOR UPDATE USING (public.is_project_member((SELECT project_id FROM public.project_sources WHERE project_sources.id = source_id))) WITH CHECK (public.is_project_member((SELECT project_id FROM public.project_sources WHERE project_sources.id = source_id)));
+
+CREATE POLICY calendar_events_project_member_insert ON public.calendar_events FOR INSERT WITH CHECK (public.is_project_member((SELECT project_id FROM public.project_sources WHERE project_sources.id = source_id)));
+
+CREATE POLICY calendar_events_service_role_all ON public.calendar_events USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
 
 --
 -- Name: project_tasks; Type: TABLE; Schema: public; Owner: -

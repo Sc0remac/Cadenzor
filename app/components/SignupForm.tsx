@@ -1,73 +1,59 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "./AuthProvider";
 
-interface Props {
-  redirectTo?: string;
-}
-
-export default function LoginForm({ redirectTo }: Props) {
+export default function SignupForm() {
   const router = useRouter();
-  const { signInWithPassword, sendPasswordReset, session, loading } = useAuth();
+  const { signUpWithPassword, session, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [resetNotice, setResetNotice] = useState<string | null>(null);
-  const [resetError, setResetError] = useState<string | null>(null);
-  const [resetSending, setResetSending] = useState(false);
 
   useEffect(() => {
     if (session && !loading) {
-      router.replace(redirectTo || "/");
+      router.replace("/");
     }
-  }, [session, loading, router, redirectTo]);
+  }, [session, loading, router]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
+    setSuccessMessage(null);
 
-    if (!email || !password) {
-      setFormError("Please enter your email and password.");
+    if (!email || !password || !confirmPassword) {
+      setFormError("Please complete every field.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setFormError("Passwords do not match.");
+      return;
+    }
+
+    if (password.length < 8) {
+      setFormError("Password must be at least 8 characters long.");
       return;
     }
 
     setSubmitting(true);
-    const error = await signInWithPassword({ email, password });
+    const error = await signUpWithPassword({ email, password });
 
     if (error) {
-      setFormError(error.message || "Unable to sign in. Please try again.");
+      setFormError(error.message || "Unable to sign up. Please try again.");
       setSubmitting(false);
       return;
     }
 
-    router.replace(redirectTo || "/");
-  };
-
-  const handlePasswordReset = async () => {
-    setResetError(null);
-    setResetNotice(null);
-
-    if (!email) {
-      setResetError("Enter your email first so we know where to send the reset link.");
-      return;
-    }
-
-    setResetSending(true);
-    const error = await sendPasswordReset(email);
-    setResetSending(false);
-
-    if (error) {
-      setResetError(error.message || "Unable to send reset email. Please try again.");
-      return;
-    }
-
-    setResetNotice(
-      "If an account exists for that email, you'll receive a reset link shortly."
-    );
+    setSuccessMessage("Account created! Redirecting you to Kazador…");
+    setSubmitting(false);
+    setPassword("");
+    setConfirmPassword("");
   };
 
   return (
@@ -76,9 +62,9 @@ export default function LoginForm({ redirectTo }: Props) {
       className="w-full max-w-md space-y-6 rounded-lg bg-white p-8 shadow"
     >
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Welcome back</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">Create your account</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Sign in with your Kazador team credentials.
+          Join Kazador to manage projects, timelines, and daily focus.
         </p>
       </div>
 
@@ -108,9 +94,28 @@ export default function LoginForm({ redirectTo }: Props) {
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
+            autoComplete="new-password"
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-            placeholder="••••••••"
+            placeholder="Create a password"
+            required
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="confirmPassword"
+            className="block text-sm font-medium text-gray-700"
+          >
+            Confirm password
+          </label>
+          <input
+            id="confirmPassword"
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            autoComplete="new-password"
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+            placeholder="Re-enter your password"
             required
           />
         </div>
@@ -122,15 +127,9 @@ export default function LoginForm({ redirectTo }: Props) {
         </div>
       ) : null}
 
-      {resetError ? (
-        <div className="rounded-md bg-red-50 px-4 py-2 text-sm text-red-700">
-          {resetError}
-        </div>
-      ) : null}
-
-      {resetNotice ? (
+      {successMessage ? (
         <div className="rounded-md bg-emerald-100 px-4 py-2 text-sm text-emerald-700">
-          {resetNotice}
+          {successMessage}
         </div>
       ) : null}
 
@@ -139,26 +138,16 @@ export default function LoginForm({ redirectTo }: Props) {
         disabled={submitting}
         className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-400"
       >
-        {submitting ? "Signing in…" : "Sign in"}
+        {submitting ? "Creating account…" : "Create account"}
       </button>
 
-      <div className="flex flex-col gap-3 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
-        <button
-          type="button"
-          onClick={handlePasswordReset}
-          disabled={resetSending}
-          className="self-start font-medium text-gray-900 hover:underline disabled:cursor-not-allowed disabled:text-gray-400"
-        >
-          {resetSending ? "Sending reset…" : "Forgot password?"}
-        </button>
-        <div className="sm:text-right">
-          Need an account?{" "}
-          <Link href="/signup" className="font-medium text-gray-900 hover:underline">
-            Create one
-          </Link>
-          .
-        </div>
-      </div>
+      <p className="text-center text-sm text-gray-600">
+        Already have an account?{" "}
+        <Link href="/login" className="font-medium text-gray-900 hover:underline">
+          Sign in
+        </Link>
+        .
+      </p>
     </form>
   );
 }

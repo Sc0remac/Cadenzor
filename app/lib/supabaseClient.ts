@@ -20,6 +20,7 @@ import type {
   UserPreferenceRecord,
   DigestRecord,
   TimelineLaneDefinition,
+  CalendarEventRecord,
 } from "@kazador/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -860,6 +861,56 @@ export async function pullCalendarEvents(
   };
 }
 
+export interface CalendarEventRequestPayload {
+  sourceId: string;
+}
+
+export async function createCalendarEventForTimelineItem(
+  projectId: string,
+  itemId: string,
+  payload: CalendarEventRequestPayload,
+  accessToken?: string
+): Promise<TimelineItemRecord> {
+  const response = await fetch(`/api/projects/${projectId}/timeline/${itemId}/calendar`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to create calendar event");
+  }
+
+  return body.item as TimelineItemRecord;
+}
+
+export async function updateCalendarEventForTimelineItem(
+  projectId: string,
+  itemId: string,
+  payload: CalendarEventRequestPayload,
+  accessToken?: string
+): Promise<TimelineItemRecord> {
+  const response = await fetch(`/api/projects/${projectId}/timeline/${itemId}/calendar`, {
+    method: "PATCH",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to update calendar event");
+  }
+
+  return body.item as TimelineItemRecord;
+}
+
 export interface AssetListOptions {
   sourceId?: string | null;
   type?: string | null;
@@ -1126,6 +1177,48 @@ export async function createTimelineItem(
   return body.item as TimelineItemRecord;
 }
 
+export interface UpdateTimelineItemInput {
+  title?: string;
+  type?: TimelineItemRecord["type"] | string | null;
+  kind?: string | null;
+  description?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  dueAt?: string | null;
+  timezone?: string | null;
+  lane?: string | null;
+  territory?: string | null;
+  status?: TimelineItemRecord["status"] | string | null;
+  priority?: number | null;
+  priorityComponents?: Record<string, unknown> | null;
+  labels?: Record<string, unknown> | null;
+  links?: Record<string, unknown> | null;
+  dependencies?: Array<{ itemId: string; kind?: "FS" | "SS"; note?: string }>;
+}
+
+export async function updateTimelineItem(
+  projectId: string,
+  itemId: string,
+  payload: UpdateTimelineItemInput,
+  accessToken?: string
+): Promise<TimelineItemRecord> {
+  const response = await fetch(`/api/projects/${projectId}/timeline/${itemId}`, {
+    method: "PATCH",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to update timeline item");
+  }
+
+  return body.item as TimelineItemRecord;
+}
+
 export async function deleteTimelineItem(
   projectId: string,
   itemId: string,
@@ -1140,6 +1233,156 @@ export async function deleteTimelineItem(
     const body = await response.json();
     throw new Error(body?.error || "Failed to delete timeline item");
   }
+}
+
+export interface FetchCalendarEventsOptions {
+  assigned?: "assigned" | "unassigned" | "all";
+  sourceId?: string;
+  projectId?: string;
+  calendarId?: string;
+  includeIgnored?: boolean;
+  query?: string;
+  limit?: number;
+  offset?: number;
+  rangeStart?: string;
+  rangeEnd?: string;
+  accessToken?: string;
+}
+
+export interface CalendarEventsResponse {
+  events: CalendarEventRecord[];
+  count: number;
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+  };
+}
+
+export interface CalendarSourceSummary {
+  source: ProjectSourceRecord;
+  project: ProjectRecord | null;
+}
+
+export async function fetchCalendarEvents(
+  options: FetchCalendarEventsOptions = {}
+): Promise<CalendarEventsResponse> {
+  const {
+    assigned,
+    sourceId,
+    projectId,
+    calendarId,
+    includeIgnored,
+    query,
+    limit,
+    offset,
+    rangeStart,
+    rangeEnd,
+    accessToken,
+  } = options;
+
+  const params = new URLSearchParams();
+  if (assigned) params.set("assigned", assigned);
+  if (sourceId) params.set("sourceId", sourceId);
+  if (projectId) params.set("projectId", projectId);
+  if (calendarId) params.set("calendarId", calendarId);
+  if (includeIgnored !== undefined) params.set("includeIgnored", String(includeIgnored));
+  if (query) params.set("q", query);
+  if (limit !== undefined) params.set("limit", String(limit));
+  if (offset !== undefined) params.set("offset", String(offset));
+  if (rangeStart) params.set("rangeStart", rangeStart);
+  if (rangeEnd) params.set("rangeEnd", rangeEnd);
+
+  const endpoint = params.toString() ? `/api/calendar/events?${params.toString()}` : "/api/calendar/events";
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load calendar events");
+  }
+
+  return payload as CalendarEventsResponse;
+}
+
+export async function assignCalendarEvent(
+  eventId: string,
+  projectId: string | null,
+  accessToken?: string
+): Promise<CalendarEventRecord> {
+  const response = await fetch(`/api/calendar/events/${eventId}`, {
+    method: "PATCH",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action: "assign", projectId }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to assign calendar event");
+  }
+
+  return payload?.event as CalendarEventRecord;
+}
+
+export async function setCalendarEventIgnored(
+  eventId: string,
+  ignore: boolean,
+  accessToken?: string
+): Promise<void> {
+  const response = await fetch(`/api/calendar/events/${eventId}`, {
+    method: "PATCH",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action: "ignore", ignore }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json();
+    throw new Error(payload?.error || "Failed to update calendar event");
+  }
+}
+
+export async function fetchCalendarSources(
+  accessToken?: string
+): Promise<CalendarSourceSummary[]> {
+  const response = await fetch("/api/calendar/sources", {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to load calendar sources");
+  }
+
+  return Array.isArray(payload?.sources) ? (payload.sources as CalendarSourceSummary[]) : [];
+}
+
+export async function fetchProjectSources(
+  projectId: string,
+  accessToken?: string
+): Promise<ProjectSourceRecord[]> {
+  const response = await fetch(`/api/projects/${projectId}/sources`, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || "Failed to load project sources");
+  }
+
+  return Array.isArray(body?.sources) ? (body.sources as ProjectSourceRecord[]) : [];
 }
 
 export async function fetchApprovals(

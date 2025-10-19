@@ -358,6 +358,33 @@ export interface ProjectSourceRecord {
   updatedAt: string;
 }
 
+export interface CalendarEventRecord {
+  id: string;
+  sourceId: string;
+  calendarId: string;
+  eventId: string;
+  summary: string | null;
+  description: string | null;
+  location: string | null;
+  status: string | null;
+  startAt: string | null;
+  endAt: string | null;
+  isAllDay: boolean;
+  timezone: string | null;
+  organizer: Record<string, unknown> | null;
+  attendees: Array<Record<string, unknown>> | null;
+  hangoutLink: string | null;
+  raw: Record<string, unknown>;
+  assignedProjectId: string | null;
+  assignedTimelineItemId: string | null;
+  assignedBy: string | null;
+  assignedAt: string | null;
+  ignore: boolean;
+  createdAt: string;
+  updatedAt: string;
+  source?: ProjectSourceRecord;
+}
+
 export type ProjectLinkSource = "manual" | "ai" | "rule";
 
 export type AssetSource = "drive";

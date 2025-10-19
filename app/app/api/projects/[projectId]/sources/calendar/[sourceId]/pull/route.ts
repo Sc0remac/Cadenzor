@@ -42,7 +42,7 @@ export async function POST(
   const { supabase, user } = authResult;
 
   try {
-    await assertProjectRole(supabase, projectId, user.id, "editor");
+    await assertProjectRole(supabase, projectId, user.id, "viewer");
   } catch (err: any) {
     return formatError(err?.message || "Forbidden", err?.status ?? 403);
   }
@@ -83,10 +83,6 @@ export async function POST(
     return formatError("Calendar source is missing the remote calendar id", 400);
   }
 
-  if (connectedBy && connectedBy !== user.id) {
-    return formatError("Only the teammate who connected this calendar can pull events right now", 403);
-  }
-
   if (!accountId) {
     return formatError("Calendar source is missing account linkage", 400);
   }
@@ -113,7 +109,7 @@ export async function POST(
 
   const now = new Date();
   const defaultStart = new Date(now.getTime() - 4 * 60 * 60 * 1000); // include recent past for updates
-  const defaultEnd = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000); // ~60 days ahead
+  const defaultEnd = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000); // ~12 months ahead
 
   const rangeStartIso = payload.rangeStart ?? defaultStart.toISOString();
   const rangeEndIso = payload.rangeEnd ?? defaultEnd.toISOString();
@@ -131,114 +127,175 @@ export async function POST(
     return formatError(err?.message || "Failed to list calendar events", 500);
   }
 
+  const eventIds = events.map((event) => event.id).filter((id): id is string => Boolean(id));
+
+  const existingEventsMap = new Map<string, any>();
+  if (eventIds.length > 0) {
+    const { data: existingEvents, error: existingEventsError } = await supabase
+      .from("calendar_events")
+      .select("*")
+      .eq("source_id", sourceId)
+      .in("event_id", eventIds);
+
+    if (existingEventsError) {
+      return formatError(existingEventsError.message, 500);
+    }
+
+    for (const row of existingEvents ?? []) {
+      existingEventsMap.set(row.event_id as string, row);
+    }
+  }
+
   const createdIds: string[] = [];
   const updatedIds: string[] = [];
   let skipped = 0;
   let cancelled = 0;
 
-  try {
-    for (const event of events) {
+  const calendarUpserts: Record<string, unknown>[] = [];
+
+  for (const event of events) {
+    if (!event || !event.id) {
+      skipped += 1;
+      continue;
+    }
+
+    const existingEvent = existingEventsMap.get(event.id) ?? null;
+    const assignedProjectId = existingEvent
+      ? (existingEvent.assigned_project_id as string | null)
+      : projectId;
+    const ignoreEvent = existingEvent ? Boolean(existingEvent.ignore) : false;
+
+    const startAt = event.start?.dateTime ?? event.start?.date ?? null;
+    const endAt = event.end?.dateTime ?? event.end?.date ?? null;
+    const timezone =
+      event.start?.timeZone ?? event.end?.timeZone ?? event.originalStartTime?.timeZone ?? calendarTimezone ?? null;
+
+    if (event.status === "cancelled" && !payload.includeCancelled) {
+      cancelled += 1;
+    }
+
+    let timelineItemId: string | null = existingEvent?.assigned_timeline_item_id ?? null;
+    const timelineProjectId = assignedProjectId ?? null;
+
+    if (timelineProjectId && !ignoreEvent) {
       const mapping = mapGoogleEventToTimelineItem(event, {
-        projectId,
+        projectId: timelineProjectId,
         projectSourceId: sourceId,
         calendarSummary,
         calendarTimezone,
       });
 
-      if (!mapping) {
-        skipped += 1;
-        continue;
-      }
+      if (mapping) {
+        const nextLabels = { ...(mapping.labels ?? {}), lane: mapping.lane };
+        const nextLinks = { ...(mapping.links ?? {}), calendarSourceId: sourceId };
 
-      if (mapping.status === "canceled" && !payload.includeCancelled) {
-        cancelled += 1;
-      }
+        if (timelineItemId) {
+          const { error: updateItemError } = await supabase
+            .from("project_items")
+            .update({
+              type: mapping.type,
+              kind: "calendar_event",
+              title: mapping.title,
+              description: mapping.description,
+              start_at: mapping.startsAt,
+              end_at: mapping.endsAt,
+              due_at: null,
+              tz: mapping.timezone,
+              status: mapping.status,
+              priority_score: mapping.priorityScore,
+              priority_components: mapping.priorityComponents ?? { source: "calendar" },
+              labels: nextLabels,
+              links: nextLinks,
+            })
+            .eq("id", timelineItemId)
+            .eq("project_id", timelineProjectId);
 
-      const { data: existingRow, error: existingError } = await supabase
-        .from("project_items")
-        .select("id, labels, links")
-        .eq("project_id", projectId)
-        .contains("links", { calendarId: mapping.links.calendarId })
-        .maybeSingle();
+          if (updateItemError && updateItemError.code !== "PGRST116") {
+            return formatError(updateItemError.message, 500);
+          }
 
-      if (existingError) {
-        throw existingError;
-      }
-
-      const basePayload = {
-        type: mapping.type,
-        kind: "calendar_event",
-        title: mapping.title,
-        description: mapping.description,
-        start_at: mapping.startsAt,
-        end_at: mapping.endsAt,
-        due_at: null,
-        tz: mapping.timezone,
-        status: mapping.status,
-        priority_score: mapping.priorityScore,
-        priority_components: mapping.priorityComponents ?? { source: "calendar" },
-        labels: mapping.labels,
-        links: mapping.links,
-      } satisfies Record<string, unknown>;
-
-      if (existingRow?.id) {
-        const nextLabels = { ...(existingRow.labels as Record<string, unknown>), ...mapping.labels, lane: mapping.lane };
-        const nextLinks = {
-          ...(existingRow.links as Record<string, unknown>),
-          ...mapping.links,
-          calendarSourceId: sourceId,
-        };
-
-        const { error: updateError } = await supabase
-          .from("project_items")
-          .update({
-            ...basePayload,
+          if (timelineProjectId === projectId && !createdIds.includes(timelineItemId)) {
+            updatedIds.push(timelineItemId);
+          }
+        } else {
+          const insertPayload = {
+            project_id: timelineProjectId,
+            type: mapping.type,
+            kind: "calendar_event",
+            title: mapping.title,
+            description: mapping.description,
+            start_at: mapping.startsAt,
+            end_at: mapping.endsAt,
+            due_at: null,
+            tz: mapping.timezone,
+            status: mapping.status,
+            priority_score: mapping.priorityScore,
+            priority_components: mapping.priorityComponents ?? { source: "calendar" },
             labels: nextLabels,
             links: nextLinks,
-          })
-          .eq("id", existingRow.id);
+            created_by: user.id,
+          } satisfies Record<string, unknown>;
 
-        if (updateError) {
-          throw updateError;
+          const { data: insertRow, error: insertError } = await supabase
+            .from("project_items")
+            .insert(insertPayload)
+            .select("id")
+            .maybeSingle();
+
+          if (insertError) {
+            return formatError(insertError.message, 500);
+          }
+
+          timelineItemId = insertRow?.id ?? null;
+          if (timelineItemId && timelineProjectId === projectId) {
+            createdIds.push(timelineItemId);
+          }
         }
-
-        updatedIds.push(existingRow.id as string);
       } else {
-        if (mapping.status === "canceled" && !payload.includeCancelled) {
-          continue;
-        }
-
-        const insertPayload = {
-          project_id: projectId,
-          ...basePayload,
-          labels: {
-            ...basePayload.labels,
-            lane: mapping.lane,
-          },
-          links: {
-            ...basePayload.links,
-            calendarSourceId: sourceId,
-          },
-          created_by: user.id,
-        } satisfies Record<string, unknown>;
-
-        const { data: insertRow, error: insertError } = await supabase
-          .from("project_items")
-          .insert(insertPayload)
-          .select("id")
-          .maybeSingle();
-
-        if (insertError) {
-          throw insertError;
-        }
-
-        if (insertRow?.id) {
-          createdIds.push(insertRow.id as string);
-        }
+        skipped += 1;
       }
+    } else if (timelineItemId) {
+      await supabase.from("project_items").delete().eq("id", timelineItemId).eq("project_id", timelineProjectId);
+      timelineItemId = null;
     }
-  } catch (err: any) {
-    return formatError(err?.message || "Failed to import calendar events", 500);
+
+    calendarUpserts.push({
+      id: existingEvent?.id ?? undefined,
+      source_id: sourceId,
+      calendar_id: calendarId,
+      event_id: event.id,
+      summary: event.summary ?? null,
+      description: event.description ?? null,
+      location: event.location ?? null,
+      status: event.status ?? null,
+      start_at: startAt,
+      end_at: endAt,
+      is_all_day: Boolean(event.start?.date && !event.start?.dateTime),
+      timezone,
+      organizer: event.organizer ?? null,
+      attendees: event.attendees ?? null,
+      hangout_link: event.hangoutLink ?? null,
+      raw: event,
+      assigned_project_id: timelineProjectId,
+      assigned_timeline_item_id: timelineItemId,
+      assigned_by: timelineProjectId
+        ? existingEvent?.assigned_by ?? user.id
+        : existingEvent?.assigned_by ?? null,
+      assigned_at: timelineProjectId
+        ? existingEvent?.assigned_at ?? new Date().toISOString()
+        : existingEvent?.assigned_at ?? null,
+      ignore: ignoreEvent,
+    });
+  }
+
+  if (calendarUpserts.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("calendar_events")
+      .upsert(calendarUpserts, { onConflict: "source_id,event_id" });
+
+    if (upsertError) {
+      return formatError(upsertError.message, 500);
+    }
   }
 
   const nowIso = new Date().toISOString();
@@ -255,6 +312,7 @@ export async function POST(
       skipped,
       cancelled,
     },
+    connectedBy: user.id,
   } satisfies Record<string, unknown>;
 
   const { data: updatedSource, error: updateSourceError } = await supabase

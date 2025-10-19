@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent,
 } from "react";
 import type {
   TimelineDependencyRecord,
@@ -140,25 +141,30 @@ function formatRuleKey(key: string): string {
 
 interface QuickActionButtonProps {
   label: string;
-  tone: "positive" | "neutral" | "negative";
-  onClick?: () => void;
+  tone: "positive" | "neutral" | "negative" | "calendar";
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+  disabled?: boolean;
 }
 
-function QuickActionButton({ label, tone, onClick }: QuickActionButtonProps) {
-  const toneClass =
-    tone === "positive"
-      ? "bg-emerald-500/80 hover:bg-emerald-500"
-      : tone === "negative"
-      ? "bg-rose-600/80 hover:bg-rose-600"
-      : "bg-slate-700/80 hover:bg-slate-600";
+function QuickActionButton({ label, tone, onClick, disabled }: QuickActionButtonProps) {
+  let toneClass = "bg-slate-700/80 hover:bg-slate-600";
+  if (tone === "positive") {
+    toneClass = "bg-emerald-500/80 hover:bg-emerald-500";
+  } else if (tone === "negative") {
+    toneClass = "bg-rose-600/80 hover:bg-rose-600";
+  } else if (tone === "calendar") {
+    toneClass = "bg-sky-500/80 hover:bg-sky-500";
+  }
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={(event) => {
         event.stopPropagation();
-        onClick?.();
+        if (disabled) return;
+        onClick?.(event);
       }}
-      className={`rounded-lg px-3 py-1 text-[0.65rem] font-semibold text-white shadow-sm transition ${toneClass}`}
+      className={`rounded-lg px-3 py-1 text-[0.65rem] font-semibold text-white shadow-sm transition ${toneClass} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
     >
       {label}
     </button>
@@ -271,6 +277,8 @@ interface TimelineStudioProps {
   onContextAction?: (action: ContextAction, item: TimelineItemRecord) => void;
   onAddItem?: () => void;
   realtimeLabel?: string;
+  onCalendarUpdate?: (item: TimelineItemRecord) => void;
+  calendarUpdatingId?: string | null;
 }
 
 interface PositionedItem {
@@ -495,6 +503,8 @@ export function TimelineStudio({
   onContextAction,
   onAddItem,
   realtimeLabel,
+  onCalendarUpdate,
+  calendarUpdatingId,
 }: TimelineStudioProps) {
   const [localItems, setLocalItems] = useState<TimelineItemRecord[]>(items);
   const [hoverState, setHoverState] = useState<HoverState | null>(null);
@@ -888,6 +898,11 @@ export function TimelineStudio({
           : "border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
       const isCalendarEvent = Boolean((item.links as Record<string, any>)?.calendarId);
       const meetingUrl = isCalendarEvent ? extractMeetingUrlFromItem(item) : null;
+      const calendarSyncedAtRaw = isCalendarEvent ? (item.links as Record<string, any>)?.calendarSyncedAt : null;
+      const calendarSyncedLabel =
+        typeof calendarSyncedAtRaw === "string" && calendarSyncedAtRaw
+          ? new Date(calendarSyncedAtRaw).toLocaleString()
+          : null;
 
       const classes = [
         "group absolute rounded-2xl border-2 px-4 pb-8 pt-4 text-sm shadow transition-all duration-200 backdrop-blur-sm",
@@ -980,6 +995,11 @@ export function TimelineStudio({
                   </a>
                 </div>
               ) : null}
+              {isCalendarEvent ? (
+                <p className="mt-1 text-[0.65rem] text-slate-400">
+                  {calendarSyncedLabel ? `Synced ${calendarSyncedLabel}` : "Not synced yet"}
+                </p>
+              ) : null}
               {locationSummary ? (
                 <p className="mt-2 text-xs text-slate-300">📍 {locationSummary}</p>
               ) : null}
@@ -998,6 +1018,14 @@ export function TimelineStudio({
                 <QuickActionButton label="Accept" tone="positive" onClick={handleQuickAction} />
                 <QuickActionButton label="Info" tone="neutral" onClick={handleQuickAction} />
                 <QuickActionButton label="Decline" tone="negative" onClick={handleQuickAction} />
+                {isCalendarEvent && onCalendarUpdate ? (
+                  <QuickActionButton
+                    label={calendarUpdatingId === item.id ? "Updating…" : "Update calendar"}
+                    tone="calendar"
+                    onClick={() => onCalendarUpdate(item)}
+                    disabled={calendarUpdatingId === item.id}
+                  />
+                ) : null}
               </div>
             </>
           )}

@@ -202,6 +202,9 @@ export function mapGoogleEventToTimelineItem(
   if (meetingUrl) {
     labels.meetingUrl = meetingUrl;
   }
+  if (event.updated) {
+    labels.calendarSyncedAt = event.updated;
+  }
   if (organizerName) {
     labels.organizer = organizerName;
   }
@@ -216,6 +219,9 @@ export function mapGoogleEventToTimelineItem(
 
   if (meetingUrl) {
     links.meetingUrl = meetingUrl;
+  }
+  if (event.updated) {
+    links.calendarSyncedAt = event.updated;
   }
 
   const metadata: Record<string, unknown> = {
@@ -271,4 +277,107 @@ export function mapCalendarItemToTimelineRecord(
     layoutRow: overrides.layoutRow ?? null,
     territory: mapping.labels.territory ?? null,
   };
+}
+
+function mapTimelineStatusToCalendarStatus(status: TimelineItemStatus): calendar_v3.Schema$Event["status"] {
+  switch (status) {
+    case "tentative":
+      return "tentative";
+    case "canceled":
+      return "cancelled";
+    default:
+      return "confirmed";
+  }
+}
+
+function buildEventTiming(
+  item: TimelineItemRecord,
+  fallbackTimezone: string | null,
+  defaultDurationMinutes = 60
+): { start: calendar_v3.Schema$EventDateTime; end: calendar_v3.Schema$EventDateTime } {
+  const timezone = item.timezone ?? fallbackTimezone ?? "UTC";
+  const start = item.startsAt ? new Date(item.startsAt) : item.dueAt ? new Date(item.dueAt) : null;
+  const end = item.endsAt ? new Date(item.endsAt) : null;
+
+  if (start && !end) {
+    const computedEnd = new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
+    return {
+      start: { dateTime: start.toISOString(), timeZone: timezone },
+      end: { dateTime: computedEnd.toISOString(), timeZone: timezone },
+    };
+  }
+
+  if (!start && end) {
+    const computedStart = new Date(end.getTime() - defaultDurationMinutes * 60 * 1000);
+    return {
+      start: { dateTime: computedStart.toISOString(), timeZone: timezone },
+      end: { dateTime: end.toISOString(), timeZone: timezone },
+    };
+  }
+
+  if (start && end) {
+    return {
+      start: { dateTime: start.toISOString(), timeZone: timezone },
+      end: { dateTime: end.toISOString(), timeZone: timezone },
+    };
+  }
+
+  if (item.dueAt) {
+    const due = new Date(item.dueAt);
+    const endAllDay = new Date(due);
+    endAllDay.setDate(endAllDay.getDate() + 1);
+    return {
+      start: { date: due.toISOString().slice(0, 10) },
+      end: { date: endAllDay.toISOString().slice(0, 10) },
+    };
+  }
+
+  const now = new Date();
+  const fallbackEnd = new Date(now.getTime() + defaultDurationMinutes * 60 * 1000);
+  return {
+    start: { dateTime: now.toISOString(), timeZone: timezone },
+    end: { dateTime: fallbackEnd.toISOString(), timeZone: timezone },
+  };
+}
+
+export function buildGoogleEventFromTimelineItem(
+  item: TimelineItemRecord,
+  options: { projectId: string; calendarSummary: string; calendarTimezone?: string | null }
+): calendar_v3.Schema$Event {
+  const links = (item.links ?? {}) as Record<string, unknown>;
+  const labels = (item.labels ?? {}) as Record<string, unknown>;
+  const meetingUrl = typeof links.meetingUrl === "string" ? links.meetingUrl : typeof labels.meetingUrl === "string" ? (labels.meetingUrl as string) : null;
+
+  const descriptionChunks: string[] = [];
+  if (item.description) {
+    descriptionChunks.push(item.description);
+  }
+  if (meetingUrl) {
+    descriptionChunks.push(`Join: ${meetingUrl}`);
+  }
+
+  const timing = buildEventTiming(item, options.calendarTimezone ?? null);
+
+  const event: calendar_v3.Schema$Event = {
+    summary: item.title,
+    description: descriptionChunks.length > 0 ? descriptionChunks.join("\n\n") : undefined,
+    status: mapTimelineStatusToCalendarStatus(item.status),
+    start: timing.start,
+    end: timing.end,
+    location: typeof labels.venue === "string"
+      ? (labels.venue as string)
+      : labels.city && labels.territory
+      ? `${labels.city}, ${labels.territory}`
+      : typeof labels.city === "string"
+      ? (labels.city as string)
+      : undefined,
+    extendedProperties: {
+      private: {
+        kazadorProjectId: options.projectId,
+        kazadorItemId: item.id,
+      },
+    },
+  };
+
+  return event;
 }

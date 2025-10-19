@@ -36,6 +36,10 @@ interface AuthContextValue {
   signInWithPassword: (
     credentials: { email: string; password: string }
   ) => Promise<AuthError | null>;
+  signUpWithPassword: (
+    credentials: { email: string; password: string }
+  ) => Promise<AuthError | null>;
+  sendPasswordReset: (email: string) => Promise<AuthError | null>;
   signOut: () => Promise<AuthError | null>;
   refreshProfile: () => Promise<void>;
 }
@@ -87,6 +91,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async ({ email, password }) => {
       setAuthActionLoading(true);
       const { error } = await supabase.auth.signInWithPassword({ email, password });
+      setAuthActionLoading(false);
+      return error ?? null;
+    },
+    [supabase]
+  );
+
+  const signUpWithPassword = useCallback<
+    AuthContextValue["signUpWithPassword"]
+  >(
+    async ({ email, password }) => {
+      setAuthActionLoading(true);
+      try {
+        const response = await fetch("/api/auth/sign-up", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email, password }),
+        });
+
+        if (!response.ok) {
+          let message = "Unable to create account. Please try again.";
+          try {
+            const body = (await response.json()) as { error?: string };
+            if (body?.error) {
+              message = body.error;
+            }
+          } catch (err) {
+            console.error("Failed to parse signup error payload", err);
+          }
+
+          return { message, status: response.status } as AuthError;
+        }
+
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        return error ?? null;
+      } catch (error) {
+        console.error("Failed to complete sign up", error);
+        return {
+          message: "Unexpected error while creating account.",
+          status: 500,
+        } as AuthError;
+      } finally {
+        setAuthActionLoading(false);
+      }
+    },
+    [supabase]
+  );
+
+  const sendPasswordReset = useCallback<AuthContextValue["sendPasswordReset"]>(
+    async (email) => {
+      setAuthActionLoading(true);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo:
+          typeof window !== "undefined"
+            ? `${window.location.origin}/reset-password`
+            : undefined,
+      });
       setAuthActionLoading(false);
       return error ?? null;
     },
@@ -174,6 +240,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       loading: sessionLoading || authActionLoading || profileLoading,
       signInWithPassword,
+      signUpWithPassword,
+      sendPasswordReset,
       signOut,
       refreshProfile,
     }),
@@ -185,6 +253,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authActionLoading,
       profileLoading,
       signInWithPassword,
+      signUpWithPassword,
+      sendPasswordReset,
       signOut,
       refreshProfile,
     ]

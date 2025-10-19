@@ -65,7 +65,7 @@ export async function ensurePreferenceRow(supabase: any, userId: string): Promis
 
   const { data: inserted, error: insertError } = await supabase
     .from("user_preferences")
-    .insert({ user_id: userId })
+    .upsert({ user_id: userId }, { onConflict: "user_id" })
     .select("id, user_id, priority_config, created_at, updated_at, priority_config_updated_at")
     .maybeSingle();
 

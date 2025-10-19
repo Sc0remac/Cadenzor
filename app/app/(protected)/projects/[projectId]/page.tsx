@@ -15,6 +15,7 @@ import type {
   ProjectMemberRecord,
   ProjectMemberRole,
   TimelineLaneDefinition,
+  ProjectSourceRecord,
 } from "@kazador/shared";
 import {
   createProjectTask,
@@ -27,6 +28,8 @@ import {
   updateProject,
   updateProjectTask,
   respondToApproval,
+  createCalendarEventForTimelineItem,
+  updateCalendarEventForTimelineItem,
   connectCalendarSource,
   pullCalendarEvents,
   fetchAvailableCalendars,
@@ -94,6 +97,8 @@ interface TimelineFormState {
   priority: number;
   dependencies: string[];
   dependencyKind: TimelineDependencyKind;
+  createCalendar: boolean;
+  calendarSourceId: string;
 }
 
 interface TaskFormState {
@@ -115,6 +120,8 @@ const INITIAL_TIMELINE_FORM: TimelineFormState = {
   priority: 50,
   dependencies: [],
   dependencyKind: "FS",
+  createCalendar: false,
+  calendarSourceId: "",
 };
 
 const INITIAL_TASK_FORM: TaskFormState = {
@@ -155,6 +162,9 @@ export default function ProjectHubPage() {
   const [calendarPullingId, setCalendarPullingId] = useState<string | null>(null);
   const [calendarPullError, setCalendarPullError] = useState<string | null>(null);
   const [calendarPullMessage, setCalendarPullMessage] = useState<string | null>(null);
+  const [timelineCalendarError, setTimelineCalendarError] = useState<string | null>(null);
+  const [timelineCalendarMessage, setTimelineCalendarMessage] = useState<string | null>(null);
+  const [calendarUpdatingId, setCalendarUpdatingId] = useState<string | null>(null);
   const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
   const [filingContext, setFilingContext] = useState<{ emailId: string; subject: string } | null>(null);
   const [filingAttachments, setFilingAttachments] = useState<EmailAttachmentRecord[]>([]);
@@ -322,6 +332,19 @@ export default function ProjectHubPage() {
   );
 
   useEffect(() => {
+    if (calendarSources.length === 0) {
+      setTimelineForm((prev) => ({ ...prev, calendarSourceId: "", createCalendar: false }));
+      return;
+    }
+    setTimelineForm((prev) => {
+      if (prev.calendarSourceId && calendarSources.some((source) => source.id === prev.calendarSourceId)) {
+        return prev;
+      }
+      return { ...prev, calendarSourceId: calendarSources[0].id };
+    });
+  }, [calendarSources]);
+
+  useEffect(() => {
     if (!filingContext) return;
 
     if (driveSources.length === 0) {
@@ -410,8 +433,15 @@ export default function ProjectHubPage() {
   };
 
   const handleTimelineField = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = event.target;
-    setTimelineForm((prev) => ({ ...prev, [name]: name === "priority" ? Number(value) : value }));
+    const target = event.target as HTMLInputElement | HTMLSelectElement;
+    const { name } = target;
+    let nextValue: unknown = target.value;
+    if (target instanceof HTMLInputElement && target.type === "checkbox") {
+      nextValue = target.checked;
+    } else if (name === "priority") {
+      nextValue = Number(target.value);
+    }
+    setTimelineForm((prev) => ({ ...prev, [name]: nextValue }));
   };
 
   const handleTimelineDependencies = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -488,7 +518,7 @@ export default function ProjectHubPage() {
           }))
         : undefined;
 
-      await createTimelineItem(
+      const createdItem = await createTimelineItem(
         projectId,
         {
           title: timelineForm.title.trim(),
@@ -505,7 +535,30 @@ export default function ProjectHubPage() {
       const preservedLane = laneDefinitions.some((lane) => lane.slug === timelineForm.lane)
         ? timelineForm.lane
         : laneDefinitions[0]?.slug ?? "";
-      setTimelineForm({ ...INITIAL_TIMELINE_FORM, lane: preservedLane });
+      const preservedCalendarSource = calendarSources.some((source) => source.id === timelineForm.calendarSourceId)
+        ? timelineForm.calendarSourceId
+        : calendarSources[0]?.id ?? "";
+      setTimelineForm({
+        ...INITIAL_TIMELINE_FORM,
+        lane: preservedLane,
+        createCalendar: timelineForm.createCalendar,
+        calendarSourceId: preservedCalendarSource,
+      });
+      setTimelineCalendarError(null);
+      setTimelineCalendarMessage(null);
+      if (timelineForm.createCalendar && timelineForm.calendarSourceId) {
+        try {
+          await createCalendarEventForTimelineItem(
+            projectId,
+            createdItem.id,
+            { sourceId: timelineForm.calendarSourceId },
+            accessToken
+          );
+          setTimelineCalendarMessage("Calendar event created");
+        } catch (calendarError: any) {
+          setTimelineCalendarError(calendarError?.message || "Failed to create Google Calendar event");
+        }
+      }
       await loadHub();
     } catch (err: any) {
       setError(err?.message || "Failed to add timeline item");
@@ -849,6 +902,37 @@ export default function ProjectHubPage() {
     }
   };
 
+  const handleCalendarUpdate = async (item: TimelineItemRecord) => {
+    if (!projectId || !accessToken) {
+      setTimelineCalendarError("Authentication expired. Please sign in again.");
+      return;
+    }
+    const links = (item.links ?? {}) as Record<string, unknown>;
+    const sourceId = typeof links.calendarSourceId === "string" ? (links.calendarSourceId as string) : null;
+    if (!sourceId) {
+      setTimelineCalendarError("This timeline item isn’t linked to a Google Calendar event yet.");
+      return;
+    }
+
+    setCalendarUpdatingId(item.id);
+    setTimelineCalendarError(null);
+    setTimelineCalendarMessage(null);
+    try {
+      await updateCalendarEventForTimelineItem(
+        projectId,
+        item.id,
+        { sourceId },
+        accessToken
+      );
+      setTimelineCalendarMessage("Calendar event updated");
+      await loadHub();
+    } catch (err: any) {
+      setTimelineCalendarError(err?.message || "Failed to update Google Calendar event");
+    } finally {
+      setCalendarUpdatingId(null);
+    }
+  };
+
   const handleMemberSearch = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMemberActionError(null);
@@ -1131,6 +1215,16 @@ export default function ProjectHubPage() {
           {laneCreationSuccess}
         </div>
       ) : null}
+      {timelineCalendarMessage ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {timelineCalendarMessage}
+        </div>
+      ) : null}
+      {timelineCalendarError ? (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {timelineCalendarError}
+        </div>
+      ) : null}
       <TimelineForm
         form={timelineForm}
         onFieldChange={handleTimelineField}
@@ -1139,6 +1233,7 @@ export default function ProjectHubPage() {
         existingItems={hub?.timelineItems ?? []}
         laneDefinitions={laneDefinitions}
         onRequestCreateLane={openLaneCreator}
+        calendarSources={calendarSources}
       />
       {creatingLane ? (
         <form onSubmit={submitLaneCreation} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
@@ -1201,6 +1296,8 @@ export default function ProjectHubPage() {
         endDate={timelineEndDate}
         zoom={timelineZoom}
         laneDefinitions={laneDefinitions}
+        onCalendarUpdate={handleCalendarUpdate}
+        calendarUpdatingId={calendarUpdatingId}
       />
       <div className="text-xs text-gray-400">Manage lane order and automation rules in Settings → Timeline lanes.</div>
     </div>
@@ -2019,6 +2116,7 @@ function TimelineForm({
   existingItems,
   laneDefinitions,
   onRequestCreateLane,
+  calendarSources,
 }: {
   form: TimelineFormState;
   onFieldChange: (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
@@ -2027,6 +2125,7 @@ function TimelineForm({
   existingItems: TimelineItemRecord[];
   laneDefinitions: TimelineLaneDefinition[];
   onRequestCreateLane: () => void;
+  calendarSources: ProjectSourceRecord[];
 }) {
   const sortedTimelineItems = useMemo(() => {
     return [...existingItems].sort((a, b) => {
@@ -2038,6 +2137,7 @@ function TimelineForm({
     });
   }, [existingItems]);
   const hasLaneDefinitions = laneDefinitions.length > 0;
+  const hasCalendarSources = calendarSources.length > 0;
 
   return (
     <form onSubmit={onSubmit} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
@@ -2181,6 +2281,48 @@ function TimelineForm({
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
           />
         </label>
+        <div className="md:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3">
+          {hasCalendarSources ? (
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-xs font-semibold uppercase text-gray-500">
+                <input
+                  type="checkbox"
+                  name="createCalendar"
+                  checked={Boolean(form.createCalendar)}
+                  onChange={onFieldChange}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Create in Google Calendar
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <select
+                  name="calendarSourceId"
+                  value={form.calendarSourceId}
+                  onChange={onFieldChange}
+                  disabled={!form.createCalendar}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-200"
+                >
+                  {calendarSources.map((source) => {
+                    const metadata = (source.metadata as Record<string, unknown>) ?? {};
+                    const label = source.title || (metadata.calendarSummary as string) || source.externalId;
+                    return (
+                      <option key={source.id} value={source.id}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="text-[0.7rem] text-gray-500">
+                  We’ll mirror this item to the selected Google calendar and keep it synced on updates.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[0.7rem] text-gray-500">
+              Connect a Google Calendar in project settings to mirror items automatically.
+            </p>
+          )}
+        </div>
       </div>
       <div className="mt-4 flex justify-end">
         <button

@@ -11,6 +11,7 @@ interface ProfileFormState {
   phone: string;
   location: string;
   bio: string;
+  isAdmin: boolean;
 }
 
 const EMPTY_STATE: ProfileFormState = {
@@ -21,6 +22,7 @@ const EMPTY_STATE: ProfileFormState = {
   phone: "",
   location: "",
   bio: "",
+  isAdmin: false,
 };
 
 export default function ProfileForm() {
@@ -46,7 +48,7 @@ export default function ProfileForm() {
     supabase
       .from("profiles")
       .select(
-        "email, full_name, role, company, phone, location, bio"
+        "email, full_name, role, company, phone, location, bio, is_admin"
       )
       .eq("id", userId)
       .maybeSingle()
@@ -71,6 +73,7 @@ export default function ProfileForm() {
             phone: data.phone ?? "",
             location: data.location ?? "",
             bio: data.bio ?? "",
+            isAdmin: Boolean(data.is_admin),
           });
         } else {
           setFormState({
@@ -94,6 +97,11 @@ export default function ProfileForm() {
     setFormState((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleAdminToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { checked } = event.target;
+    setFormState((prev) => ({ ...prev, isAdmin: checked }));
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setStatusMessage(null);
@@ -115,6 +123,7 @@ export default function ProfileForm() {
       phone: formState.phone.trim(),
       location: formState.location.trim(),
       bio: formState.bio.trim(),
+      is_admin: formState.isAdmin,
       updated_at: new Date().toISOString(),
     };
 
@@ -134,6 +143,7 @@ export default function ProfileForm() {
         phone: payload.phone,
         location: payload.location,
         bio: payload.bio,
+        isAdmin: payload.is_admin,
       };
 
       setFormState(nextState);
@@ -273,6 +283,26 @@ export default function ProfileForm() {
             placeholder="Tell the team a little about yourself"
           />
         </div>
+      </fieldset>
+
+      <fieldset className="space-y-3 rounded-md border border-gray-200 bg-gray-50 p-4 text-sm">
+        <legend className="text-sm font-semibold text-gray-900">Admin access (testing)</legend>
+        <p className="text-xs text-gray-600">
+          Toggle admin mode for this profile to preview restricted areas of the workspace.
+        </p>
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            name="isAdmin"
+            checked={formState.isAdmin}
+            onChange={handleAdminToggle}
+            disabled={isDisabled}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:cursor-not-allowed disabled:bg-gray-100"
+          />
+          <span className="text-sm text-gray-700">
+            Grant this account admin privileges
+          </span>
+        </label>
       </fieldset>
 
       {errorMessage ? (

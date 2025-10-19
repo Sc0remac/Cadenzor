@@ -174,3 +174,41 @@ export async function disconnectCalendarAccount(
     throw updateError;
   }
 }
+
+export async function createCalendarEvent(
+  calendar: calendar_v3.Calendar,
+  calendarId: string,
+  event: calendar_v3.Schema$Event
+): Promise<calendar_v3.Schema$Event> {
+  const response = await calendar.events.insert({
+    calendarId,
+    requestBody: event,
+    sendUpdates: "all",
+    conferenceDataVersion: event.conferenceData ? 1 : undefined,
+    supportsAttachments: false,
+  });
+  if (!response.data) {
+    throw new Error("Google Calendar did not return a created event");
+  }
+  return response.data;
+}
+
+export async function updateCalendarEvent(
+  calendar: calendar_v3.Calendar,
+  calendarId: string,
+  eventId: string,
+  event: calendar_v3.Schema$Event
+): Promise<calendar_v3.Schema$Event> {
+  const response = await calendar.events.patch({
+    calendarId,
+    eventId,
+    requestBody: event,
+    sendUpdates: "all",
+    conferenceDataVersion: event.conferenceData ? 1 : undefined,
+    supportsAttachments: false,
+  });
+  if (!response.data) {
+    throw new Error("Google Calendar did not return the updated event");
+  }
+  return response.data;
+}

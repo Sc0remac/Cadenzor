@@ -7,12 +7,14 @@ interface ProfileSnapshotState {
   fullName: string;
   role: string;
   company: string;
+  isAdmin: boolean;
 }
 
 const EMPTY_STATE: ProfileSnapshotState = {
   fullName: "",
   role: "",
   company: "",
+  isAdmin: false,
 };
 
 export default function ProfileSnapshot() {
@@ -45,7 +47,7 @@ export default function ProfileSnapshot() {
 
     supabase
       .from("profiles")
-      .select("full_name, role, company")
+      .select("full_name, role, company, is_admin")
       .eq("id", user.id)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -61,6 +63,7 @@ export default function ProfileSnapshot() {
             fullName: data.full_name ?? "",
             role: data.role ?? "",
             company: data.company ?? "",
+            isAdmin: Boolean(data.is_admin),
           });
         } else {
           setProfile(EMPTY_STATE);
@@ -110,6 +113,11 @@ export default function ProfileSnapshot() {
           <span className="rounded-full bg-gray-100 px-3 py-1">
             {company || (loading ? "Loading…" : "Company not set")}
           </span>
+          {profile.isAdmin ? (
+            <span className="rounded-full bg-gray-900 px-3 py-1 text-white">
+              Admin
+            </span>
+          ) : null}
         </div>
       </div>
     </section>
