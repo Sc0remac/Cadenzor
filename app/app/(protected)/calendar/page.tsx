@@ -18,6 +18,16 @@ const VIEW_OPTIONS = [
 type CalendarViewMode = (typeof VIEW_OPTIONS)[number]["value"];
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+<<<<<<< ours
+=======
+const HOURS = Array.from({ length: 24 }, (_, index) => index);
+
+function formatHourLabel(hour: number): string {
+  return new Date(2000, 0, 1, hour, 0, 0).toLocaleTimeString(undefined, {
+    hour: "numeric",
+  });
+}
+>>>>>>> theirs
 
 function parseDate(value: string | null): Date | null {
   if (!value) return null;
@@ -35,6 +45,15 @@ function addDays(date: Date, amount: number): Date {
   return clone;
 }
 
+<<<<<<< ours
+=======
+function addMinutes(date: Date, amount: number): Date {
+  const clone = new Date(date);
+  clone.setMinutes(clone.getMinutes() + amount);
+  return clone;
+}
+
+>>>>>>> theirs
 function addMonths(date: Date, amount: number): Date {
   const clone = new Date(date);
   clone.setMonth(clone.getMonth() + amount);
@@ -154,9 +173,9 @@ function formatTimeRange(event: CalendarEventRecord): string {
     return end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   }
   if (start && end) {
-    const startLabel = start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-    const endLabel = end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-    return `${startLabel} → ${endLabel}`;
+    const startLabel = start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const endLabel = end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return `${startLabel} – ${endLabel}`;
   }
   return "—";
 }
@@ -169,6 +188,115 @@ function getEventLink(event: CalendarEventRecord): string | null {
   return null;
 }
 
+<<<<<<< ours
+=======
+function formatEventDateRange(event: CalendarEventRecord): string {
+  const start = parseDate(event.startAt);
+  const end = parseDate(event.endAt);
+
+  if (event.isAllDay && start && end) {
+    const adjustedEnd = addDays(end, -1);
+    if (isSameDay(start, adjustedEnd)) {
+      return start.toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
+    const startLabel = start.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const endLabel = adjustedEnd.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return `${startLabel} – ${endLabel}`;
+  }
+
+  if (start && end) {
+    const sameDay = isSameDay(start, end);
+    const startLabel = start.toLocaleDateString(undefined, {
+      weekday: sameDay ? undefined : "short",
+      month: "short",
+      day: "numeric",
+      year: !sameDay ? "numeric" : undefined,
+    });
+    const endLabel = end.toLocaleDateString(undefined, {
+      weekday: sameDay ? undefined : "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const timeRange = `${start.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    })} – ${end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+
+    return sameDay ? `${startLabel} • ${timeRange}` : `${startLabel} ${timeRange} → ${endLabel}`;
+  }
+
+  if (start) {
+    return `${start.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })} • ${start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  }
+
+  if (end) {
+    return `${end.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })} • ${end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  }
+
+  return "Schedule unknown";
+}
+
+function isEventAllDay(event: CalendarEventRecord): boolean {
+  if (event.isAllDay) return true;
+  const start = parseDate(event.startAt);
+  const end = parseDate(event.endAt);
+  if (!start || !end) return false;
+  const durationMs = end.getTime() - start.getTime();
+  return durationMs >= 24 * 60 * 60 * 1000 && start.getHours() === 0 && end.getHours() === 0;
+}
+
+function getEventPositionWithinDay(
+  event: CalendarEventRecord,
+  dayStart: Date
+): { topPercent: number; heightPercent: number; startsBeforeDay: boolean; endsAfterDay: boolean } {
+  const start = parseDate(event.startAt);
+  const end = parseDate(event.endAt);
+  const dayEnd = addDays(dayStart, 1);
+
+  const effectiveStart = start ? (start < dayStart ? dayStart : start) : dayStart;
+  const effectiveEnd = end ? (end > dayEnd ? dayEnd : end) : addMinutes(effectiveStart, 30);
+
+  const startOffsetMs = effectiveStart.getTime() - dayStart.getTime();
+  const endOffsetMs = effectiveEnd.getTime() - dayStart.getTime();
+  const millisecondsInDay = 24 * 60 * 60 * 1000;
+  const topPercent = Math.max(0, (startOffsetMs / millisecondsInDay) * 100);
+  const heightPercent = Math.max(6, ((endOffsetMs - startOffsetMs) / millisecondsInDay) * 100);
+
+  return {
+    topPercent,
+    heightPercent,
+    startsBeforeDay: !!start && start < dayStart,
+    endsAfterDay: !!end && end > dayEnd,
+  };
+}
+
+>>>>>>> theirs
 export default function CalendarPage() {
   const { session } = useAuth();
   const accessToken = session?.access_token ?? null;
@@ -183,6 +311,20 @@ export default function CalendarPage() {
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEventRecord | null>(null);
+
+  useEffect(() => {
+    if (!selectedEvent) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedEvent(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+    };
+  }, [selectedEvent]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -291,6 +433,7 @@ export default function CalendarPage() {
   const filteredEvents = useMemo(() => {
     return events.filter((event) => eventIntersectsRange(event, gridRange.start, gridRange.end));
   }, [events, gridRange]);
+<<<<<<< ours
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEventRecord[]>();
@@ -304,25 +447,61 @@ export default function CalendarPage() {
       const eventStart = startOfDay(startRaw ?? gridRange.start);
       const eventEnd = startOfDay(endRaw ?? gridRange.start);
 
+=======
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, { allDay: CalendarEventRecord[]; timed: CalendarEventRecord[] }>();
+    const lastVisibleDay = addDays(gridRange.end, -1);
+
+    for (const event of filteredEvents) {
+      const startRaw = parseDate(event.startAt) ?? parseDate(event.endAt);
+      const endRaw = parseDate(event.endAt) ?? parseDate(event.startAt) ?? startRaw;
+      if (!startRaw && !endRaw) continue;
+
+      const eventStart = startOfDay(startRaw ?? gridRange.start);
+      const eventEnd = startOfDay(endRaw ?? gridRange.start);
+
+>>>>>>> theirs
       const firstVisibleDay = startOfDay(eventStart < gridRange.start ? gridRange.start : eventStart);
       const finalVisibleDay = startOfDay(eventEnd > lastVisibleDay ? lastVisibleDay : eventEnd);
 
       for (let cursor = new Date(firstVisibleDay); cursor <= finalVisibleDay; cursor = addDays(cursor, 1)) {
         const key = cursor.toISOString().slice(0, 10);
         if (!map.has(key)) {
+<<<<<<< ours
           map.set(key, []);
         }
         map.get(key)!.push(event);
+=======
+          map.set(key, { allDay: [], timed: [] });
+        }
+        const bucket = map.get(key)!;
+        if (isEventAllDay(event)) {
+          bucket.allDay.push(event);
+        } else {
+          bucket.timed.push(event);
+        }
+>>>>>>> theirs
       }
     }
 
     for (const dayEvents of map.values()) {
+<<<<<<< ours
       dayEvents.sort((a, b) => {
+=======
+      dayEvents.allDay.sort((a, b) => {
+        const aStart = parseDate(a.startAt) ?? parseDate(a.endAt) ?? new Date(0);
+        const bStart = parseDate(b.startAt) ?? parseDate(b.endAt) ?? new Date(0);
+        return aStart.getTime() - bStart.getTime();
+      });
+      dayEvents.timed.sort((a, b) => {
+>>>>>>> theirs
         const aStart = parseDate(a.startAt) ?? parseDate(a.endAt) ?? new Date(0);
         const bStart = parseDate(b.startAt) ?? parseDate(b.endAt) ?? new Date(0);
         return aStart.getTime() - bStart.getTime();
       });
     }
+<<<<<<< ours
 
     return map;
   }, [filteredEvents, gridRange]);
@@ -605,8 +784,445 @@ export default function CalendarPage() {
               ))}
             </select>
           </label>
+=======
+
+    return map;
+  }, [filteredEvents, gridRange]);
+
+  const visibleEventCount = filteredEvents.length;
+  const today = useMemo(() => startOfDay(new Date()), []);
+  const rangeLabel = useMemo(() => formatViewRangeLabel(currentDate, viewMode), [currentDate, viewMode]);
+  const selectedEventCalendarName = selectedEvent ? resolveCalendarName(selectedEvent, sources) : null;
+  const selectedEventLink = selectedEvent ? getEventLink(selectedEvent) : null;
+  const selectedEventRangeLabel = selectedEvent ? formatEventDateRange(selectedEvent) : null;
+  const selectedEventStatus = selectedEvent?.status ? selectedEvent.status.replace(/_/g, " ") : null;
+  const selectedEventDescription = selectedEvent?.description?.trim() || null;
+
+  const handlePrev = useCallback(() => {
+    setCurrentDate((previous) => {
+      if (viewMode === "day") return addDays(previous, -1);
+      if (viewMode === "week") return addDays(previous, -7);
+      return addMonths(previous, -1);
+    });
+  }, [viewMode]);
+
+  const handleNext = useCallback(() => {
+    setCurrentDate((previous) => {
+      if (viewMode === "day") return addDays(previous, 1);
+      if (viewMode === "week") return addDays(previous, 7);
+      return addMonths(previous, 1);
+    });
+  }, [viewMode]);
+
+  const handleToday = useCallback(() => {
+    setCurrentDate(startOfDay(new Date()));
+  }, []);
+
+  const handleEventSelect = useCallback((event: CalendarEventRecord) => {
+    setSelectedEvent(event);
+  }, []);
+
+  const renderAllDayEvent = useCallback(
+    (event: CalendarEventRecord, muted: boolean, dayKey: string) => {
+      const key = `${event.id}-${dayKey}-all-day`;
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => handleEventSelect(event)}
+          className={`group inline-flex min-w-0 items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-left text-[11px] font-semibold text-slate-700 shadow-sm transition hover:border-sky-400 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 ${muted ? "opacity-70" : ""}`}
+        >
+          <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-sky-500" />
+          <span className="truncate">{event.summary ?? "Untitled event"}</span>
+        </button>
+      );
+    },
+    [handleEventSelect]
+  );
+
+  const renderTimedListEvent = useCallback(
+    (event: CalendarEventRecord, muted: boolean, dayKey: string) => {
+      const key = `${event.id}-${dayKey}-timed`;
+      const timeRange = formatTimeRange(event);
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => handleEventSelect(event)}
+          className={`group flex w-full items-start gap-2 rounded-md border border-slate-200/70 bg-white px-2 py-1 text-left text-[11px] transition hover:border-sky-400 hover:bg-sky-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 ${muted ? "opacity-70" : ""}`}
+        >
+          <span className="mt-0.5 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            {timeRange}
+          </span>
+          <span className="flex-1 truncate text-[12px] font-semibold text-slate-800">{event.summary ?? "Untitled event"}</span>
+        </button>
+      );
+    },
+    [handleEventSelect]
+  );
+
+  const renderTimedBlock = useCallback(
+    (event: CalendarEventRecord, day: Date, dayKey: string) => {
+      const key = `${event.id}-${dayKey}-block`;
+      const { heightPercent, topPercent, startsBeforeDay, endsAfterDay } = getEventPositionWithinDay(
+        event,
+        startOfDay(day)
+      );
+      const timeRange = formatTimeRange(event);
+
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => handleEventSelect(event)}
+          style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
+          className="absolute left-1 right-1 flex flex-col gap-1 overflow-hidden rounded-md border border-sky-200 bg-sky-50/90 px-2 py-1 text-left text-[11px] font-medium text-slate-700 shadow-sm transition hover:border-sky-400 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{timeRange}</span>
+          <span className="truncate text-[12px] font-semibold text-slate-800">{event.summary ?? "Untitled event"}</span>
+          {(startsBeforeDay || endsAfterDay) && (
+            <span className="text-[9px] uppercase tracking-wide text-slate-400">Continues</span>
+          )}
+        </button>
+      );
+    },
+    [handleEventSelect]
+  );
+
+  const monthView = (
+    <div className="overflow-hidden rounded-3xl border border-sky-200/70 bg-gradient-to-b from-white via-white to-sky-50 shadow-xl">
+      <div className="grid grid-cols-7 gap-px border-b border-sky-200/80 bg-sky-100/80 text-xs font-semibold uppercase tracking-wide text-sky-700">
+        {WEEKDAY_LABELS.map((label) => (
+          <div key={label} className="px-3 py-2 text-center">
+            {label}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-px bg-sky-100/80">
+        {visibleDays.map((day) => {
+          const key = day.toISOString().slice(0, 10);
+          const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
+          const isToday = isSameDay(day, today);
+          const isCurrentMonth = day.getMonth() === currentDate.getMonth();
+          const muted = !isCurrentMonth;
+
+          return (
+            <div key={key} className="bg-white">
+              <div
+                className={`grid h-full grid-rows-[auto,1fr] gap-2 rounded-2xl border border-slate-200/60 p-2 transition-shadow duration-150 ${
+                  isToday ? "shadow-lg ring-2 ring-sky-500/70" : "hover:shadow-md"
+                } ${muted ? "bg-slate-50" : "bg-white"}`}
+              >
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <span className={`${muted ? "text-slate-400" : "text-slate-600"}`}>
+                    {day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </span>
+                  {isToday ? (
+                    <span className="rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                      Today
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-1">
+                    {bucket.allDay.length > 0 ? (
+                      bucket.allDay.map((event) => renderAllDayEvent(event, muted, key))
+                    ) : (
+                      <span className={`text-[10px] uppercase tracking-wide ${muted ? "text-slate-300" : "text-slate-300"}`}>
+                        All-day free
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex min-h-[80px] flex-1 flex-col gap-1 overflow-y-auto pr-1">
+                    {bucket.timed.length > 0 ? (
+                      bucket.timed.map((event) => renderTimedListEvent(event, muted, key))
+                    ) : (
+                      <span className={`text-[11px] ${muted ? "text-slate-300" : "text-slate-400"}`}>No timed events</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const weekView = (
+    <div className="overflow-hidden rounded-3xl border border-sky-200/70 bg-white shadow-xl">
+      <div className="grid grid-cols-[100px,repeat(7,minmax(0,1fr))] border-b border-sky-200/80 bg-sky-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="px-3 py-3" />
+        {visibleDays.map((day) => {
+          const isToday = isSameDay(day, today);
+          return (
+            <div
+              key={`head-${day.toISOString()}`}
+              className={`px-3 py-3 text-center font-semibold ${isToday ? "text-sky-600" : "text-slate-500"}`}
+            >
+              <div>{WEEKDAY_LABELS[day.getDay()]}</div>
+              <div className="text-base font-bold text-slate-700">{day.getDate()}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="grid grid-cols-[100px,repeat(7,minmax(0,1fr))] border-b border-sky-200/80 bg-sky-100/70 text-xs font-semibold uppercase tracking-wide text-sky-700">
+        <div className="px-3 py-3 text-left text-slate-500">All-day</div>
+        {visibleDays.map((day) => {
+          const key = day.toISOString().slice(0, 10);
+          const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
+          const isToday = isSameDay(day, today);
+          return (
+            <div
+              key={`all-${key}`}
+              className={`flex min-h-[62px] flex-wrap items-start gap-1 px-3 py-3 ${
+                isToday ? "bg-white" : "bg-sky-50/60"
+              }`}
+            >
+              {bucket.allDay.length > 0 ? (
+                bucket.allDay.map((event) => renderAllDayEvent(event, false, key))
+              ) : (
+                <span className="text-[10px] uppercase tracking-wide text-slate-300">Free</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="grid grid-cols-[100px,repeat(7,minmax(0,1fr))]">
+        <div className="relative h-[720px] border-r border-slate-200 bg-slate-50/60">
+          {HOURS.map((hour) => (
+            <div
+              key={`label-${hour}`}
+              style={{ top: `${(hour / 24) * 100}%` }}
+              className="absolute left-0 right-0 -mt-3 flex items-center justify-end pr-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+            >
+              {formatHourLabel(hour)}
+            </div>
+          ))}
+>>>>>>> theirs
+        </div>
+        {visibleDays.map((day) => {
+          const key = day.toISOString().slice(0, 10);
+          const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
+          const isToday = isSameDay(day, today);
+
+          return (
+            <div key={key} className={`relative h-[720px] border-l border-slate-200 ${isToday ? "bg-sky-50" : "bg-white"}`}>
+              {HOURS.map((hour) => (
+                <div
+                  key={`grid-${key}-${hour}`}
+                  style={{ top: `${(hour / 24) * 100}%` }}
+                  className="absolute left-0 right-0 -mt-px border-t border-dashed border-slate-200/70"
+                />
+              ))}
+              {bucket.timed.length === 0 ? (
+                <span className="absolute left-1 right-1 top-1 text-[11px] text-slate-300">No scheduled events</span>
+              ) : null}
+              {bucket.timed.map((event) => renderTimedBlock(event, day, key))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+<<<<<<< ours
+=======
+  const dayView = (() => {
+    const key = currentDate.toISOString().slice(0, 10);
+    const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
+
+    return (
+      <div className="overflow-hidden rounded-3xl border border-sky-200/70 bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-sky-200/70 bg-sky-50/70 px-6 py-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Focused day</p>
+            <h2 className="text-2xl font-semibold text-slate-900">
+              {currentDate.toLocaleDateString(undefined, {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </h2>
+          </div>
+          {isSameDay(currentDate, today) ? (
+            <span className="rounded-full bg-sky-500 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+              Today
+            </span>
+          ) : null}
+        </div>
+        <div className="border-b border-slate-200/70 px-6 py-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">All-day</h3>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {bucket.allDay.length > 0 ? (
+              bucket.allDay.map((event) => renderAllDayEvent(event, false, key))
+            ) : (
+              <span className="text-xs uppercase tracking-wide text-slate-300">No all-day events</span>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-[80px,1fr]">
+          <div className="relative h-[720px] border-r border-slate-200 bg-slate-50/60">
+            {HOURS.map((hour) => (
+              <div
+                key={`day-label-${hour}`}
+                style={{ top: `${(hour / 24) * 100}%` }}
+                className="absolute left-0 right-0 -mt-3 flex justify-end pr-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+              >
+                {formatHourLabel(hour)}
+              </div>
+            ))}
+          </div>
+          <div className="relative h-[720px]">
+            {HOURS.map((hour) => (
+              <div
+                key={`day-grid-${hour}`}
+                style={{ top: `${(hour / 24) * 100}%` }}
+                className="absolute left-0 right-0 -mt-px border-t border-dashed border-slate-200/70"
+              />
+            ))}
+            {bucket.timed.length === 0 ? (
+              <span className="absolute left-3 right-3 top-3 text-sm text-slate-300">No timed events scheduled</span>
+            ) : null}
+            {bucket.timed.map((event) => renderTimedBlock(event, currentDate, key))}
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+  const eventModal = selectedEvent ? (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 py-8"
+      role="dialog"
+      aria-modal="true"
+      onClick={() => setSelectedEvent(null)}
+    >
+      <div
+        className="relative w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={() => setSelectedEvent(null)}
+          className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+          aria-label="Close event details"
+        >
+          ✕
+        </button>
+        <div className="space-y-5 px-6 py-7">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Event details</p>
+            <h3 className="text-2xl font-semibold text-slate-900">
+              {selectedEvent.summary ?? "Untitled event"}
+            </h3>
+            {selectedEventRangeLabel ? (
+              <p className="text-sm text-slate-500">{selectedEventRangeLabel}</p>
+            ) : null}
+            {selectedEvent?.isAllDay ? (
+              <p className="text-sm font-semibold text-slate-700">All day</p>
+            ) : null}
+          </div>
+          <div className="space-y-3 text-sm text-slate-600">
+            {selectedEventCalendarName ? (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Calendar</span>
+                <span className="font-medium text-slate-700">{selectedEventCalendarName}</span>
+              </div>
+            ) : null}
+            {selectedEvent.location ? (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Location</span>
+                <span className="font-medium text-slate-700">{selectedEvent.location}</span>
+              </div>
+            ) : null}
+            {selectedEventStatus ? (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  {selectedEventStatus}
+                </span>
+              </div>
+            ) : null}
+            {selectedEventDescription ? (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Notes</span>
+                <p className="whitespace-pre-wrap text-sm text-slate-600">{selectedEventDescription}</p>
+              </div>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {selectedEventLink ? (
+              <a
+                href={selectedEventLink}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+              >
+                Open in Google Calendar ↗
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setSelectedEvent(null)}
+              className="inline-flex items-center rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <div className="mx-auto w-full max-w-6xl px-4 pb-12 pt-8 lg:px-8">
+        <header className="mb-8 space-y-3">
+          <p className="text-sm font-semibold uppercase tracking-wide text-sky-600">Synced schedules</p>
+          <h1 className="text-3xl font-bold text-slate-900">Calendar</h1>
+          <p className="max-w-2xl text-sm text-slate-500">
+            Explore everything that has been synced from your connected calendars. Switch between day, week, and month views,
+          filter specific calendars, and open any event directly in Google Calendar.
+        </p>
+      </header>
+
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-sky-200/70 bg-white px-5 py-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+            View
+            <select
+              value={viewMode}
+              onChange={(event) => setViewMode(event.target.value as CalendarViewMode)}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
+            >
+              {VIEW_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+            Calendar
+            <select
+              value={sourceId}
+              onChange={(event) => setSourceId(event.target.value)}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
+            >
+              <option value="all">All calendars</option>
+              {calendarOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
+>>>>>>> theirs
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 rounded-2xl bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
             <span>{rangeLabel}</span>
@@ -676,6 +1292,8 @@ export default function CalendarPage() {
       ) : (
         monthView
       )}
-    </div>
+      </div>
+      {eventModal}
+    </>
   );
 }
