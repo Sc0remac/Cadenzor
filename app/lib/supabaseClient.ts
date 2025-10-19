@@ -21,6 +21,7 @@ import type {
   DigestRecord,
   TimelineLaneDefinition,
   CalendarEventRecord,
+  CalendarSyncStatus,
 } from "@kazador/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -1246,6 +1247,9 @@ export interface FetchCalendarEventsOptions {
   offset?: number;
   rangeStart?: string;
   rangeEnd?: string;
+  origin?: "google" | "kazador" | "all";
+  syncStatus?: CalendarSyncStatus[];
+  pendingAction?: "create" | "update" | "delete" | "any" | "none";
   accessToken?: string;
 }
 
@@ -1273,6 +1277,9 @@ export async function fetchCalendarEvents(
     offset,
     rangeStart,
     rangeEnd,
+    origin,
+    syncStatus,
+    pendingAction,
     accessToken,
   } = options;
 
@@ -1287,6 +1294,9 @@ export async function fetchCalendarEvents(
   if (offset !== undefined) params.set("offset", String(offset));
   if (rangeStart) params.set("rangeStart", rangeStart);
   if (rangeEnd) params.set("rangeEnd", rangeEnd);
+  if (origin && origin !== "all") params.set("origin", origin);
+  if (syncStatus && syncStatus.length > 0) params.set("syncStatus", syncStatus.join(","));
+  if (pendingAction) params.set("pendingAction", pendingAction);
 
   const endpoint = params.toString() ? `/api/calendar/events?${params.toString()}` : "/api/calendar/events";
   const response = await fetch(endpoint, {

@@ -2556,9 +2556,50 @@ CREATE TABLE public.project_sources (
 
 -- Name: calendar_events; Type: TABLE; Schema: public; Owner: -
 
+CREATE TABLE public.user_calendar_sources (
+    id uuid DEFAULT public.gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    calendar_id text NOT NULL,
+    account_id uuid NOT NULL,
+    summary text NOT NULL,
+    timezone text,
+    primary_calendar boolean DEFAULT false,
+    access_role text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    last_synced_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.user_calendar_sources
+    ADD CONSTRAINT user_calendar_sources_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.user_calendar_sources
+    ADD CONSTRAINT user_calendar_sources_unique UNIQUE (user_id, calendar_id);
+
+ALTER TABLE ONLY public.user_calendar_sources
+    ADD CONSTRAINT user_calendar_sources_account_fkey FOREIGN KEY (account_id) REFERENCES public.oauth_accounts(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.user_calendar_sources
+    ADD CONSTRAINT user_calendar_sources_user_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+CREATE INDEX user_calendar_sources_user_idx ON public.user_calendar_sources USING btree (user_id);
+
+CREATE INDEX user_calendar_sources_account_idx ON public.user_calendar_sources USING btree (account_id);
+
+CREATE TRIGGER user_calendar_sources_set_updated_at BEFORE UPDATE ON public.user_calendar_sources FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+ALTER TABLE public.user_calendar_sources ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY user_calendar_sources_owner_select ON public.user_calendar_sources FOR SELECT USING (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
+
+CREATE POLICY user_calendar_sources_owner_modify ON public.user_calendar_sources FOR ALL USING (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id))) WITH CHECK (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
+
+
 CREATE TABLE public.calendar_events (
     id uuid DEFAULT public.gen_random_uuid() NOT NULL,
-    source_id uuid NOT NULL,
+    source_id uuid,
+    user_source_id uuid,
     calendar_id text NOT NULL,
     event_id text NOT NULL,
     summary text,
@@ -2578,6 +2619,14 @@ CREATE TABLE public.calendar_events (
     assigned_by uuid,
     assigned_at timestamp with time zone,
     ignore boolean DEFAULT false,
+    origin text DEFAULT 'google'::text NOT NULL,
+    sync_status text DEFAULT 'pending'::text NOT NULL,
+    sync_error text,
+    last_synced_at timestamp with time zone,
+    last_google_updated_at timestamp with time zone,
+    last_kazador_updated_at timestamp with time zone,
+    google_etag text,
+    pending_action text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -2589,7 +2638,19 @@ ALTER TABLE ONLY public.calendar_events
     ADD CONSTRAINT calendar_events_unique_event UNIQUE (source_id, event_id);
 
 ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_unique_user_event UNIQUE (user_source_id, event_id);
+
+ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_one_source_check CHECK (
+        (source_id IS NOT NULL AND user_source_id IS NULL)
+        OR (source_id IS NULL AND user_source_id IS NOT NULL)
+    );
+
+ALTER TABLE ONLY public.calendar_events
     ADD CONSTRAINT calendar_events_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.project_sources(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.calendar_events
+    ADD CONSTRAINT calendar_events_user_source_id_fkey FOREIGN KEY (user_source_id) REFERENCES public.user_calendar_sources(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.calendar_events
     ADD CONSTRAINT calendar_events_project_id_fkey FOREIGN KEY (assigned_project_id) REFERENCES public.projects(id) ON DELETE SET NULL;
@@ -2606,6 +2667,12 @@ CREATE INDEX calendar_events_assigned_project_idx ON public.calendar_events USIN
 
 CREATE INDEX calendar_events_ignore_idx ON public.calendar_events USING btree (ignore);
 
+CREATE INDEX calendar_events_sync_status_idx ON public.calendar_events USING btree (sync_status);
+
+CREATE INDEX calendar_events_origin_idx ON public.calendar_events USING btree (origin);
+
+CREATE INDEX calendar_events_user_source_idx ON public.calendar_events USING btree (user_source_id);
+
 CREATE TRIGGER calendar_events_set_updated_at BEFORE UPDATE ON public.calendar_events FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
@@ -2620,6 +2687,72 @@ CREATE POLICY calendar_events_service_role_all ON public.calendar_events USING (
 
 
 --
+
+CREATE TABLE public.calendar_sync_states (
+    id uuid DEFAULT public.gen_random_uuid() NOT NULL,
+    user_source_id uuid NOT NULL,
+    sync_token text,
+    last_polled_at timestamp with time zone,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.calendar_sync_states
+    ADD CONSTRAINT calendar_sync_states_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.calendar_sync_states
+    ADD CONSTRAINT calendar_sync_states_user_source_unique UNIQUE (user_source_id);
+
+ALTER TABLE ONLY public.calendar_sync_states
+    ADD CONSTRAINT calendar_sync_states_user_source_fkey FOREIGN KEY (user_source_id) REFERENCES public.user_calendar_sources(id) ON DELETE CASCADE;
+
+CREATE INDEX calendar_sync_states_user_source_idx ON public.calendar_sync_states USING btree (user_source_id);
+
+CREATE TRIGGER calendar_sync_states_set_updated_at BEFORE UPDATE ON public.calendar_sync_states FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+ALTER TABLE public.calendar_sync_states ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY calendar_sync_states_owner_select ON public.calendar_sync_states FOR SELECT USING ((auth.role() = 'service_role'::text));
+
+CREATE POLICY calendar_sync_states_owner_modify ON public.calendar_sync_states FOR ALL USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+CREATE TABLE public.calendar_watch_channels (
+    id uuid DEFAULT public.gen_random_uuid() NOT NULL,
+    user_source_id uuid NOT NULL,
+    resource_id text NOT NULL,
+    channel_id text NOT NULL,
+    expiration_at timestamp with time zone NOT NULL,
+    last_renewed_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.calendar_watch_channels
+    ADD CONSTRAINT calendar_watch_channels_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.calendar_watch_channels
+    ADD CONSTRAINT calendar_watch_channels_channel_unique UNIQUE (channel_id);
+
+ALTER TABLE ONLY public.calendar_watch_channels
+    ADD CONSTRAINT calendar_watch_channels_user_source_unique UNIQUE (user_source_id);
+
+ALTER TABLE ONLY public.calendar_watch_channels
+    ADD CONSTRAINT calendar_watch_channels_user_source_fkey FOREIGN KEY (user_source_id) REFERENCES public.user_calendar_sources(id) ON DELETE CASCADE;
+
+CREATE INDEX calendar_watch_channels_user_source_idx ON public.calendar_watch_channels USING btree (user_source_id);
+
+CREATE TRIGGER calendar_watch_channels_set_updated_at BEFORE UPDATE ON public.calendar_watch_channels FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+ALTER TABLE public.calendar_watch_channels ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY calendar_watch_channels_owner_select ON public.calendar_watch_channels FOR SELECT USING ((auth.role() = 'service_role'::text));
+
+CREATE POLICY calendar_watch_channels_owner_modify ON public.calendar_watch_channels FOR ALL USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
 -- Name: project_tasks; Type: TABLE; Schema: public; Owner: -
 --
 

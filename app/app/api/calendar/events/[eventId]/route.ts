@@ -9,7 +9,11 @@ import {
 } from "@/lib/googleCalendarClient";
 import { mapGoogleEventToTimelineItem } from "@/lib/calendarMapper";
 import { mapProjectSourceRow } from "@/lib/projectMappers";
-import type { CalendarEventRecord, TimelineItemRecord } from "@kazador/shared";
+import type {
+  CalendarEventRecord,
+  TimelineItemRecord,
+  UserCalendarSourceRecord,
+} from "@kazador/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -145,7 +149,7 @@ export async function PATCH(
 
   const { data: eventRow, error: eventError } = await supabase
     .from("calendar_events")
-    .select("*, project_sources:project_sources(*)")
+    .select("*, project_sources:project_sources(*), user_calendar_sources:user_calendar_sources(*)")
     .eq("id", eventId)
     .maybeSingle();
 
@@ -159,6 +163,23 @@ export async function PATCH(
 
   const sourceRow = eventRow.project_sources;
   const source = sourceRow ? mapProjectSourceRow(sourceRow) : null;
+  const userSourceRow = eventRow.user_calendar_sources;
+  const userSource: UserCalendarSourceRecord | null = userSourceRow
+    ? {
+        id: userSourceRow.id as string,
+        userId: userSourceRow.user_id as string,
+        calendarId: userSourceRow.calendar_id as string,
+        accountId: userSourceRow.account_id as string,
+        summary: userSourceRow.summary as string,
+        timezone: userSourceRow.timezone ?? null,
+        primaryCalendar: Boolean(userSourceRow.primary_calendar),
+        accessRole: userSourceRow.access_role ?? null,
+        metadata: (userSourceRow.metadata as Record<string, unknown> | null) ?? null,
+        lastSyncedAt: userSourceRow.last_synced_at ?? null,
+        createdAt: userSourceRow.created_at as string,
+        updatedAt: userSourceRow.updated_at as string,
+      }
+    : null;
   if (!source) {
     return formatError("Calendar source missing", 500);
   }
@@ -203,7 +224,7 @@ export async function PATCH(
 
     const { data: refreshedRow, error: refreshError } = await supabase
       .from("calendar_events")
-      .select("*, project_sources:project_sources(*)")
+      .select("*, project_sources:project_sources(*), user_calendar_sources:user_calendar_sources(*)")
       .eq("id", eventId)
       .maybeSingle();
 
@@ -212,9 +233,17 @@ export async function PATCH(
     }
 
     const refreshedEvent = refreshedRow ?? eventRow;
+    const pendingActionRaw =
+      typeof refreshedEvent.pending_action === "string" ? refreshedEvent.pending_action : null;
+    const pendingAction =
+      pendingActionRaw === "create" || pendingActionRaw === "update" || pendingActionRaw === "delete"
+        ? pendingActionRaw
+        : null;
+
     const mappedEvent: CalendarEventRecord = {
       id: refreshedEvent.id as string,
-      sourceId: refreshedEvent.source_id as string,
+      sourceId: refreshedEvent.source_id ?? null,
+      userSourceId: refreshedEvent.user_source_id ?? null,
       calendarId: refreshedEvent.calendar_id as string,
       eventId: refreshedEvent.event_id as string,
       summary: refreshedEvent.summary ?? null,
@@ -234,9 +263,18 @@ export async function PATCH(
       assignedBy: refreshedEvent.assigned_by ?? null,
       assignedAt: refreshedEvent.assigned_at ?? null,
       ignore: Boolean(refreshedEvent.ignore),
+      origin: (refreshedEvent.origin as string | undefined) === "kazador" ? "kazador" : "google",
+      syncStatus: (refreshedEvent.sync_status as string | undefined) ?? "pending",
+      syncError: refreshedEvent.sync_error ?? null,
+      lastSyncedAt: refreshedEvent.last_synced_at ?? null,
+      lastGoogleUpdatedAt: refreshedEvent.last_google_updated_at ?? null,
+      lastKazadorUpdatedAt: refreshedEvent.last_kazador_updated_at ?? null,
+      googleEtag: refreshedEvent.google_etag ?? null,
+      pendingAction,
       createdAt: refreshedEvent.created_at as string,
       updatedAt: refreshedEvent.updated_at as string,
-      source: source,
+      source: source ?? undefined,
+      userSource: userSource ?? undefined,
     };
 
     return NextResponse.json({ success: true, event: mappedEvent });
@@ -359,7 +397,7 @@ export async function PATCH(
 
   const { data: refreshedRow, error: refreshedError } = await supabase
     .from("calendar_events")
-    .select("*, project_sources:project_sources(*)")
+    .select("*, project_sources:project_sources(*), user_calendar_sources:user_calendar_sources(*)")
     .eq("id", eventId)
     .maybeSingle();
 
@@ -369,9 +407,17 @@ export async function PATCH(
 
   const refreshedEvent = refreshedRow ?? eventRow;
 
+  const pendingActionRaw =
+    typeof refreshedEvent.pending_action === "string" ? refreshedEvent.pending_action : null;
+  const pendingAction =
+    pendingActionRaw === "create" || pendingActionRaw === "update" || pendingActionRaw === "delete"
+      ? pendingActionRaw
+      : null;
+
   const mappedEvent: CalendarEventRecord = {
     id: refreshedEvent.id as string,
-    sourceId: refreshedEvent.source_id as string,
+    sourceId: refreshedEvent.source_id ?? null,
+    userSourceId: refreshedEvent.user_source_id ?? null,
     calendarId: refreshedEvent.calendar_id as string,
     eventId: refreshedEvent.event_id as string,
     summary: refreshedEvent.summary ?? null,
@@ -391,9 +437,18 @@ export async function PATCH(
     assignedBy: refreshedEvent.assigned_by ?? null,
     assignedAt: refreshedEvent.assigned_at ?? null,
     ignore: Boolean(refreshedEvent.ignore),
+    origin: (refreshedEvent.origin as string | undefined) === "kazador" ? "kazador" : "google",
+    syncStatus: (refreshedEvent.sync_status as string | undefined) ?? "pending",
+    syncError: refreshedEvent.sync_error ?? null,
+    lastSyncedAt: refreshedEvent.last_synced_at ?? null,
+    lastGoogleUpdatedAt: refreshedEvent.last_google_updated_at ?? null,
+    lastKazadorUpdatedAt: refreshedEvent.last_kazador_updated_at ?? null,
+    googleEtag: refreshedEvent.google_etag ?? null,
+    pendingAction,
     createdAt: refreshedEvent.created_at as string,
     updatedAt: refreshedEvent.updated_at as string,
-    source,
+    source: source ?? undefined,
+    userSource: userSource ?? undefined,
   };
 
   return NextResponse.json({

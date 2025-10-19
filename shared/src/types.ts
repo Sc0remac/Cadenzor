@@ -373,6 +373,16 @@ export interface UserCalendarSourceRecord {
   updatedAt: string;
 }
 
+export type CalendarEventOrigin = "google" | "kazador";
+
+export type CalendarSyncStatus =
+  | "pending"
+  | "synced"
+  | "failed"
+  | "deleted"
+  | "needs_update"
+  | "delete_pending";
+
 export interface CalendarEventRecord {
   id: string;
   sourceId: string | null;
@@ -396,10 +406,40 @@ export interface CalendarEventRecord {
   assignedBy: string | null;
   assignedAt: string | null;
   ignore: boolean;
+  origin: CalendarEventOrigin;
+  syncStatus: CalendarSyncStatus;
+  syncError: string | null;
+  lastSyncedAt: string | null;
+  lastGoogleUpdatedAt: string | null;
+  lastKazadorUpdatedAt: string | null;
+  googleEtag: string | null;
+  pendingAction: "create" | "update" | "delete" | null;
   createdAt: string;
   updatedAt: string;
   source?: ProjectSourceRecord;
   userSource?: UserCalendarSourceRecord;
+}
+
+export interface CalendarSyncStateRecord {
+  id: string;
+  userSourceId: string;
+  syncToken: string | null;
+  lastPolledAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CalendarWatchChannelRecord {
+  id: string;
+  userSourceId: string;
+  resourceId: string;
+  channelId: string;
+  expirationAt: string;
+  lastRenewedAt: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type ProjectLinkSource = "manual" | "ai" | "rule";
