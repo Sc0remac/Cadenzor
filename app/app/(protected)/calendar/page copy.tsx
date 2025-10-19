@@ -158,7 +158,7 @@ function formatTimeRange(event: CalendarEventRecord): string {
   const start = parseDate(event.startAt);
   const end = parseDate(event.endAt);
   if (!start && !end) {
-    return "–";
+    return "—";
   }
   if (start && !end) {
     return start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -171,7 +171,7 @@ function formatTimeRange(event: CalendarEventRecord): string {
     const endLabel = end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     return `${startLabel} – ${endLabel}`;
   }
-  return "–";
+  return "—";
 }
 
 function getEventLink(event: CalendarEventRecord): string | null {
@@ -511,10 +511,10 @@ export default function CalendarPage() {
           key={key}
           type="button"
           onClick={() => handleEventSelect(event)}
-          className={`group inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 shadow-sm transition hover:border-sky-400 hover:bg-sky-100 hover:shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 ${muted ? "opacity-60" : ""}`}
+          className={`group inline-flex min-w-0 w-full items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1 text-left text-[11px] font-semibold text-slate-700 shadow-sm transition hover:border-sky-400 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 ${muted ? "opacity-70" : ""}`}
         >
           <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-sky-500" />
-          <span className="truncate flex-1 min-w-0">{event.summary ?? "Untitled event"}</span>
+          <span className="truncate">{event.summary ?? "Untitled event"}</span>
         </button>
       );
     },
@@ -530,12 +530,12 @@ export default function CalendarPage() {
           key={key}
           type="button"
           onClick={() => handleEventSelect(event)}
-          className={`group flex w-full max-w-full items-start gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left text-xs transition hover:border-sky-400 hover:bg-sky-50 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 ${muted ? "opacity-60" : ""}`}
+          className={`group flex w-full items-start gap-2 rounded-md border border-slate-200/70 bg-white px-2 py-1 text-left text-[11px] transition hover:border-sky-400 hover:bg-sky-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 ${muted ? "opacity-70" : ""}`}
         >
-          <span className="mt-0.5 flex-shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <span className="mt-0.5 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-slate-400">
             {timeRange}
           </span>
-          <span className="flex-1 min-w-0 truncate text-xs font-semibold text-slate-800">{event.summary ?? "Untitled event"}</span>
+          <span className="flex-1 truncate text-[12px] font-semibold text-slate-800">{event.summary ?? "Untitled event"}</span>
         </button>
       );
     },
@@ -556,11 +556,11 @@ export default function CalendarPage() {
           key={key}
           type="button"
           onClick={() => handleEventSelect(event)}
-          style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
-          className="absolute left-1.5 right-1.5 flex flex-col gap-0.5 overflow-hidden rounded-lg border border-sky-200 bg-sky-50/95 px-2 py-1.5 text-left text-xs font-medium text-slate-700 shadow-sm transition hover:border-sky-400 hover:bg-sky-100 hover:shadow hover:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 focus-visible:z-10"
+          style={{ top: `${topPercent}%`, height: `${heightPercent}%`, left: "6px", right: "6px" }}
+          className="absolute flex flex-col gap-1 overflow-hidden rounded-md border border-sky-200 bg-sky-50/90 px-2.5 py-1 text-left text-[11px] font-medium text-slate-700 shadow-sm transition hover:border-sky-400 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
         >
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 truncate">{timeRange}</span>
-          <span className="truncate text-xs font-semibold text-slate-800 leading-tight">{event.summary ?? "Untitled event"}</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{timeRange}</span>
+          <span className="truncate text-[12px] font-semibold text-slate-800">{event.summary ?? "Untitled event"}</span>
           {(startsBeforeDay || endsAfterDay) && (
             <span className="text-[9px] uppercase tracking-wide text-slate-400">Continues</span>
           )}
@@ -571,15 +571,15 @@ export default function CalendarPage() {
   );
 
   const monthView = (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-      <div className="grid grid-cols-7 gap-px border-b border-slate-200 bg-slate-100 text-xs font-bold uppercase tracking-wide text-slate-600">
+    <div className="overflow-hidden rounded-3xl border border-sky-200/70 bg-gradient-to-b from-white via-white to-sky-50 shadow-xl xl:min-h-[75vh]">
+      <div className="grid grid-cols-7 gap-px border-b border-sky-200/80 bg-sky-100/80 text-xs font-semibold uppercase tracking-wide text-sky-700">
         {WEEKDAY_LABELS.map((label) => (
-          <div key={label} className="bg-white px-3 py-3 text-center">
+          <div key={label} className="px-3 py-2 text-center">
             {label}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-px bg-slate-200">
+      <div className="grid grid-cols-7 gap-px bg-sky-100/80">
         {visibleDays.map((day) => {
           const key = day.toISOString().slice(0, 10);
           const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
@@ -588,48 +588,38 @@ export default function CalendarPage() {
           const muted = !isCurrentMonth;
 
           return (
-            <div key={key} className="bg-white min-h-[140px] overflow-hidden">
+            <div key={key} className="bg-white">
               <div
-                className={`flex h-full flex-col gap-2 p-3 ${
-                  isToday ? "bg-sky-50/50" : muted ? "bg-slate-50/50" : "bg-white"
-                }`}
+                className={`grid h-full grid-rows-[auto,1fr] gap-2 rounded-2xl border border-slate-200/60 p-2 transition-shadow duration-150 ${
+                  isToday ? "shadow-lg ring-2 ring-sky-500/70" : "hover:shadow-md"
+                } ${muted ? "bg-slate-50" : "bg-white"}`}
               >
-                <div className="flex items-center justify-between">
-                  <span className={`text-sm font-bold ${muted ? "text-slate-400" : isToday ? "text-sky-600" : "text-slate-700"}`}>
-                    {day.getDate()}
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <span className={`${muted ? "text-slate-400" : "text-slate-600"}`}>
+                    {day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                   </span>
-                  {isToday && (
-                    <span className="rounded-full bg-sky-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                  {isToday ? (
+                    <span className="rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
                       Today
                     </span>
-                  )}
+                  ) : null}
                 </div>
-                
-                <div className="flex flex-col gap-1.5 min-h-0 overflow-hidden">
-                  {bucket.allDay.length > 0 && (
-                    <div className="flex flex-col gap-1">
-                      {bucket.allDay.slice(0, 2).map((event) => renderAllDayEvent(event, muted, key))}
-                      {bucket.allDay.length > 2 && (
-                        <span className="text-[10px] font-medium text-slate-400 px-1">
-                          +{bucket.allDay.length - 2} more
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  
-                  <div className="flex flex-col gap-1 flex-1 min-h-0">
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-1 px-1.5">
+                    {bucket.allDay.length > 0 ? (
+                      bucket.allDay.map((event) => renderAllDayEvent(event, muted, key))
+                    ) : (
+                      <span className={`text-[10px] uppercase tracking-wide ${muted ? "text-slate-300" : "text-slate-400"}`}>
+                        All-day free
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex min-h-[96px] flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-1.5 pb-1.5">
                     {bucket.timed.length > 0 ? (
-                      <>
-                        {bucket.timed.slice(0, 3).map((event) => renderTimedListEvent(event, muted, key))}
-                        {bucket.timed.length > 3 && (
-                          <span className="text-[10px] font-medium text-slate-400 px-1">
-                            +{bucket.timed.length - 3} more
-                          </span>
-                        )}
-                      </>
-                    ) : bucket.allDay.length === 0 ? (
-                      <span className="text-[10px] text-slate-300 px-1">No events</span>
-                    ) : null}
+                      bucket.timed.map((event) => renderTimedListEvent(event, muted, key))
+                    ) : (
+                      <span className={`text-[11px] ${muted ? "text-slate-300" : "text-slate-400"}`}>No timed events</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -641,24 +631,24 @@ export default function CalendarPage() {
   );
 
   const weekView = (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-      <div className="grid grid-cols-[80px,repeat(7,minmax(0,1fr))] border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+    <div className="overflow-hidden rounded-3xl border border-sky-200/70 bg-white shadow-xl xl:min-h-[75vh]">
+      <div className="grid grid-cols-[100px,repeat(7,minmax(0,1fr))] border-b border-sky-200/80 bg-sky-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
         <div className="px-3 py-3" />
         {visibleDays.map((day) => {
           const isToday = isSameDay(day, today);
           return (
             <div
               key={`head-${day.toISOString()}`}
-              className={`px-3 py-3 text-center ${isToday ? "bg-sky-50 text-sky-600" : ""}`}
+              className={`px-3 py-3 text-center font-semibold ${isToday ? "text-sky-600" : "text-slate-500"}`}
             >
-              <div className="text-[10px]">{WEEKDAY_LABELS[day.getDay()]}</div>
-              <div className={`text-lg font-bold ${isToday ? "text-sky-600" : "text-slate-800"}`}>{day.getDate()}</div>
+              <div>{WEEKDAY_LABELS[day.getDay()]}</div>
+              <div className="text-base font-bold text-slate-700">{day.getDate()}</div>
             </div>
           );
         })}
       </div>
-      <div className="grid grid-cols-[80px,repeat(7,minmax(0,1fr))] border-b border-slate-200 bg-slate-50/50">
-        <div className="px-3 py-2 text-xs font-semibold text-slate-500">All day</div>
+      <div className="grid grid-cols-[100px,repeat(7,minmax(0,1fr))] border-b border-sky-200/80 bg-sky-100/70 text-xs font-semibold uppercase tracking-wide text-sky-700">
+        <div className="px-3 py-3 text-left text-slate-500">All-day</div>
         {visibleDays.map((day) => {
           const key = day.toISOString().slice(0, 10);
           const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
@@ -666,26 +656,26 @@ export default function CalendarPage() {
           return (
             <div
               key={`all-${key}`}
-              className={`flex min-h-[60px] flex-col gap-1 overflow-hidden px-2 py-2 ${
-                isToday ? "bg-sky-50/50" : ""
+              className={`flex min-h-[62px] flex-wrap items-start gap-1 px-3 py-3 ${
+                isToday ? "bg-white" : "bg-sky-50/60"
               }`}
             >
               {bucket.allDay.length > 0 ? (
                 bucket.allDay.map((event) => renderAllDayEvent(event, false, key))
               ) : (
-                <span className="text-[10px] text-slate-300">Free</span>
+                <span className="text-[10px] uppercase tracking-wide text-slate-300">Free</span>
               )}
             </div>
           );
         })}
       </div>
-      <div className="grid grid-cols-[80px,repeat(7,minmax(0,1fr))]">
-        <div className="relative h-[720px] border-r border-slate-200 bg-slate-50/30">
+      <div className="grid grid-cols-[100px,repeat(7,minmax(0,1fr))]">
+        <div className="relative h-[720px] border-r border-slate-200 bg-slate-50/60">
           {HOURS.map((hour) => (
             <div
               key={`label-${hour}`}
               style={{ top: `${(hour / 24) * 100}%` }}
-              className="absolute left-0 right-0 -mt-2.5 flex items-center justify-end pr-2 text-[10px] font-semibold text-slate-400"
+              className="absolute left-0 right-0 -mt-3 flex items-center justify-end pr-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
             >
               {formatHourLabel(hour)}
             </div>
@@ -697,17 +687,17 @@ export default function CalendarPage() {
           const isToday = isSameDay(day, today);
 
           return (
-            <div key={key} className={`relative h-[720px] border-l border-slate-200 overflow-hidden ${isToday ? "bg-sky-50/30" : "bg-white"}`}>
+            <div key={key} className={`relative h-[720px] border-l border-slate-200 ${isToday ? "bg-sky-50" : "bg-white"}`}>
               {HOURS.map((hour) => (
                 <div
                   key={`grid-${key}-${hour}`}
                   style={{ top: `${(hour / 24) * 100}%` }}
-                  className="absolute left-0 right-0 -mt-px border-t border-dashed border-slate-200"
+                  className="absolute left-0 right-0 -mt-px border-t border-dashed border-slate-200/70"
                 />
               ))}
-              {bucket.timed.length === 0 && (
-                <span className="absolute left-2 top-2 text-[11px] text-slate-300">No events</span>
-              )}
+              {bucket.timed.length === 0 ? (
+                <span className="absolute left-1 right-1 top-1 text-[11px] text-slate-300">No scheduled events</span>
+              ) : null}
               {bucket.timed.map((event) => renderTimedBlock(event, day, key))}
             </div>
           );
@@ -721,11 +711,11 @@ export default function CalendarPage() {
     const bucket = eventsByDay.get(key) ?? { allDay: [], timed: [] };
 
     return (
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-sky-50 to-white px-6 py-5">
+      <div className="overflow-hidden rounded-3xl border border-sky-200/70 bg-white shadow-xl xl:min-h-[75vh]">
+        <div className="flex items-center justify-between border-b border-sky-200/70 bg-sky-50/70 px-6 py-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Single Day View</p>
-            <h2 className="text-2xl font-bold text-slate-900">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Focused day</p>
+            <h2 className="text-2xl font-semibold text-slate-900">
               {currentDate.toLocaleDateString(undefined, {
                 weekday: "long",
                 month: "long",
@@ -734,45 +724,45 @@ export default function CalendarPage() {
               })}
             </h2>
           </div>
-          {isSameDay(currentDate, today) && (
-            <span className="rounded-full bg-sky-500 px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white shadow-sm">
+          {isSameDay(currentDate, today) ? (
+            <span className="rounded-full bg-sky-500 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
               Today
             </span>
-          )}
+          ) : null}
         </div>
-        <div className="border-b border-slate-200 bg-slate-50/50 px-6 py-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-600">All-day Events</h3>
-          <div className="flex flex-wrap gap-2">
+        <div className="border-b border-slate-200/70 px-6 py-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">All-day</h3>
+          <div className="mt-3 flex flex-wrap gap-2">
             {bucket.allDay.length > 0 ? (
               bucket.allDay.map((event) => renderAllDayEvent(event, false, key))
             ) : (
-              <span className="text-xs text-slate-400">No all-day events</span>
+              <span className="text-xs uppercase tracking-wide text-slate-300">No all-day events</span>
             )}
           </div>
         </div>
         <div className="grid grid-cols-[80px,1fr]">
-          <div className="relative h-[720px] border-r border-slate-200 bg-slate-50/30">
+          <div className="relative h-[720px] border-r border-slate-200 bg-slate-50/60">
             {HOURS.map((hour) => (
               <div
                 key={`day-label-${hour}`}
                 style={{ top: `${(hour / 24) * 100}%` }}
-                className="absolute left-0 right-0 -mt-2.5 flex justify-end pr-2 text-[10px] font-semibold text-slate-400"
+                className="absolute left-0 right-0 -mt-3 flex justify-end pr-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
               >
                 {formatHourLabel(hour)}
               </div>
             ))}
           </div>
-          <div className="relative h-[720px] overflow-hidden">
+          <div className="relative h-[720px]">
             {HOURS.map((hour) => (
               <div
                 key={`day-grid-${hour}`}
                 style={{ top: `${(hour / 24) * 100}%` }}
-                className="absolute left-0 right-0 -mt-px border-t border-dashed border-slate-200"
+                className="absolute left-0 right-0 -mt-px border-t border-dashed border-slate-200/70"
               />
             ))}
-            {bucket.timed.length === 0 && (
-              <span className="absolute left-3 top-3 text-sm text-slate-300">No scheduled events</span>
-            )}
+            {bucket.timed.length === 0 ? (
+              <span className="absolute left-3 right-3 top-3 text-sm text-slate-300">No timed events scheduled</span>
+            ) : null}
             {bucket.timed.map((event) => renderTimedBlock(event, currentDate, key))}
           </div>
         </div>
@@ -782,79 +772,79 @@ export default function CalendarPage() {
 
   const eventModal = selectedEvent ? (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4 py-8"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 py-8 sm:px-6"
       role="dialog"
       aria-modal="true"
       onClick={() => setSelectedEvent(null)}
     >
       <div
-        className="relative w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="relative w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-3xl border border-slate-200 bg-white shadow-2xl sm:max-w-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <button
           type="button"
           onClick={() => setSelectedEvent(null)}
-          className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+          className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
           aria-label="Close event details"
         >
           ✕
         </button>
         <div className="space-y-5 px-6 py-7">
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Event Details</p>
-            <h3 className="pr-8 text-2xl font-bold text-slate-900">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Event details</p>
+            <h3 className="text-2xl font-semibold text-slate-900">
               {selectedEvent.summary ?? "Untitled event"}
             </h3>
-            {selectedEventRangeLabel && (
-              <p className="text-sm text-slate-600">{selectedEventRangeLabel}</p>
-            )}
-            {selectedEvent?.isAllDay && (
-              <p className="text-sm font-semibold text-sky-600">All day</p>
-            )}
+            {selectedEventRangeLabel ? (
+              <p className="text-sm text-slate-500">{selectedEventRangeLabel}</p>
+            ) : null}
+            {selectedEvent?.isAllDay ? (
+              <p className="text-sm font-semibold text-slate-700">All day</p>
+            ) : null}
           </div>
           <div className="space-y-3 text-sm text-slate-600">
-            {selectedEventCalendarName && (
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 min-w-[70px] text-xs font-semibold uppercase tracking-wide text-slate-400">Calendar</span>
+            {selectedEventCalendarName ? (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Calendar</span>
                 <span className="font-medium text-slate-700">{selectedEventCalendarName}</span>
               </div>
-            )}
-            {selectedEvent.location && (
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 min-w-[70px] text-xs font-semibold uppercase tracking-wide text-slate-400">Location</span>
+            ) : null}
+            {selectedEvent.location ? (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Location</span>
                 <span className="font-medium text-slate-700">{selectedEvent.location}</span>
               </div>
-            )}
-            {selectedEventStatus && (
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 min-w-[70px] text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
-                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
+            ) : null}
+            {selectedEventStatus ? (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
                   {selectedEventStatus}
                 </span>
               </div>
-            )}
-            {selectedEventDescription && (
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 min-w-[70px] text-xs font-semibold uppercase tracking-wide text-slate-400">Notes</span>
-                <p className="flex-1 whitespace-pre-wrap text-sm text-slate-600">{selectedEventDescription}</p>
+            ) : null}
+            {selectedEventDescription ? (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Notes</span>
+                <p className="whitespace-pre-wrap text-sm text-slate-600">{selectedEventDescription}</p>
               </div>
-            )}
+            ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            {selectedEventLink && (
+          <div className="flex flex-wrap items-center gap-3">
+            {selectedEventLink ? (
               <a
                 href={selectedEventLink}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+                className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
               >
                 Open in Google Calendar ↗
               </a>
-            )}
+            ) : null}
             <button
               type="button"
               onClick={() => setSelectedEvent(null)}
-              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex items-center rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
             >
               Close
             </button>
@@ -866,120 +856,119 @@ export default function CalendarPage() {
 
   return (
     <>
-      <div className="mx-auto w-full max-w-7xl px-4 pb-12 pt-8 sm:px-6 lg:px-8">
-        <header className="mb-8 space-y-2">
-          <p className="text-sm font-semibold uppercase tracking-wide text-sky-600">Synced Schedules</p>
-          <h1 className="text-4xl font-bold text-slate-900">Calendar</h1>
-          <p className="max-w-3xl text-base text-slate-600 leading-relaxed">
-            View and manage events from your connected calendars. Switch between day, week, and month views to find what you need.
-          </p>
-        </header>
+      <div className="mx-auto w-full max-w-6xl px-4 pb-12 pt-8 sm:px-6 lg:px-8 xl:max-w-[75vw] xl:px-4 2xl:px-8">
+        <header className="mb-8 space-y-3">
+          <p className="text-sm font-semibold uppercase tracking-wide text-sky-600">Synced schedules</p>
+          <h1 className="text-3xl font-bold text-slate-900">Calendar</h1>
+          <p className="max-w-2xl text-sm text-slate-500">
+            Explore everything that has been synced from your connected calendars. Switch between day, week, and month views,
+          filter specific calendars, and open any event directly in Google Calendar.
+        </p>
+      </header>
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              View
-              <select
-                value={viewMode}
-                onChange={(event) => setViewMode(event.target.value as CalendarViewMode)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              >
-                {VIEW_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              Calendar
-              <select
-                value={sourceId}
-                onChange={(event) => setSourceId(event.target.value)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              >
-                <option value="all">All calendars</option>
-                {calendarOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
-              <span>{rangeLabel}</span>
-              <span className="text-slate-400">•</span>
-              <span>
-                {visibleEventCount} of {totalCount}
-              </span>
-            </div>
-            <div className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white p-1">
-              <button
-                type="button"
-                onClick={handlePrev}
-                className="rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                aria-label="Previous"
-              >
-                ◀
-              </button>
-              <button
-                type="button"
-                onClick={handleToday}
-                className="rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 whitespace-nowrap"
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                onClick={handleNext}
-                className="rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                aria-label="Next"
-              >
-                ▶
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={handleSyncAll}
-              disabled={syncing || !accessToken}
-              className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-sky-200/70 bg-white px-5 py-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+            View
+            <select
+              value={viewMode}
+              onChange={(event) => setViewMode(event.target.value as CalendarViewMode)}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
             >
-              {syncing ? "Syncing…" : "Sync calendars"}
-            </button>
-          </div>
+              {VIEW_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+            Calendar
+            <select
+              value={sourceId}
+              onChange={(event) => setSourceId(event.target.value)}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
+            >
+              <option value="all">All calendars</option>
+              {calendarOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
-        {syncMessage && (
-          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-medium text-emerald-800">
-            {syncMessage}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 rounded-2xl bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
+            <span>{rangeLabel}</span>
+            <span className="text-slate-400">•</span>
+            <span>
+              {visibleEventCount} of {totalCount} events
+            </span>
           </div>
-        )}
+          <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-1 py-1">
+            <button
+              type="button"
+              onClick={handlePrev}
+              className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-900"
+            >
+              ◀
+            </button>
+            <button
+              type="button"
+              onClick={handleToday}
+              className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-900"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={handleNext}
+              className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-900"
+            >
+              ▶
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleSyncAll}
+            disabled={syncing || !accessToken}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+          >
+            {syncing ? "Syncing…" : "Sync calendars"}
+          </button>
+        </div>
+      </div>
 
-        {error && (
-          <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-5 py-3 text-sm font-medium text-rose-800">
-            {error}
-          </div>
-        )}
+      {syncMessage ? (
+        <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700 shadow-sm">
+          {syncMessage}
+        </div>
+      ) : null}
 
-        {loading ? (
-          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500 shadow-sm">
-            Loading events…
-          </div>
-        ) : visibleEventCount === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500 shadow-sm">
-            No events found for the selected view and filters.
-          </div>
-        ) : viewMode === "day" ? (
-          dayView
-        ) : viewMode === "week" ? (
-          weekView
-        ) : (
-          monthView
-        )}
+      {error ? (
+        <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 shadow-sm">
+          {error}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm">
+          Loading events…
+        </div>
+      ) : visibleEventCount === 0 ? (
+        <div className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm">
+          No events match the current filters.
+        </div>
+      ) : viewMode === "day" ? (
+        dayView
+      ) : viewMode === "week" ? (
+        weekView
+      ) : (
+        monthView
+      )}
       </div>
       {eventModal}
     </>
