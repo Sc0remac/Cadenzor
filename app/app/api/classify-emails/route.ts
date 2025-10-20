@@ -326,6 +326,7 @@ export async function POST(request: Request) {
               is_read: false,
               summary,
               labels,
+              source: "gmail",
             },
             { onConflict: "id" }
           );

@@ -1,0 +1,900 @@
+  ---
+  Current State Assessment
+
+  ✅ What You HAVE Built (Impressive!)
+
+  1. Sophisticated Priority Config System:
+    - All 29 email categories with individual weights (0-100)
+    - Time decay formulas (upcoming tasks, overdue penalties)
+    - Idle age calculation (3-tier: short/medium/long windows)
+    - Triage state adjustments (unassigned/acknowledged/snoozed/resolved)
+    - Cross-label boost rules (prefix-based, case-insensitive)
+    - Task, timeline, conflict, and dependency scoring
+    - Health metrics calculation
+  2. User-Editable Settings UI (/settings/priorities):
+    - Visual category weight sliders for all labels
+    - Searchable category list
+    - Time factor inputs (decay/overdue rates)
+    - Manual priority weight controls (AI influence 0-1)
+    - Conflict/dependency penalty editors
+    - Cross-label rule builder (add/edit/remove)
+    - Import/export JSON
+    - Reset to defaults
+  3. Preset System:
+    - 4 curated presets (Release Week, Touring Season, Off Season, Legal Focus)
+    - One-click apply with instant save
+    - Shows recommended scenarios + adjustments
+  4. Storage & Persistence:
+    - Per-user config in user_preferences.priority_config (jsonb)
+    - Tracks source (default vs custom)
+    - Last updated timestamp
+  5. Calculation Engine:
+    - shared/src/projectPriority.ts scores projects, tasks, timeline items
+    - Used for digest generation and project dashboards
+    - NOT used for inbox email triage (this is the critical gap!)
+
+  ---
+  🚨 Critical Gaps (Priority Order)
+
+  Gap 1: Email Priority Scores Are Never Calculated 🔴
+
+  Problem:
+  - Worker (worker/src/index.ts:258-273) inserts emails without priority_score
+  - Database has the column, but all emails default to 0
+  - Dashboard can't sort/group by priority because all values are identical
+
+  Impact: The entire priority system is invisible to users in the inbox
+
+  Solution Required:
+  // In worker/src/index.ts, after classification:
+  import { calculateEmailPriority } from "./emailPriority"; // NEW FILE
+
+  const priorityScore = calculateEmailPriority({
+    category,
+    labels,
+    receivedAt,
+    isRead: false,
+    triageState: "unassigned",
+    userConfig: await fetchUserPriorityConfig(userId) // Need user ID mapping!
+  });
+
+  // Add to upsert:
+  priority_score: priorityScore
+
+  Complexity: ⭐⭐⭐ (Medium - requires user→email mapping)
+
+  ---
+  Gap 2: No User-to-Email Mapping 🔴
+
+  Problem:
+  - Emails are fetched from a single Gmail account (GMAIL_REFRESH_TOKEN)
+  - No user_id column on emails table
+  - Can't look up which user's priority config to use
+
+  Solution Required:
+  1. Add user_id to emails table:
+  ALTER TABLE emails ADD COLUMN user_id UUID REFERENCES auth.users(id);
+  CREATE INDEX emails_user_id_idx ON emails(user_id);
+  2. Store user ID when connecting Gmail OAuth:
+  // When user authorizes Gmail, store in oauth_accounts:
+  INSERT INTO oauth_accounts (user_id, provider, account_email, refresh_token, ...)
+  3. Worker fetches emails per user:
+  // Instead of single GMAIL_REFRESH_TOKEN:
+  const oauthAccounts = await getActiveGmailAccounts();
+  for (const account of oauthAccounts) {
+    const gmail = getGmailClient(account.refresh_token);
+    // Process emails for account.user_id
+  }
+
+  Complexity: ⭐⭐⭐⭐ (High - architectural change)
+
+  ---
+  Gap 3: No Triage Workflow in UI 🟡
+
+  Problem:
+  - Users can't change triage_state in the dashboard
+  - No snooze picker (until date/time)
+  - No "Mark as done" / "Acknowledge" buttons
+
+  Solution Required:
+
+  UI Components:
+  // EmailCard actions:
+  <EmailActions>
+    <Button onClick={() => acknowledgeEmail(email.id)}>
+      Mark Read
+    </Button>
+    <Button onClick={() => openSnoozeModal(email.id)}>
+      Snooze
+    </Button>
+    <Button onClick={() => resolveEmail(email.id)}>
+      Archive
+    </Button>
+  </EmailActions>
+
+  // Snooze modal:
+  <SnoozePicker
+    onSelect={(until) => snoozeEmail(email.id, until)}
+    options={[
+      "Later today (6PM)",
+      "Tomorrow (9AM)",
+      "Next week",
+      "Custom date/time"
+    ]}
+  />
+
+  API Endpoint:
+  // PATCH /api/emails/[emailId]/triage
+  {
+    triageState: "snoozed",
+    snoozedUntil?: "2025-10-21T09:00:00Z"
+  }
+
+  Database:
+  ALTER TABLE emails ADD COLUMN snoozed_until TIMESTAMPTZ;
+
+  Priority Recalculation:
+  - When state changes, recalculate priority and update
+  - Worker checks snoozed_until and un-snoozes expired items
+
+  Complexity: ⭐⭐⭐ (Medium)
+
+  ---
+  Gap 4: No Action Thresholds / Playbook Triggers 🟡
+
+  Problem:
+  - No way to configure: "When email is BOOKING/Offer with priority > 70, show 'Create Lead' button"
+  - No user-defined rules for action suggestions
+
+  Solution Required:
+
+  New Config Section: actionRules
+  interface ActionRule {
+    id: string;
+    name: string;
+    enabled: boolean;
+    conditions: {
+      categories?: EmailLabel[];      // Match any of these
+      minPriority?: number;           // Priority >= this
+      maxPriority?: number;           // Priority <= this
+      hasLabels?: string[];           // Must have cross-labels
+      triageState?: EmailTriageState[];
+    };
+    actions: {
+      showButton?: string;            // "Create Lead", "Draft Reply"
+      playbookSlug?: string;          // Link to playbook
+      autoTag?: string[];             // Add labels automatically
+      notifyChannel?: "email" | "slack";
+    };
+  }
+
+  // Add to PriorityConfig:
+  interface PriorityConfig {
+    // ... existing fields
+    actionRules: ActionRule[];
+  }
+
+  UI Addition to Settings Page:
+  <section>
+    <h2>Action Rules</h2>
+    <p>Define when to suggest playbooks or show action buttons</p>
+
+    {config.actionRules.map((rule, index) => (
+      <RuleCard key={rule.id}>
+        <input value={rule.name} />
+        <label>
+          When email matches:
+          <MultiSelect 
+            options={PRIMARY_LABEL_DEFINITIONS} 
+            value={rule.conditions.categories}
+          />
+          Priority: {rule.conditions.minPriority} - {rule.conditions.maxPriority}
+        </label>
+        <label>
+          Show action:
+          <select value={rule.actions.showButton}>
+            <option>Create Lead</option>
+            <option>Draft Reply</option>
+            <option>Add to Timeline</option>
+          </select>
+        </label>
+        <Button onClick={() => removeRule(index)}>Remove</Button>
+      </RuleCard>
+    ))}
+
+    <Button onClick={addRule}>+ Add Rule</Button>
+  </section>
+
+  Email Dashboard Integration:
+  function getActionsForEmail(email: EmailRecord, rules: ActionRule[]) {
+    return rules
+      .filter(rule => rule.enabled)
+      .filter(rule => {
+        if (rule.conditions.categories &&
+            !rule.conditions.categories.includes(email.category)) {
+          return false;
+        }
+        if (rule.conditions.minPriority &&
+            (email.priorityScore ?? 0) < rule.conditions.minPriority) {
+          return false;
+        }
+        // ... check other conditions
+        return true;
+      })
+      .map(rule => rule.actions);
+  }
+
+  Complexity: ⭐⭐⭐⭐ (High - new subsystem)
+
+  ---
+  Gap 5: No Advanced Email Boost Rules 🟢
+
+  Problem:
+  - Can't configure: "Boost priority if email has attachment"
+  - Can't configure: "Boost if from VIP contact"
+  - Can't configure: "Boost if received during business hours"
+
+  Solution Required:
+
+  New Config Section: advancedBoosts
+  interface AdvancedEmailBoost {
+    id: string;
+    name: string;
+    enabled: boolean;
+    weight: number; // -100 to +100
+    condition: {
+      type:
+        | "has_attachment"
+        | "from_vip_contact"
+        | "thread_length_gt"
+        | "keyword_in_subject"
+        | "received_during_hours"
+        | "first_email_from_sender";
+      params?: Record<string, unknown>;
+    };
+  }
+
+  // Example configs:
+  {
+    name: "Attachments boost",
+    weight: 15,
+    condition: { type: "has_attachment" }
+  }
+
+  {
+    name: "VIP senders",
+    weight: 30,
+    condition: {
+      type: "from_vip_contact",
+      params: {
+        vipDomains: ["fabric.london", "beatport.com"],
+        vipEmails: ["booking@berghain.de"]
+      }
+    }
+  }
+
+  {
+    name: "Business hours boost",
+    weight: 10,
+    condition: {
+      type: "received_during_hours",
+      params: { start: "09:00", end: "17:00", timezone: "Europe/London" }
+    }
+  }
+
+  UI Section:
+  <section>
+    <h2>Advanced Priority Boosts</h2>
+    {config.advancedBoosts.map(boost => (
+      <Card>
+        <Toggle checked={boost.enabled} />
+        <span>{boost.name}</span>
+        <input type="number" value={boost.weight} min={-100} max={100} />
+        <Button onClick={() => editBoost(boost)}>Configure</Button>
+      </Card>
+    ))}
+    <Button onClick={addBoost}>+ Add Boost Rule</Button>
+  </section>
+
+  Calculation Integration:
+  // In shared/src/emailPriority.ts:
+  function applyAdvancedBoosts(
+    email: EmailRecord, 
+    boosts: AdvancedEmailBoost[]
+  ): number {
+    let total = 0;
+    for (const boost of boosts) {
+      if (!boost.enabled) continue;
+      if (evaluateBoostCondition(email, boost.condition)) {
+        total += boost.weight;
+      }
+    }
+    return total;
+  }
+
+  Complexity: ⭐⭐⭐⭐ (High - many condition types to implement)
+
+  ---
+  Gap 6: No Priority Zone Configuration 🟢
+
+  Problem:
+  - Hard-coded zones (High = 80+, Medium = 50-79, Low = 0-49)
+  - Can't customize zone names, thresholds, or colors
+
+  Solution Required:
+
+  New Config Section: priorityZones
+  interface PriorityZone {
+    id: string;
+    name: string;
+    minScore: number;
+    maxScore: number;
+    color: string; // hex color
+    icon?: string; // emoji or icon name
+    defaultView?: "expanded" | "collapsed";
+    showInToday?: boolean; // Include in Today digest?
+  }
+
+  // Example:
+  const defaultZones: PriorityZone[] = [
+    {
+      id: "critical",
+      name: "🔴 Urgent",
+      minScore: 85,
+      maxScore: 100,
+      color: "#DC2626",
+      defaultView: "expanded",
+      showInToday: true
+    },
+    {
+      id: "high",
+      name: "🟠 High",
+      minScore: 65,
+      maxScore: 84,
+      color: "#F59E0B",
+      defaultView: "expanded",
+      showInToday: true
+    },
+    {
+      id: "medium",
+      name: "🟡 Medium",
+      minScore: 40,
+      maxScore: 64,
+      color: "#EAB308",
+      defaultView: "collapsed",
+      showInToday: false
+    },
+    {
+      id: "low",
+      name: "Low Priority",
+      minScore: 0,
+      maxScore: 39,
+      color: "#6B7280",
+      defaultView: "collapsed",
+      showInToday: false
+    }
+  ];
+
+  UI Editor:
+  <section>
+    <h2>Priority Zones</h2>
+    <p>Define score ranges and how they display</p>
+
+    <DragDropList sortable>
+      {config.priorityZones.map((zone, index) => (
+        <ZoneRow key={zone.id}>
+          <DragHandle />
+          <ColorPicker value={zone.color} />
+          <input value={zone.name} />
+          <span>Scores {zone.minScore}-{zone.maxScore}</span>
+          <Toggle 
+            label="Show in Today" 
+            checked={zone.showInToday}
+          />
+          <Button onClick={() => removeZone(index)}>Remove</Button>
+        </ZoneRow>
+      ))}
+    </DragDropList>
+
+    <Button onClick={addZone}>+ Add Zone</Button>
+  </section>
+
+  Dashboard Integration:
+  function groupEmailsByZone(
+    emails: EmailRecord[], 
+    zones: PriorityZone[]
+  ) {
+    const grouped = new Map<string, EmailRecord[]>();
+
+    for (const zone of zones) {
+      grouped.set(zone.id, []);
+    }
+
+    for (const email of emails) {
+      const score = email.priorityScore ?? 0;
+      const zone = zones.find(z =>
+        score >= z.minScore && score <= z.maxScore
+      );
+      if (zone) {
+        grouped.get(zone.id)!.push(email);
+      }
+    }
+
+    return grouped;
+  }
+
+  // Render:
+  {zones.map(zone => (
+    <PriorityZoneSection
+      key={zone.id}
+      zone={zone}
+      emails={groupedEmails.get(zone.id) || []}
+      defaultExpanded={zone.defaultView === "expanded"}
+    />
+  ))}
+
+  Complexity: ⭐⭐⭐ (Medium)
+
+  ---
+  Gap 7: No Configuration Testing/Preview 🟢
+
+  Problem:
+  - Users change weights blindly without seeing impact
+  - No "Before/After" comparison
+
+  Solution Required:
+
+  Preview Mode UI:
+  <section>
+    <h2>Test Configuration</h2>
+    <p>See how your changes affect recent emails</p>
+
+    <Card>
+      <label>
+        Test against:
+        <select>
+          <option>Last 50 emails</option>
+          <option>Last 7 days</option>
+          <option>Unread emails only</option>
+        </select>
+      </label>
+
+      <Button onClick={runPreview}>
+        Calculate Preview
+      </Button>
+    </Card>
+
+    {preview && (
+      <PreviewResults>
+        <h3>Score Changes</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Old Score</th>
+              <th>New Score</th>
+              <th>Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {preview.changes.map(change => (
+              <tr>
+                <td>{change.email.subject}</td>
+                <td>{change.oldScore}</td>
+                <td 
+                  className={change.newScore > change.oldScore ? "text-green" : "text-red"}
+                >
+                  {change.newScore}
+                </td>
+                <td>
+                  {change.newScore > change.oldScore ? "↑" : "↓"}
+                  {Math.abs(change.newScore - change.oldScore)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <Chart>
+          {/* Before/after distribution histogram */}
+        </Chart>
+      </PreviewResults>
+    )}
+  </section>
+
+  API Endpoint:
+  // POST /api/priority-config/preview
+  {
+    config: PriorityConfig,
+    sampleSize: number,
+    filter: { unreadOnly: boolean, days: number }
+  }
+
+  // Returns:
+  {
+    changes: Array<{
+      emailId: string,
+      subject: string,
+      oldScore: number,
+      newScore: number,
+      rationale: string[]
+    }>,
+    stats: {
+      avgChangePercent: number,
+      itemsMoved: number
+    }
+  }
+
+  Complexity: ⭐⭐⭐ (Medium - mostly UI)
+
+  ---
+  Gap 8: No Per-Project Priority Profiles 🔵
+
+  Problem:
+  - Config is global; no project-specific overrides
+  - Can't say: "For Asian Tour project, boost logistics by +20"
+
+  Solution Required:
+
+  Project-Specific Overrides:
+  // Add to projects table:
+  priority_profile_override JSONB
+
+  // Structure:
+  {
+    enabled: boolean,
+    overrides: Partial<PriorityConfig>
+  }
+
+  // Example: Tour project boosts logistics
+  {
+    enabled: true,
+    overrides: {
+      email: {
+        categoryWeights: {
+          "LOGISTICS/Travel": 95,
+          "LOGISTICS/Accommodation": 90,
+          "LOGISTICS/Visas_Immigration": 98
+        }
+      }
+    }
+  }
+
+  UI in Project Settings:
+  <ProjectSettings projectId={projectId}>
+    <h3>Priority Overrides</h3>
+    <Toggle 
+      label="Use custom priorities for this project"
+      checked={project.priorityProfileOverride?.enabled}
+    />
+
+    {overridesEnabled && (
+      <>
+        <p>Adjust how emails linked to this project are scored</p>
+        <CategoryWeightEditor 
+          config={project.priorityProfileOverride.overrides}
+          baseConfig={userGlobalConfig}
+          onChange={updateProjectOverrides}
+        />
+      </>
+    )}
+  </ProjectSettings>
+
+  Calculation Logic:
+  function getEffectiveConfig(
+    email: EmailRecord, 
+    userConfig: PriorityConfig
+  ): PriorityConfig {
+    // Check if email is linked to a project
+    const projectLink = await getProjectLinkForEmail(email.id);
+    if (!projectLink) {
+      return userConfig;
+    }
+
+    const project = await getProject(projectLink.projectId);
+    if (!project.priorityProfileOverride?.enabled) {
+      return userConfig;
+    }
+
+    // Merge overrides
+    return mergePriorityConfigs(
+      userConfig,
+      project.priorityProfileOverride.overrides
+    );
+  }
+
+  Complexity: ⭐⭐⭐⭐ (High - requires project-email linking)
+
+  ---
+  Gap 9: No Scheduled Preset Switching 🔵
+
+  Problem:
+  - Can't auto-switch to "Touring Season" preset when user is on tour
+  - No time-based automation
+
+  Solution Required:
+
+  Schedule Rules:
+  interface PresetSchedule {
+    id: string;
+    enabled: boolean;
+    presetSlug: string;
+    trigger: {
+      type: "date_range" | "weekly_schedule" | "geolocation";
+      params: Record<string, unknown>;
+    };
+  }
+
+  // Examples:
+  {
+    presetSlug: "touring-season",
+    trigger: {
+      type: "date_range",
+      params: {
+        start: "2025-11-01",
+        end: "2025-11-30",
+        timezone: "Europe/London"
+      }
+    }
+  }
+
+  {
+    presetSlug: "off-season",
+    trigger: {
+      type: "weekly_schedule",
+      params: {
+        days: ["saturday", "sunday"],
+        timezone: "Europe/London"
+      }
+    }
+  }
+
+  UI:
+  <section>
+    <h2>Scheduled Presets</h2>
+    <p>Automatically switch configurations based on time or location</p>
+
+    {schedules.map(schedule => (
+      <Card>
+        <Toggle checked={schedule.enabled} />
+        <span>Apply "{schedule.presetName}"</span>
+        <span>During: {formatTrigger(schedule.trigger)}</span>
+        <Button onClick={() => editSchedule(schedule)}>Edit</Button>
+      </Card>
+    ))}
+  </section>
+
+  Worker Job:
+  // Runs every hour:
+  async function checkPresetSchedules() {
+    const users = await getActiveUsers();
+    for (const user of users) {
+      const activeSchedule = await getActiveSchedule(user.id, new Date());
+      if (activeSchedule) {
+        await applyPreset(user.id, activeSchedule.presetSlug);
+      }
+    }
+  }
+
+  Complexity: ⭐⭐⭐⭐ (High - cron system + geo lookup)
+
+  ---
+  Gap 10: No Adaptive Learning 🔵
+
+  Problem:
+  - System doesn't learn from user behavior
+  - No suggestions like: "You've manually boosted BOOKING/Offer 10 times—increase base weight?"
+
+  Solution Required:
+
+  Action Tracking:
+  CREATE TABLE priority_adjustments (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id),
+    email_id TEXT REFERENCES emails(id),
+    manual_adjustment INT, -- -50 to +50
+    reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE TABLE action_patterns (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id),
+    pattern_type TEXT, -- e.g., "category_boost", "label_boost"
+    pattern_key TEXT,  -- e.g., "BOOKING/Offer"
+    frequency INT,     -- count of occurrences
+    avg_boost INT,     -- average manual adjustment
+    confidence FLOAT,  -- 0-1
+    last_seen_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  Analysis Worker:
+  // Runs daily:
+  async function analyzePriorityPatterns(userId: string) {
+    const adjustments = await getRecentAdjustments(userId, 30); // last 30 days
+
+    // Group by category:
+    const categoryBoosts = groupBy(adjustments, adj =>
+      emails.find(e => e.id === adj.email_id)?.category
+    );
+
+    const suggestions: PrioritySuggestion[] = [];
+
+    for (const [category, boosts] of categoryBoosts) {
+      const avgBoost = mean(boosts.map(b => b.manual_adjustment));
+      const count = boosts.length;
+
+      if (count >= 5 && avgBoost > 10) {
+        suggestions.push({
+          type: "increase_category_weight",
+          category,
+          currentWeight: userConfig.email.categoryWeights[category],
+          suggestedWeight: currentWeight + Math.round(avgBoost / 2),
+          rationale: `You've boosted ${category} emails ${count} times (avg +${avgBoost})`
+        });
+      }
+    }
+
+    return suggestions;
+  }
+
+  UI:
+  <section>
+    <h2>Priority Suggestions</h2>
+    <p>Based on your recent actions</p>
+
+    {suggestions.map(suggestion => (
+      <Card>
+        <Icon type={suggestion.type} />
+        <div>
+          <strong>{suggestion.category}</strong>
+          <p>{suggestion.rationale}</p>
+          <p>
+            Change weight from {suggestion.currentWeight}
+            → {suggestion.suggestedWeight}
+          </p>
+        </div>
+        <Button onClick={() => applySuggestion(suggestion)}>
+          Apply
+        </Button>
+        <Button variant="ghost" onClick={() => dismissSuggestion(suggestion)}>
+          Dismiss
+        </Button>
+      </Card>
+    ))}
+  </section>
+
+  Complexity: ⭐⭐⭐⭐⭐ (Very High - ML/analytics)
+
+  ---
+  📋 Implementation Roadmap for Your Dev Team
+
+  Phase 1: Foundation (2-3 weeks)
+
+  Make priority actually work for emails
+
+  | Task                                                       | Complexity | Priority    |
+  |------------------------------------------------------------|------------|-------------|
+  | 1.1 Add user_id column to emails table                     | ⭐⭐         | 🔴 Critical |
+  | 1.2 Create calculateEmailPriority() function in shared/    | ⭐⭐⭐        | 🔴 Critical |
+  | 1.3 Update worker to calculate + store priority_score      | ⭐⭐⭐⭐       | 🔴 Critical |
+  | 1.4 Add priority badges to EmailDashboard                  | ⭐⭐         | 🔴 Critical |
+  | 1.5 Sort emails by priority_score DESC by default          | ⭐          | 🔴 Critical |
+  | 1.6 Add triage state controls (snooze/acknowledge/resolve) | ⭐⭐⭐        | 🟡 High     |
+  | 1.7 Add snoozed_until column + worker un-snooze job        | ⭐⭐         | 🟡 High     |
+
+  Deliverable: Users see priority scores in inbox and can sort/filter by them
+
+  ---
+  Phase 2: Action Layer (3-4 weeks)
+
+  Enable user-defined action rules
+
+  | Task                                               | Complexity | Priority  |
+  |----------------------------------------------------|------------|-----------|
+  | 2.1 Design ActionRule type + add to PriorityConfig | ⭐⭐         | 🟡 High   |
+  | 2.2 Build Action Rules UI in settings/priorities   | ⭐⭐⭐⭐       | 🟡 High   |
+  | 2.3 Implement getActionsForEmail() evaluator       | ⭐⭐⭐        | 🟡 High   |
+  | 2.4 Add dynamic action buttons to EmailCard        | ⭐⭐⭐        | 🟡 High   |
+  | 2.5 Create playbook suggestion modals              | ⭐⭐⭐        | 🟢 Medium |
+
+  Deliverable: Users configure rules like "Show 'Create Lead' for BOOKING/Offer with priority > 70"
+
+  ---
+  Phase 3: Advanced Customization (3-4 weeks)
+
+  | Task                                                            | Complexity | Priority  |
+  |-----------------------------------------------------------------|------------|-----------|
+  | 3.1 Design AdvancedEmailBoost type                              | ⭐⭐         | 🟢 Medium |
+  | 3.2 Implement condition evaluators (attachments, VIP, keywords) | ⭐⭐⭐⭐       | 🟢 Medium |
+  | 3.3 Build Advanced Boosts UI                                    | ⭐⭐⭐        | 🟢 Medium |
+  | 3.4 Design PriorityZone type + default zones                    | ⭐⭐         | 🟢 Medium |
+  | 3.5 Build Priority Zones editor                                 | ⭐⭐⭐        | 🟢 Medium |
+  | 3.6 Update dashboard to group by zones                          | ⭐⭐⭐        | 🟢 Medium |
+  | 3.7 Build config preview/testing tool                           | ⭐⭐⭐        | 🟢 Medium |
+
+  Deliverable: Users can boost priority based on attachments, VIPs, etc. and preview changes
+
+  ---
+  Phase 4: Intelligence (4-6 weeks)
+
+  | Task                                          | Complexity | Priority        |
+  |-----------------------------------------------|------------|-----------------|
+  | 4.1 Add priority_profile_override to projects | ⭐⭐⭐        | 🔵 Nice-to-have |
+  | 4.2 Build per-project priority editor UI      | ⭐⭐⭐⭐       | 🔵 Nice-to-have |
+  | 4.3 Merge logic for project overrides         | ⭐⭐⭐        | 🔵 Nice-to-have |
+  | 4.4 Design PresetSchedule system              | ⭐⭐⭐⭐       | 🔵 Nice-to-have |
+  | 4.5 Build scheduled presets UI                | ⭐⭐⭐        | 🔵 Nice-to-have |
+  | 4.6 Implement cron worker for auto-switching  | ⭐⭐⭐        | 🔵 Nice-to-have |
+  | 4.7 Design adaptive learning tables           | ⭐⭐⭐⭐       | 🔵 Future       |
+  | 4.8 Build pattern analysis worker             | ⭐⭐⭐⭐⭐      | 🔵 Future       |
+  | 4.9 Build suggestions UI                      | ⭐⭐⭐        | 🔵 Future       |
+
+  Deliverable: System adapts to user behavior and auto-switches presets
+
+  ---
+  🎯 Quick Wins to Start With
+
+  If I were your dev lead, I'd implement these 3 quick wins in week 1:
+
+  Quick Win 1: Calculate Priority on Email Insert (2 days)
+
+  // worker/src/emailPriority.ts (NEW FILE)
+  export function calculateEmailPriority(
+    email: { category: string; labels: string[]; receivedAt: string },
+    config: PriorityConfig = DEFAULT_PRIORITY_CONFIG
+  ): number {
+    const categoryWeight = config.email.categoryWeights[email.category] ??
+      config.email.defaultCategoryWeight;
+
+    // Simplified idle age:
+    const ageHours = (Date.now() - new Date(email.receivedAt).getTime()) / 3600000;
+    const ageBoost = Math.min(30, Math.floor(ageHours * 2));
+
+    return Math.max(0, categoryWeight + ageBoost);
+  }
+
+  // worker/src/index.ts (UPDATE)
+  const priorityScore = calculateEmailPriority({ category, labels, receivedAt }, DEFAULT_PRIORITY_CONFIG);
+  await supabase.from("emails").upsert({ ..., priority_score: priorityScore });
+
+  Quick Win 2: Show Priority Badges (1 day)
+
+  // app/components/EmailDashboard.tsx (UPDATE)
+  <td className="px-4 py-3">
+    <PriorityBadge score={email.priorityScore ?? 0} />
+  </td>
+
+  function PriorityBadge({ score }: { score: number }) {
+    if (score >= 80) return <span className="badge-red">🔴 {score}</span>;
+    if (score >= 50) return <span className="badge-amber">🟡 {score}</span>;
+    return <span className="badge-gray">{score}</span>;
+  }
+
+  Quick Win 3: Sort by Priority (1 day)
+
+  // app/lib/supabaseClient.ts (UPDATE fetchRecentEmails)
+  const query = supabase
+    .from('emails')
+    .select('*')
+    .order('priority_score', { ascending: false })
+    .order('received_at', { ascending: false });
+
+  Result: Users immediately see priorities working, building trust for deeper customization
+
+  ---
+  💡 Key Design Principles
+
+  1. Progressive Disclosure: Start with defaults, reveal advanced features as needed
+  2. Live Preview: Always show impact of changes before saving
+  3. Escape Hatches: Allow JSON export/import for power users
+  4. Explainability: Show rationale for every score ("Category: +80, Idle 6h: +12, Unread: +18")
+  5. Safety: Never auto-apply destructive changes (e.g., auto-archiving)
+  6. Adaptability: Learn from user behavior, but always ask permission
+  7. Context-Aware: Per-project overrides for touring vs. studio time
+
+  ---
+  This roadmap gives your dev team everything they need to build a truly configurable priority system that works for artist
+  managers, agencies, legal teams, and any other use case. The foundation (Phase 1) makes the existing config actually work,
+   and subsequent phases layer on increasingly sophisticated customization.

@@ -8,12 +8,13 @@ import type {
   DigestProjectSnapshot,
   UserPreferenceRecord,
   EmailRecord,
-  TimelineItemRecord,
+  CalendarEventRecord,
 } from "@kazador/shared";
 import { useAuth } from "../AuthProvider";
 import {
   fetchTodayDigest,
   fetchRecentEmails,
+  fetchCalendarEvents,
   type TodayDigestResponse,
 } from "../../lib/supabaseClient";
 
@@ -29,6 +30,12 @@ interface EmailsState {
   error: string | null;
 }
 
+interface TodayEventsState {
+  items: CalendarEventRecord[];
+  loading: boolean;
+  error: string | null;
+}
+
 const INITIAL_DIGEST: DigestState = {
   digest: null,
   preferences: null,
@@ -36,6 +43,12 @@ const INITIAL_DIGEST: DigestState = {
 };
 
 const INITIAL_EMAILS: EmailsState = {
+  items: [],
+  loading: false,
+  error: null,
+};
+
+const INITIAL_TODAY_EVENTS: TodayEventsState = {
   items: [],
   loading: false,
   error: null,
@@ -70,31 +83,184 @@ function formatTrend(trend: ProjectDigestMetrics["trend"]): string {
   }
 }
 
-function getMeetingUrl(item: TimelineItemRecord): string | null {
-  const links = item.links ?? {};
-  const labels = item.labels ?? {};
-  const link = (links as Record<string, any>).meetingUrl || (labels as Record<string, any>).meetingUrl;
-  return typeof link === "string" ? link : null;
+function parseDate(value: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function formatMeetingTime(value: string | null): string {
-  if (!value) return "TBC";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
 }
 
-interface UpcomingMeeting {
-  id: string;
-  title: string;
-  projectName: string;
-  startsAt: string | null;
-  meetingUrl: string | null;
-  lane?: string | null;
-  status: string;
+function addDays(date: Date, amount: number): Date {
+  const clone = new Date(date);
+  clone.setDate(clone.getDate() + amount);
+  return clone;
 }
 
-function MeetingsSnapshot({ meetings, loading }: { meetings: UpcomingMeeting[]; loading: boolean }) {
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function eventIntersectsRange(event: CalendarEventRecord, rangeStart: Date, rangeEnd: Date): boolean {
+  const start = parseDate(event.startAt) ?? parseDate(event.endAt);
+  const end = parseDate(event.endAt) ?? parseDate(event.startAt) ?? start;
+  if (!start && !end) return false;
+  const eventStart = start ?? end ?? rangeStart;
+  const eventEnd = end ?? start ?? rangeEnd;
+  return eventEnd >= rangeStart && eventStart < rangeEnd;
+}
+
+function formatEventTimeRange(event: CalendarEventRecord): string {
+  if (event.isAllDay) {
+    return "All day";
+  }
+
+  const start = parseDate(event.startAt);
+  const end = parseDate(event.endAt);
+
+  if (start && end) {
+    const sameDay = isSameDay(start, end);
+    const startLabel = start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const endLabel = end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return sameDay ? `${startLabel} – ${endLabel}` : `${startLabel} → ${endLabel}`;
+  }
+
+  if (start) {
+    return start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  if (end) {
+    return end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  return "—";
+}
+
+function formatEventDateRange(event: CalendarEventRecord): string {
+  const start = parseDate(event.startAt);
+  const end = parseDate(event.endAt);
+
+  if (event.isAllDay && start && end) {
+    const adjustedEnd = addDays(end, -1);
+    if (isSameDay(start, adjustedEnd)) {
+      return start.toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
+
+    const startLabel = start.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const endLabel = adjustedEnd.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return `${startLabel} – ${endLabel}`;
+  }
+
+  if (start && end) {
+    const sameDay = isSameDay(start, end);
+    const dateLabel = sameDay
+      ? start.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+      : `${start.toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })} – ${end.toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}`;
+    const timeRange = `${start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} – ${end.toLocaleTimeString(
+      undefined,
+      { hour: "numeric", minute: "2-digit" }
+    )}`;
+    return `${dateLabel}\n${timeRange}`;
+  }
+
+  if (start) {
+    return start.toLocaleString();
+  }
+
+  if (end) {
+    return end.toLocaleString();
+  }
+
+  return "—";
+}
+
+function getEventLink(event: CalendarEventRecord): string | null {
+  const raw = event.raw as Record<string, unknown>;
+  if (typeof raw?.htmlLink === "string") {
+    return raw.htmlLink as string;
+  }
+  return null;
+}
+
+function resolveEventCalendarName(event: CalendarEventRecord): string {
+  const sourceMetadata = (event.source?.metadata as Record<string, unknown> | null) ?? null;
+  if (typeof sourceMetadata?.calendarSummary === "string" && sourceMetadata.calendarSummary.trim() !== "") {
+    return sourceMetadata.calendarSummary as string;
+  }
+  if (event.source?.title) {
+    return event.source.title;
+  }
+  if (event.userSource?.summary) {
+    return event.userSource.summary;
+  }
+  if (event.userSource?.calendarId) {
+    return event.userSource.calendarId;
+  }
+  return "Calendar";
+}
+
+function formatEventStatus(status: string | null): string {
+  if (!status) return "Scheduled";
+  return status
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+    .join(" ");
+}
+
+function TodayEventsWidget({
+  events,
+  loading,
+  error,
+}: {
+  events: CalendarEventRecord[];
+  loading: boolean;
+  error: string | null;
+}) {
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEventRecord | null>(null);
+
+  useEffect(() => {
+    if (!selectedEvent) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedEvent(null);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedEvent]);
+
+  const closeModal = useCallback(() => {
+    setSelectedEvent(null);
+  }, []);
+
   if (loading) {
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
@@ -104,7 +270,16 @@ function MeetingsSnapshot({ meetings, loading }: { meetings: UpcomingMeeting[]; 
     );
   }
 
-  if (meetings.length === 0) {
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-5 shadow-sm">
+        <h3 className="text-lg font-semibold text-gray-900">Today's meetings</h3>
+        <p className="mt-2 text-sm text-red-700">{error}</p>
+      </div>
+    );
+  }
+
+  if (events.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-5 text-center text-gray-500 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900">Today's meetings</h3>
@@ -113,39 +288,127 @@ function MeetingsSnapshot({ meetings, loading }: { meetings: UpcomingMeeting[]; 
     );
   }
 
+  const modalContent = !selectedEvent
+    ? null
+    : (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeModal();
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="today-event-modal-title"
+            className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h4 id="today-event-modal-title" className="text-lg font-semibold text-gray-900">
+                  {selectedEvent.summary || "Untitled event"}
+                </h4>
+                <p className="mt-1 whitespace-pre-line text-sm text-gray-600">{formatEventDateRange(selectedEvent)}</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-full p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close event details"
+              >
+                ×
+              </button>
+            </div>
+            <dl className="mt-4 space-y-3 text-sm text-gray-700">
+              <div className="flex items-start gap-3">
+                <dt className="w-20 shrink-0 text-xs uppercase tracking-wide text-gray-500">Calendar</dt>
+                <dd className="flex-1 font-medium text-gray-900">{resolveEventCalendarName(selectedEvent)}</dd>
+              </div>
+              <div className="flex items-start gap-3">
+                <dt className="w-20 shrink-0 text-xs uppercase tracking-wide text-gray-500">Status</dt>
+                <dd className="flex-1 text-gray-700">{formatEventStatus(selectedEvent.status)}</dd>
+              </div>
+              {selectedEvent.location ? (
+                <div className="flex items-start gap-3">
+                  <dt className="w-20 shrink-0 text-xs uppercase tracking-wide text-gray-500">Location</dt>
+                  <dd className="flex-1 text-gray-700">{selectedEvent.location}</dd>
+                </div>
+              ) : null}
+              {selectedEvent.description ? (
+                <div className="flex items-start gap-3">
+                  <dt className="w-20 shrink-0 text-xs uppercase tracking-wide text-gray-500">Notes</dt>
+                  <dd className="flex-1 whitespace-pre-line text-gray-700">{selectedEvent.description}</dd>
+                </div>
+              ) : null}
+            </dl>
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                {selectedEvent.origin === "google" ? "Google Calendar" : "Kazador"}
+              </span>
+              <div className="flex items-center gap-2">
+                {selectedEvent.hangoutLink ? (
+                  <a
+                    href={selectedEvent.hangoutLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-700"
+                  >
+                    Join call
+                    <span aria-hidden>↗</span>
+                  </a>
+                ) : null}
+                {(() => {
+                  const htmlLink = getEventLink(selectedEvent);
+                  return htmlLink ? (
+                    <a
+                      href={htmlLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                    >
+                      Open in calendar
+                      <span aria-hidden>↗</span>
+                    </a>
+                  ) : null;
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="relative rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
       <h3 className="text-lg font-semibold text-gray-900">Today's meetings</h3>
       <ul className="mt-4 space-y-3">
-        {meetings.map((meeting) => (
-          <li key={meeting.id} className="flex flex-col gap-2 rounded border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="font-semibold text-gray-900">{meeting.title}</p>
-                <p className="text-xs text-gray-500">
-                  {meeting.projectName} • {formatMeetingTime(meeting.startsAt)}
-                </p>
-              </div>
-              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600 uppercase">
-                {meeting.status}
-              </span>
-            </div>
-            {meeting.meetingUrl ? (
-              <div>
-                <a
-                  href={meeting.meetingUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-700"
-                >
-                  Join meeting
-                  <span aria-hidden>↗</span>
-                </a>
-              </div>
-            ) : null}
-          </li>
-        ))}
+        {events.map((event) => {
+          const calendarName = resolveEventCalendarName(event);
+          return (
+            <li key={event.id}>
+              <button
+                type="button"
+                onClick={() => setSelectedEvent(event)}
+                className="flex w-full flex-col gap-2 rounded border border-gray-100 bg-gray-50 px-4 py-3 text-left text-sm text-gray-700 transition hover:border-blue-200 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-gray-900">{event.summary || "Untitled event"}</p>
+                    <p className="text-xs text-gray-500">{calendarName}</p>
+                  </div>
+                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600 uppercase">
+                    {formatEventStatus(event.status)}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600">{formatEventTimeRange(event)}</p>
+              </button>
+            </li>
+          );
+        })}
       </ul>
+      {modalContent}
     </div>
   );
 }
@@ -419,6 +682,7 @@ export default function HomeDashboard() {
   const [emailsState, setEmailsState] = useState<EmailsState>(INITIAL_EMAILS);
   const [emailWindow, setEmailWindow] = useState<EmailWindow>("24h");
   const [selectedLabel, setSelectedLabel] = useState<string>("all");
+  const [todayEventsState, setTodayEventsState] = useState<TodayEventsState>(INITIAL_TODAY_EVENTS);
 
   const loadDigest = useCallback(async () => {
     if (!accessToken) {
@@ -459,15 +723,55 @@ export default function HomeDashboard() {
     }
   }, [accessToken]);
 
+  const loadTodayEvents = useCallback(async () => {
+    if (!accessToken) {
+      setTodayEventsState(INITIAL_TODAY_EVENTS);
+      return;
+    }
+
+    setTodayEventsState((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const todayStart = startOfDay(new Date());
+      const tomorrowStart = addDays(todayStart, 1);
+
+      const response = await fetchCalendarEvents({
+        accessToken,
+        rangeStart: todayStart.toISOString(),
+        rangeEnd: tomorrowStart.toISOString(),
+        assigned: "all",
+        includeIgnored: false,
+        limit: 20,
+      });
+
+      const filtered = response.events
+        .filter((event) => !event.ignore && eventIntersectsRange(event, todayStart, tomorrowStart))
+        .sort((a, b) => {
+          const aStart = parseDate(a.startAt) ?? parseDate(a.endAt);
+          const bStart = parseDate(b.startAt) ?? parseDate(b.endAt);
+          const aTime = aStart ? aStart.getTime() : Number.POSITIVE_INFINITY;
+          const bTime = bStart ? bStart.getTime() : Number.POSITIVE_INFINITY;
+          return aTime - bTime;
+        })
+        .slice(0, 6);
+
+      setTodayEventsState({ items: filtered, loading: false, error: null });
+    } catch (err: any) {
+      setTodayEventsState({ items: [], loading: false, error: err?.message || "Failed to load today's events" });
+    }
+  }, [accessToken]);
+
   useEffect(() => {
     if (!accessToken) {
       setDigestLoading(false);
       setEmailsState((prev) => ({ ...prev, loading: false }));
+      setTodayEventsState(INITIAL_TODAY_EVENTS);
       return;
     }
     void loadDigest();
     void loadEmails();
-  }, [accessToken, loadDigest, loadEmails]);
+    void loadTodayEvents();
+  }, [accessToken, loadDigest, loadEmails, loadTodayEvents]);
 
   const topActions = digestState.digest?.topActions ?? [];
   const timelineActions = useMemo(
@@ -512,43 +816,6 @@ export default function HomeDashboard() {
       .slice(0, 10);
   }, [emailsState.items, emailWindow, selectedLabel]);
 
-  const calendarMeetings = useMemo(() => {
-    const digestProjects = digestState.digest?.projects ?? [];
-    if (digestProjects.length === 0) return [];
-    const now = Date.now();
-    const windowEnd = now + 24 * 60 * 60 * 1000; // next 24h
-
-    const meetings: UpcomingMeeting[] = [];
-    for (const snapshot of digestProjects) {
-      const projectName = snapshot.project.name;
-      for (const item of snapshot.timelineItems ?? []) {
-        const meetingUrl = getMeetingUrl(item);
-        const hasCalendarLink = Boolean((item.links as Record<string, any>)?.calendarId);
-        if (!hasCalendarLink) continue;
-        if (!item.startsAt) continue;
-        const startMs = Date.parse(item.startsAt);
-        if (Number.isNaN(startMs)) continue;
-        if (startMs < now - 60 * 60 * 1000) continue; // ignore items older than 1h
-        if (startMs > windowEnd) continue;
-        meetings.push({
-          id: item.id,
-          title: item.title,
-          projectName,
-          startsAt: item.startsAt,
-          meetingUrl,
-          lane: item.lane,
-          status: item.status,
-        });
-      }
-    }
-
-    return meetings.sort((a, b) => {
-      const aMs = a.startsAt ? Date.parse(a.startsAt) : Number.POSITIVE_INFINITY;
-      const bMs = b.startsAt ? Date.parse(b.startsAt) : Number.POSITIVE_INFINITY;
-      return aMs - bMs;
-    }).slice(0, 5);
-  }, [digestState.digest]);
-
   return (
     <section className="space-y-8">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -564,6 +831,7 @@ export default function HomeDashboard() {
             onClick={() => {
               void loadDigest();
               void loadEmails();
+              void loadTodayEvents();
             }}
             className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-700"
           >
@@ -586,7 +854,11 @@ export default function HomeDashboard() {
           <TopPriorityGrid actions={topActions} />
           <UpcomingDeadlines actions={timelineActions} />
         </div>
-        <MeetingsSnapshot meetings={calendarMeetings} loading={digestLoading} />
+        <TodayEventsWidget
+          events={todayEventsState.items}
+          loading={todayEventsState.loading}
+          error={todayEventsState.error}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

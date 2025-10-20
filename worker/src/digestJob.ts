@@ -22,9 +22,13 @@ import {
   type UserPreferenceRecord,
   type ProjectDigestMetrics,
   type PriorityConfig,
+  DEFAULT_EMAIL_SOURCE,
+  type EmailSource,
 } from "@kazador/shared";
 
 type ServiceClient = SupabaseClient<any, any, any>;
+
+const KNOWN_EMAIL_SOURCES = new Set<EmailSource>(["gmail", "seeded", "manual", "unknown"]);
 
 function parseJson<T>(value: any): T {
   if (value == null) return {} as T;
@@ -151,6 +155,8 @@ function mapApprovalRow(row: any): ApprovalRecord {
 
 function mapEmailRow(row: any): EmailRecord {
   const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
+  const rawSource = typeof row.source === "string" ? (row.source.toLowerCase() as EmailSource) : DEFAULT_EMAIL_SOURCE;
+  const source = KNOWN_EMAIL_SOURCES.has(rawSource) ? rawSource : DEFAULT_EMAIL_SOURCE;
   return {
     id: row.id as string,
     fromName: (row.from_name as string) ?? null,
@@ -164,6 +170,7 @@ function mapEmailRow(row: any): EmailRecord {
     priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
     triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
     triagedAt: row.triaged_at ? String(row.triaged_at) : null,
+    source,
   } satisfies EmailRecord;
 }
 
@@ -385,7 +392,7 @@ async function buildDigestForUser(
     const { data: emailRows, error: emailError } = await client
       .from("emails")
       .select(
-        "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, triage_state, triaged_at, priority_score"
+        "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, source, triage_state, triaged_at, priority_score"
       )
       .in("id", Array.from(new Set(emailIdAccumulator)));
     if (emailError) throw emailError;

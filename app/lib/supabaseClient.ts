@@ -26,7 +26,7 @@ import type {
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
 
-export type EmailSourceFilter = "all" | "seeded";
+export type EmailSourceFilter = "all" | "gmail" | "seeded" | "manual" | "unknown";
 
 export interface EmailPagination {
   page: number;

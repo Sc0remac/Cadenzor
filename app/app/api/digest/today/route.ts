@@ -10,6 +10,7 @@ import {
 import {
   DEFAULT_PRIORITY_CONFIG,
   buildDigestPayload,
+  DEFAULT_EMAIL_SOURCE,
   ensureDefaultLabelCoverage,
   normaliseLabels,
   normaliseLabel,
@@ -18,6 +19,7 @@ import {
   type UserPreferenceRecord,
   type ProjectDigestMetrics,
   type EmailRecord,
+  type EmailSource,
 } from "@kazador/shared";
 
 function formatError(message: string, status = 400) {
@@ -33,6 +35,8 @@ function parseJson<T>(value: any): T {
     return {} as T;
   }
 }
+
+const KNOWN_EMAIL_SOURCES = new Set<EmailSource>(["gmail", "seeded", "manual", "unknown"]);
 
 function mapPreferenceRow(row: any): UserPreferenceRecord {
   const channels = Array.isArray(row.channels)
@@ -99,6 +103,8 @@ function deriveMetricsFromProfile(profile: Record<string, unknown> | null): Part
 
 function mapEmailRow(row: any): EmailRecord {
   const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
+  const rawSource = typeof row.source === "string" ? (row.source.toLowerCase() as EmailSource) : DEFAULT_EMAIL_SOURCE;
+  const source = KNOWN_EMAIL_SOURCES.has(rawSource) ? rawSource : DEFAULT_EMAIL_SOURCE;
   return {
     id: row.id as string,
     fromName: (row.from_name as string) ?? null,
@@ -112,6 +118,7 @@ function mapEmailRow(row: any): EmailRecord {
     priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
     triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
     triagedAt: row.triaged_at ? String(row.triaged_at) : null,
+    source,
   } satisfies EmailRecord;
 }
 
@@ -269,7 +276,7 @@ export async function GET(request: Request) {
     const { data: emailRows, error: emailError } = await supabase
       .from("emails")
       .select(
-        "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, triage_state, triaged_at, priority_score"
+        "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, source, triage_state, triaged_at, priority_score"
       )
       .in("id", Array.from(new Set(emailIds)));
     if (emailError) {

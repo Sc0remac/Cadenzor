@@ -54,6 +54,7 @@ function buildSeedEmail(index: number, count: number) {
     labels: [category, "DEMO/Seed"],
     triage_state: "unassigned",
     priority_score: Math.floor(Math.random() * 80),
+    source: "seeded",
   };
 }
 

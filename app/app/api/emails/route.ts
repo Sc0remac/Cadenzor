@@ -5,11 +5,25 @@ import {
   normaliseLabels,
   ensureDefaultLabelCoverage,
   EMAIL_FALLBACK_LABEL,
+  DEFAULT_EMAIL_SOURCE,
 } from "@kazador/shared";
+import type { EmailSource } from "@kazador/shared";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const KNOWN_SOURCES = new Set<EmailSource>(["gmail", "seeded", "manual", "unknown"]);
+
+function normaliseSource(value: unknown): EmailSource {
+  if (typeof value === "string") {
+    const lowered = value.toLowerCase() as EmailSource;
+    if (KNOWN_SOURCES.has(lowered)) {
+      return lowered;
+    }
+  }
+  return DEFAULT_EMAIL_SOURCE;
+}
 
 function mapRow(row: any): EmailRecord {
   const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
@@ -27,6 +41,7 @@ function mapRow(row: any): EmailRecord {
     priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
     triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
     triagedAt: row.triaged_at ?? null,
+    source: normaliseSource(row.source),
   };
 }
 
@@ -49,7 +64,15 @@ export async function GET(request: Request) {
   const from = (page - 1) * perPage;
   const to = from + perPage - 1;
 
-  const seededOnly = sourceParam === "seeded" || sourceParam === "fake";
+  const normalisedSourceParam = sourceParam?.toLowerCase() ?? null;
+  let sourceFilter: EmailSource | null = null;
+  if (normalisedSourceParam) {
+    if (normalisedSourceParam === "fake") {
+      sourceFilter = "seeded";
+    } else if (KNOWN_SOURCES.has(normalisedSourceParam as EmailSource)) {
+      sourceFilter = normalisedSourceParam as EmailSource;
+    }
+  }
 
   let labelFilter: string | null = null;
   if (labelParam) {
@@ -64,7 +87,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("emails")
     .select(
-      "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, triage_state, triaged_at, priority_score",
+      "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, source, triage_state, triaged_at, priority_score",
       { count: "exact" }
     )
     .order("received_at", { ascending: false });
@@ -74,8 +97,8 @@ export async function GET(request: Request) {
     query = query.contains("labels", JSON.stringify([labelFilter]));
   }
 
-  if (seededOnly) {
-    query = query.like("id", "seed-%");
+  if (sourceFilter) {
+    query = query.eq("source", sourceFilter);
   }
 
   const { data, error, count } = await query.range(from, to);

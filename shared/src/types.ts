@@ -279,6 +279,9 @@ export const DEFAULT_EMAIL_LABELS = PRIMARY_LABEL_DEFINITIONS.map(
   (definition) => definition.name
 ) as ReadonlyArray<EmailLabel>;
 
+export type EmailSource = "gmail" | "seeded" | "manual" | "unknown";
+
+export const DEFAULT_EMAIL_SOURCE: EmailSource = "gmail";
 export const EMAIL_FALLBACK_LABEL: EmailLabel = "MISC/Uncategorized";
 
 /**
@@ -301,6 +304,7 @@ export interface EmailRecord {
   priorityScore?: number | null;
   triageState?: EmailTriageState;
   triagedAt?: string | null;
+  source?: EmailSource;
 }
 
 /**

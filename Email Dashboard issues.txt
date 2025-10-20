@@ -1,0 +1,266 @@
+
+  Critical Issues with Current Inbox Dashboard
+
+  1. No Actionability - It's Just a Data Dump
+
+  The current view is a passive table that shows information but doesn't enable action. For a platform centered on "turning
+  email chaos into structured workflows," this completely misses the mark.
+
+  Current state: User sees emails with summaries and labels.
+  Missing: No draft replies, no "Create lead" buttons, no "Add to timeline" actions, no quick approve/decline for offers.
+
+  2. Priority Scores Are Invisible
+
+  Your Priority Engine is a core feature (mentioned extensively in docs), yet priority_score is stored in the DB but never
+  shown to the user. This defeats the entire purpose.
+
+  3. Labels Are Overwhelming & Flat
+
+  The current approach of showing all labels as clickable pills creates visual noise. Your taxonomy has:
+  - Primary labels (BOOKING/Offer, LEGAL/Contract_Draft)
+  - Cross-tags (artist/Barry_Cant_Swim, territory/GB, date/2026-05-10)
+
+  These should be visually differentiated, not all treated equally.
+
+  4. No Project or Timeline Context
+
+  Emails exist in isolation. There's no indication:
+  - Which project(s) this email belongs to
+  - What timeline items it might affect
+  - Whether it's blocking other tasks
+
+  5. No Playbook Suggestions
+
+  Your docs describe playbooks like "Booking Enquiry" that should:
+  - Extract venue/date/fee
+  - Create leads
+  - Draft replies
+  - Add items to timeline
+
+  None of this intelligence surfaces in the UI.
+
+  6. Missing Critical Metadata
+
+  - No attachments shown
+  - No "Open in Gmail" link
+  - No thread grouping
+  - No contact enrichment (venue, org, territory)
+
+  ---
+  Recommended Improvements
+
+  A. Card-Based Layout with Priority Zones
+
+  Replace the flat table with a priority-sorted card layout:
+
+  ┌─────────────────────────────────────────┐
+  │ 🔴 HIGH PRIORITY (3)                    │
+  ├─────────────────────────────────────────┤
+  │ ┌─────────────────────────────────────┐ │
+  │ │ BOOKING · Offer                     │ │
+  │ │ Show @ Fabric London                │ │
+  │ │ Barry Cant Swim · May 10, 2026      │ │
+  │ │ £5,000 · GB · 📎 Contract.pdf       │ │
+  │ │                                     │ │
+  │ │ [Create Lead] [Draft Reply] [Snooze]│ │
+  │ └─────────────────────────────────────┘ │
+  └─────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────┐
+  │ 🟡 MEDIUM PRIORITY (5)                  │
+  │ ...                                     │
+  └─────────────────────────────────────────┘
+
+  Why: Immediately shows what needs attention first.
+
+  B. Rich Email Cards with Metadata & Actions
+
+  Each email card should show:
+
+  <EmailCard>
+    <Header>
+      <PrimaryLabel>BOOKING · Offer</PrimaryLabel>
+      <PriorityBadge score={85} />
+      <DateReceived>2 hours ago</DateReceived>
+    </Header>
+
+    <Metadata>
+      <Artist>Barry Cant Swim</Artist>
+      <Venue>Fabric London</Venue>
+      <Date>2026-05-10</Date>
+      <Fee>£5,000</Fee>
+      <Territory>GB 🇬🇧</Territory>
+    </Metadata>
+
+    <CrossTags>
+      <Tag>project/Asian-Tour-2026</Tag>
+      <Tag>city/London</Tag>
+    </CrossTags>
+
+    <Summary>{AI summary}</Summary>
+
+    <Attachments>
+      <File>Contract_Draft.pdf</File>
+    </Attachments>
+
+    <Actions>
+      <Button primary>Create Lead & Draft Reply</Button>
+      <Button>Add to Timeline</Button>
+      <Button secondary>Open in Gmail</Button>
+      <Button>Snooze</Button>
+    </Actions>
+
+    <PlaybookSuggestion>
+      💡 Booking Enquiry playbook can:
+      - Extract venue/fee/date
+      - Score brand fit
+      - Create folder scaffold
+      - Draft acceptance reply
+    </PlaybookSuggestion>
+  </EmailCard>
+
+  C. Differentiate Label Types
+
+  Primary labels → Large, colored badges (e.g., BOOKING · Offer in purple)
+  Cross-tags → Small, subtle pills (e.g., GB, Barry Cant Swim, 2026-05-10)
+
+  // Current (all equal weight)
+  <span className="px-2 py-1 bg-indigo-50">BOOKING / Offer</span>
+  <span className="px-2 py-1 bg-indigo-50">artist / Barry_Cant_Swim</span>
+
+  // Improved (visual hierarchy)
+  <Badge variant="primary" color="purple">
+    BOOKING · Offer
+  </Badge>
+  <Tag size="sm" variant="subtle">Barry Cant Swim</Tag>
+  <Tag size="sm" variant="subtle">🇬🇧 GB</Tag>
+  <Tag size="sm" variant="subtle">📅 May 10</Tag>
+
+  D. Add Grouping & Filters
+
+  Group by:
+  - Priority (High/Medium/Low/Snoozed)
+  - Category (Booking/Promo/Legal/Finance)
+  - Project
+  - Artist
+  - Time (Today/This Week/Older)
+
+  Filters:
+  - Needs action vs. FYI
+  - Has attachments
+  - Has playbook suggestions
+  - Linked to timeline items
+
+  E. Show Timeline & Project Context
+
+  When an email is linked to a project or timeline item:
+
+  <TimelineContext>
+    <Icon>📅</Icon>
+    <Text>
+      Linked to <ProjectLink>Asian Tour 2026</ProjectLink>
+      · Affects <TimelineLink>3 upcoming shows</TimelineLink>
+    </Text>
+    <ConflictWarning>
+      ⚠️ Date conflicts with Berlin show on May 11
+    </ConflictWarning>
+  </TimelineContext>
+
+  F. Inbox Triage Workflow
+
+  Add a triage mode inspired by Gmail's snooze/archive:
+
+  [ Triage Mode ]
+    ↓
+  Email Card
+    → [Act] (opens playbook modal)
+    → [Delegate] (assign to team member)
+    → [Snooze] (until date/time)
+    → [Archive] (mark as handled)
+
+  G. Smart Sorting & Today View
+
+  Default sort should be Priority Engine score, not chronological:
+  1. High priority + urgent (score 80-100)
+  2. Medium priority (score 50-79)
+  3. Low priority (score 0-49)
+  4. Snoozed
+  5. Archived/handled
+
+  Add a "Today View" that shows:
+  - Emails needing action today
+  - Upcoming deadlines from linked timeline items
+  - Draft replies awaiting approval
+
+  ---
+  Specific Implementation Plan
+
+  Phase 1: Add Priority & Action Buttons
+
+  1. Surface priority_score in the UI (color-coded badge)
+  2. Add action buttons: "Draft Reply", "Create Lead", "Add to Timeline", "Open in Gmail"
+  3. Implement snooze/archive
+
+  Phase 2: Rich Metadata Display
+
+  1. Parse and display venue, date, fee, territory from structured_json
+  2. Show attachments with icons
+  3. Link to contact/org enrichment
+
+  Phase 3: Card-Based Layout
+
+  1. Replace table with card grid
+  2. Group by priority zones
+  3. Add filtering/grouping controls
+
+  Phase 4: Playbook Integration
+
+  1. Show playbook suggestions per email type
+  2. Add "Run Playbook" modal with preview
+  3. Display draft replies inline
+
+  Phase 5: Timeline & Project Links
+
+  1. Show which projects/timeline items are affected
+  2. Add conflict warnings
+  3. Enable quick linking from inbox
+
+  ---
+  Example Wireframe (Text-Based)
+
+  ┌──────────────────────────────────────────────────────────┐
+  │ Inbox  [Group by: Priority ▼]  [Filter ▼]  [Triage Mode]│
+  ├──────────────────────────────────────────────────────────┤
+  │                                                          │
+  │ 🔴 HIGH PRIORITY · 3 emails                              │
+  │                                                          │
+  │ ┌────────────────────────────────────────────────────┐  │
+  │ │ BOOKING · Offer          [85]  📎  2 hours ago     │  │
+  │ │ ────────────────────────────────────────────────── │  │
+  │ │ Barry Cant Swim · Fabric London                    │  │
+  │ │ 🇬🇧 London · May 10, 2026 · £5,000                 │  │
+  │ │                                                    │  │
+  │ │ "Show offer for 2h set. Contract attached..."     │  │
+  │ │                                                    │  │
+  │ │ 💡 Booking Enquiry playbook ready                  │  │
+  │ │                                                    │  │
+  │ │ [Create Lead & Draft Reply]  [Timeline]  [Gmail]  │  │
+  │ └────────────────────────────────────────────────────┘  │
+  │                                                          │
+  │ ┌────────────────────────────────────────────────────┐  │
+  │ │ LEGAL · Contract Draft   [82]      Yesterday       │  │
+  │ │ ... (similar card layout)                          │  │
+  │ └────────────────────────────────────────────────────┘  │
+  │                                                          │
+  │ 🟡 MEDIUM PRIORITY · 5 emails                            │
+  │ ... (collapsed by default)                              │
+  │                                                          │
+  └──────────────────────────────────────────────────────────┘
+
+  ---
+  Key Takeaway
+
+  Your current inbox is a read-only database view. It should be an action-oriented command center.
+
+  The docs describe Kazador as turning "email chaos into structured workflows with Timeline Studio at the heart." The inbox
+  should be the entry point where intelligence surfaces, actions happen, and items flow into projects/timeline/playbooks.

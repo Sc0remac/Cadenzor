@@ -9,6 +9,8 @@ import {
   normaliseLabel,
   type EmailRecord,
   type ProjectRecord,
+  DEFAULT_EMAIL_SOURCE,
+  type EmailSource,
 } from "@kazador/shared";
 
 type ServiceSupabase = SupabaseClient<any, any, any>;
@@ -57,8 +59,12 @@ function mapProjectRow(row: any): ProjectRecord {
   };
 }
 
+const KNOWN_EMAIL_SOURCES = new Set<EmailSource>(["gmail", "seeded", "manual", "unknown"]);
+
 function mapEmailRow(row: any): EmailRecord {
   const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
+  const rawSource = typeof row.source === "string" ? (row.source.toLowerCase() as EmailSource) : DEFAULT_EMAIL_SOURCE;
+  const source = KNOWN_EMAIL_SOURCES.has(rawSource) ? rawSource : DEFAULT_EMAIL_SOURCE;
   return {
     id: row.id as string,
     fromName: (row.from_name as string) ?? null,
@@ -72,6 +78,7 @@ function mapEmailRow(row: any): EmailRecord {
     priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
     triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
     triagedAt: row.triaged_at ? String(row.triaged_at) : null,
+    source,
   };
 }
 
@@ -241,7 +248,7 @@ export async function suggestProjectLinksForEmail(emailId: string, limit = 3) {
   const { data: emailRow, error: emailError } = await client
     .from("emails")
     .select(
-      "id, subject, summary, from_name, from_email, received_at, category, is_read, labels, triage_state, triaged_at, priority_score"
+      "id, subject, summary, from_name, from_email, received_at, category, is_read, labels, source, triage_state, triaged_at, priority_score"
     )
     .eq("id", emailId)
     .maybeSingle();
@@ -364,7 +371,7 @@ async function applyProjectEmailLink(
   if (payload.shouldCreateTimeline) {
     const { data: emailRow, error: emailError } = await client
       .from("emails")
-      .select("id, subject, received_at, labels, from_name, from_email, category, is_read, summary, triage_state, triaged_at, priority_score")
+      .select("id, subject, received_at, labels, from_name, from_email, category, is_read, summary, source, triage_state, triaged_at, priority_score")
       .eq("id", emailId)
       .maybeSingle();
 

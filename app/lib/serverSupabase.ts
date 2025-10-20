@@ -44,6 +44,14 @@ export function createServerSupabaseClient(accessToken?: string): ClientResult {
     },
   };
 
+  if (accessToken) {
+    options.global = {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    };
+  }
+
   const supabase = createClient(url, key, options);
 
   return { ok: true, supabase };

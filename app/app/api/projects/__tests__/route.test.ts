@@ -73,6 +73,16 @@ function createQueryBuilder(config: QueryConfig = {}) {
       }
       return builder;
     }),
+    upsert: vi.fn((payload: unknown) => {
+      log.insertPayloads.push(payload);
+      if (config.insertReturnsBuilder === false) {
+        const promise = Promise.resolve(insertResult);
+        return {
+          then: (onFulfilled?: any, onRejected?: any) => promise.then(onFulfilled, onRejected),
+        };
+      }
+      return builder;
+    }),
     maybeSingle: vi.fn(() => Promise.resolve(maybeSingleResult)),
     then: (onFulfilled?: any, onRejected?: any) =>
       Promise.resolve(queryResult).then(onFulfilled, onRejected),

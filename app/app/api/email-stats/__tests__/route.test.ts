@@ -107,7 +107,7 @@ describe("GET /api/email-stats", () => {
     expect(payload).toEqual(buildExpectedCounts(rows));
 
     expect(stub.supabase.from).toHaveBeenCalledWith("emails");
-    expect(stub.selectMock).toHaveBeenCalledWith("category, labels");
+    expect(stub.selectMock).toHaveBeenCalledWith("category, labels, source");
     expect(stub.eqMock).toHaveBeenCalledWith("is_read", false);
     expect(stub.likeMock).not.toHaveBeenCalled();
   });
@@ -124,8 +124,8 @@ describe("GET /api/email-stats", () => {
       new Request("https://kazador.test/api/email-stats?scope=all&source=seeded")
     );
 
-    expect(stub.eqMock).not.toHaveBeenCalled();
-    expect(stub.likeMock).toHaveBeenCalledWith("id", "seed-%");
+    expect(stub.eqMock).toHaveBeenCalledWith("source", "seeded");
+    expect(stub.likeMock).not.toHaveBeenCalled();
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: "fail" });

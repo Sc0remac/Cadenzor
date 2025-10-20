@@ -268,6 +268,7 @@ async function main() {
             is_read: false,
             summary,
             labels,
+            source: "gmail",
           },
           { onConflict: "id" }
         );

@@ -22,6 +22,8 @@ import {
   normaliseLabels,
   detectTimelineConflicts,
   computeTopActions,
+  DEFAULT_EMAIL_SOURCE,
+  type EmailSource,
 } from "@kazador/shared";
 
 interface Params {
@@ -33,6 +35,8 @@ interface Params {
 function formatError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
+
+const KNOWN_EMAIL_SOURCES = new Set<EmailSource>(["gmail", "seeded", "manual", "unknown"]);
 
 export async function GET(request: Request, { params }: Params) {
   const { projectId } = params;
@@ -222,7 +226,7 @@ export async function GET(request: Request, { params }: Params) {
     const { data: emailsData, error: emailsError } = await supabase
       .from("emails")
       .select(
-        "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, triage_state, triaged_at, priority_score"
+        "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, source, triage_state, triaged_at, priority_score"
       )
       .in("id", Array.from(new Set(emailIds)));
 
@@ -379,6 +383,8 @@ export async function DELETE(request: Request, { params }: Params) {
 }
 function mapEmailRow(row: any): EmailRecord {
   const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
+  const rawSource = typeof row.source === "string" ? (row.source.toLowerCase() as EmailSource) : DEFAULT_EMAIL_SOURCE;
+  const source = KNOWN_EMAIL_SOURCES.has(rawSource) ? rawSource : DEFAULT_EMAIL_SOURCE;
 
   return {
     id: row.id as string,
@@ -393,5 +399,6 @@ function mapEmailRow(row: any): EmailRecord {
     priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
     triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
     triagedAt: row.triaged_at ? String(row.triaged_at) : null,
+    source,
   };
 }

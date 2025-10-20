@@ -4,6 +4,7 @@ import {
   normaliseLabels,
   ensureDefaultLabelCoverage,
 } from "@kazador/shared";
+import type { EmailSource } from "@kazador/shared";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
 
 export const runtime = "nodejs";
@@ -21,15 +22,24 @@ export async function GET(request: Request) {
   const scope = url.searchParams.get("scope");
   const sourceParam = url.searchParams.get("source");
   const includeRead = scope === "all";
-  const seededOnly = sourceParam === "seeded" || sourceParam === "fake";
+  const normalisedSourceParam = sourceParam?.toLowerCase() ?? null;
+  const KNOWN_SOURCES = new Set<EmailSource>(["gmail", "seeded", "manual", "unknown"]);
+  let sourceFilter: EmailSource | null = null;
+  if (normalisedSourceParam) {
+    if (normalisedSourceParam === "fake") {
+      sourceFilter = "seeded";
+    } else if (KNOWN_SOURCES.has(normalisedSourceParam as EmailSource)) {
+      sourceFilter = normalisedSourceParam as EmailSource;
+    }
+  }
 
-  let query = supabase.from("emails").select("category, labels");
+  let query = supabase.from("emails").select("category, labels, source");
   if (!includeRead) {
     query = query.eq("is_read", false);
   }
 
-  if (seededOnly) {
-    query = query.like("id", "seed-%");
+  if (sourceFilter) {
+    query = query.eq("source", sourceFilter);
   }
 
   const { data, error } = await query;
@@ -40,7 +50,7 @@ export async function GET(request: Request) {
 
   const counts: Record<string, number> = {};
 
-  for (const row of (data as Array<{ category: unknown; labels: unknown }>) ?? []) {
+  for (const row of (data as Array<{ category: unknown; labels: unknown; source?: unknown }>) ?? []) {
     const parsedLabels = normaliseLabels(row.labels);
     const fallbackCategory = normaliseLabel(row.category);
 
