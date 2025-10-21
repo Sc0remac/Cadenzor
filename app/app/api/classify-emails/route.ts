@@ -8,7 +8,12 @@ import {
   ensureDefaultLabelCoverage,
   selectPrimaryCategory,
   heuristicLabels,
+  calculateEmailInboxPriority,
+  DEFAULT_PRIORITY_CONFIG,
+  normalizePriorityConfigInput,
   EMAIL_FALLBACK_LABEL,
+  type PriorityConfig,
+  type PriorityConfigInput,
 } from "@kazador/shared";
 import type { EmailLabel } from "@kazador/shared";
 import { getGmailAccount, ensureGmailOAuthClient } from "@/lib/googleGmailClient";
@@ -125,6 +130,29 @@ export async function POST(request: Request) {
   });
 
   let gmailAccount;
+  let priorityConfig: PriorityConfig = DEFAULT_PRIORITY_CONFIG;
+  {
+    const { data: prefRow, error: prefError } = await supabase
+      .from("user_preferences")
+      .select("priority_config")
+      .eq("user_id", requester.id)
+      .maybeSingle();
+
+    if (prefError) {
+      console.error("Failed to load priority config", prefError);
+    } else if (prefRow?.priority_config) {
+      try {
+        priorityConfig = normalizePriorityConfigInput(
+          prefRow.priority_config as PriorityConfigInput,
+          DEFAULT_PRIORITY_CONFIG
+        );
+      } catch (err) {
+        console.error("Failed to parse priority config", err);
+        priorityConfig = DEFAULT_PRIORITY_CONFIG;
+      }
+    }
+  }
+
   try {
     gmailAccount = await getGmailAccount(supabase, { userId: requester.id });
   } catch (err: any) {
@@ -238,6 +266,7 @@ export async function POST(request: Request) {
           format: "full",
         });
 
+        const labelIds = msgRes.data.labelIds ?? [];
         const payload = msgRes.data.payload;
         const headers = (payload?.headers || []) as gmail_v1.Schema$MessagePartHeader[];
         const getHeader = (name: string) =>
@@ -250,26 +279,22 @@ export async function POST(request: Request) {
 
         const { name: fromName, email: fromEmail } = parseFromHeader(fromHeader);
         const receivedAt = new Date(dateHeader || Date.now()).toISOString();
-
-        let labels: EmailLabel[] = [];
-        let summary = "";
+        const isUnread = labelIds.includes("UNREAD");
+        const isRead = !isUnread;
 
         const { data: existingEmail, error: existingEmailError } = await supabase
           .from("emails")
-          .select("summary, labels")
+          .select("summary, labels, triage_state, snoozed_until")
           .eq("id", msg.id)
+          .eq("user_id", requester.id)
           .maybeSingle();
 
         if (existingEmailError) {
           console.error(`Failed to read existing email ${msg.id}`, existingEmailError);
         }
 
-        if (existingEmail) {
-          if (typeof existingEmail.summary === "string" && existingEmail.summary.trim()) {
-            summary = existingEmail.summary.trim();
-          }
-          labels = normaliseLabels(existingEmail.labels);
-        }
+        let summary = typeof existingEmail?.summary === "string" ? existingEmail.summary.trim() : "";
+        let labels = normaliseLabels(existingEmail?.labels ?? []);
 
         if (!summary || labels.length === 0) {
           try {
@@ -287,16 +312,37 @@ export async function POST(request: Request) {
           }
         }
 
-      if (labels.length === 0) {
-        labels = heuristicLabels(subject, body);
-      }
+        if (labels.length === 0) {
+          labels = heuristicLabels(subject, body);
+        }
 
-      labels = ensureDefaultLabelCoverage(labels);
-      if (labels.length === 0) {
-        labels = [EMAIL_FALLBACK_LABEL];
-      }
+        labels = ensureDefaultLabelCoverage(labels);
+        if (labels.length === 0) {
+          labels = [EMAIL_FALLBACK_LABEL];
+        }
 
-      const category = selectPrimaryCategory(labels) ?? EMAIL_FALLBACK_LABEL;
+        const category = selectPrimaryCategory(labels) ?? EMAIL_FALLBACK_LABEL;
+        const triageState = (existingEmail?.triage_state as string | null) ?? (isRead ? "acknowledged" : "unassigned");
+        const snoozedUntil = (existingEmail?.snoozed_until as string | null) ?? null;
+        const hasAttachments = Array.isArray(payload?.parts)
+          ? payload.parts.some((part) => Boolean(part?.filename))
+          : false;
+
+        const priorityScore = calculateEmailInboxPriority(
+          {
+            category,
+            labels,
+            receivedAt,
+            isRead,
+            triageState,
+            snoozedUntil,
+            fromEmail,
+            fromName,
+            subject,
+            hasAttachments,
+          },
+          { now: new Date(), config: priorityConfig }
+        );
 
         const { error: contactError } = await supabase
           .from("contacts")
@@ -318,15 +364,18 @@ export async function POST(request: Request) {
           .upsert(
             {
               id: msg.id,
+              user_id: requester.id,
               from_name: fromName,
               from_email: fromEmail,
               subject,
               received_at: receivedAt,
               category,
-              is_read: false,
+              is_read: isRead,
               summary,
               labels,
               source: "gmail",
+              priority_score: priorityScore,
+              triage_state: triageState,
             },
             { onConflict: "id" }
           );
@@ -335,7 +384,6 @@ export async function POST(request: Request) {
           throw new Error(`Failed to upsert email: ${emailError.message}`);
         }
 
-        // Apply labels back to Gmail
         try {
           const addLabelIds = await ensureKazadorLabelIds(labels);
           if (addLabelIds.length > 0) {

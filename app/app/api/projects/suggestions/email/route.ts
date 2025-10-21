@@ -33,7 +33,10 @@ export async function POST(request: Request) {
 
   const { data: emailRow, error: emailError } = await supabase
     .from("emails")
-    .select("id, subject, labels, from_email, from_name, received_at, category, is_read, summary")
+    .select(
+      "id, user_id, subject, labels, from_email, from_name, received_at, category, is_read, summary, priority_score, triage_state, triaged_at, snoozed_until"
+    )
+    .eq("user_id", user.id)
     .eq("id", payload.emailId)
     .maybeSingle();
 
@@ -86,6 +89,7 @@ export async function POST(request: Request) {
   const projects = (projectRows ?? []).map(mapProjectRow);
   const emailRecord = {
     id: emailRow.id as string,
+    userId: (emailRow.user_id as string) ?? null,
     fromName: (emailRow.from_name as string) ?? null,
     fromEmail: emailRow.from_email as string,
     subject: emailRow.subject as string,
@@ -94,6 +98,10 @@ export async function POST(request: Request) {
     isRead: Boolean(emailRow.is_read),
     summary: emailRow.summary ?? null,
     labels: emailLabels,
+    priorityScore: emailRow.priority_score != null ? Number(emailRow.priority_score) : null,
+    triageState: (emailRow.triage_state as any) ?? "unassigned",
+    triagedAt: emailRow.triaged_at ? String(emailRow.triaged_at) : null,
+    snoozedUntil: emailRow.snoozed_until ? String(emailRow.snoozed_until) : null,
   };
 
   const suggestions = suggestProjectsForEmail(emailRecord, projects, {

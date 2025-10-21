@@ -35,7 +35,7 @@ function pickRandom<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function buildSeedEmail(index: number, count: number) {
+function buildSeedEmail(index: number, count: number, userId: string) {
   const base = Date.now();
   const sender = pickRandom(DEMO_SENDERS);
   const category = pickRandom(DEMO_CATEGORIES);
@@ -44,6 +44,7 @@ function buildSeedEmail(index: number, count: number) {
 
   return {
     id: `seed-admin-${base}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    user_id: userId,
     from_name: sender.name,
     from_email: sender.email,
     subject,
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
     case "generateEmails": {
       const requested = typeof payload.count === "number" ? payload.count : 10;
       const count = Math.min(Math.max(Math.floor(requested), 1), 200);
-      const rows = Array.from({ length: count }, (_, index) => buildSeedEmail(index, count));
+      const rows = Array.from({ length: count }, (_, index) => buildSeedEmail(index, count, adminResult.user.id));
 
       const { error } = await supabase.from("emails").insert(rows);
 

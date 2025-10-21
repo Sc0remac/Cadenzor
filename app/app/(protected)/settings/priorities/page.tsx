@@ -8,8 +8,15 @@ import {
   clonePriorityConfig,
   isPriorityConfigEqual,
   normalizePriorityConfigInput,
+  applyPriorityConfigPreset,
+  calculateEmailInboxPriority,
+  buildEmailPriorityBreakdown,
   type PriorityConfig,
   type PriorityEmailCrossLabelRule,
+  type PriorityEmailAdvancedBoost,
+  type PriorityEmailActionRule,
+  type PrioritySchedulingConfig,
+  type EmailTriageState,
 } from "@kazador/shared";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -21,10 +28,66 @@ import {
   type PriorityConfigPayload,
   type PriorityConfigPresetSummary,
 } from "@/lib/priorityConfigClient";
+import { featureFlags } from "@/lib/featureFlags";
 
 interface CategoryGroup {
   name: string;
   categories: Array<{ name: string; meaning: string; weight: number }>;
+}
+
+const SAMPLE_TIMESTAMP = "2024-01-01T12:00:00Z";
+
+const SAMPLE_EMAILS = [
+  {
+    id: "booking-offer",
+    label: "Booking offer (VIP)",
+    input: {
+      category: "BOOKING/Offer",
+      labels: ["BOOKING/Offer"],
+      receivedAt: SAMPLE_TIMESTAMP,
+      isRead: false,
+      triageState: "unassigned" as EmailTriageState,
+      fromEmail: "vip@agency.com",
+      subject: "Offer: Festival headline",
+      hasAttachments: true,
+    },
+  },
+  {
+    id: "legal-contract",
+    label: "Contract draft with attachment",
+    input: {
+      category: "LEGAL/Contract_Draft",
+      labels: ["LEGAL/Contract_Draft"],
+      receivedAt: SAMPLE_TIMESTAMP,
+      isRead: false,
+      triageState: "unassigned" as EmailTriageState,
+      fromEmail: "legal@promoter.com",
+      subject: "Contract draft attached",
+      hasAttachments: true,
+    },
+  },
+  {
+    id: "finance-invoice",
+    label: "Finance invoice",
+    input: {
+      category: "FINANCE/Invoice",
+      labels: ["FINANCE/Invoice"],
+      receivedAt: SAMPLE_TIMESTAMP,
+      isRead: true,
+      triageState: "acknowledged" as EmailTriageState,
+      fromEmail: "accounts@venue.com",
+      subject: "Invoice – settlement",
+      hasAttachments: false,
+    },
+  },
+];
+
+function createClientId(prefix: string): string {
+  const cryptoRef = typeof globalThis !== "undefined" && (globalThis as any).crypto;
+  if (cryptoRef && typeof cryptoRef.randomUUID === "function") {
+    return `${prefix}-${cryptoRef.randomUUID()}`;
+  }
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function formatTimestamp(value: string | null): string {
@@ -42,6 +105,19 @@ function weightToColor(weight: number): string {
   if (weight >= 40) return "bg-yellow-400";
   if (weight >= 20) return "bg-lime-400";
   return "bg-emerald-400";
+}
+
+function formatTriageState(value: EmailTriageState): string {
+  switch (value) {
+    case "acknowledged":
+      return "Acknowledged";
+    case "snoozed":
+      return "Snoozed";
+    case "resolved":
+      return "Resolved";
+    default:
+      return "Unassigned";
+  }
 }
 
 function buildCategoryGroups(
@@ -89,6 +165,7 @@ export default function PrioritySettingsPage() {
   const [presetLoading, setPresetLoading] = useState(true);
   const [presetError, setPresetError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [comparisonPreset, setComparisonPreset] = useState<string>("none");
 
   useEffect(() => {
     if (!accessToken) {
@@ -144,6 +221,58 @@ export default function PrioritySettingsPage() {
   );
 
   const hasChanges = useMemo(() => !isPriorityConfigEqual(config, baselineConfig), [config, baselineConfig]);
+
+  const comparisonConfig = useMemo<PriorityConfig | null>(() => {
+    if (!featureFlags.priorityV3) {
+      return null;
+    }
+    switch (comparisonPreset) {
+      case "none":
+        return null;
+      case "default":
+        return DEFAULT_PRIORITY_CONFIG;
+      case "current":
+        return config;
+      default:
+        try {
+          return applyPriorityConfigPreset(
+            comparisonPreset,
+            clonePriorityConfig(DEFAULT_PRIORITY_CONFIG)
+          );
+        } catch (err) {
+          console.warn("Failed to apply comparison preset", err);
+          return DEFAULT_PRIORITY_CONFIG;
+        }
+    }
+  }, [comparisonPreset, config]);
+
+  const sampleEmailResults = useMemo(() => {
+    if (!featureFlags.priorityV3) {
+      return [] as Array<{
+        sample: typeof SAMPLE_EMAILS[number];
+        baseline: ReturnType<typeof buildEmailPriorityBreakdown>;
+        current: ReturnType<typeof buildEmailPriorityBreakdown>;
+        comparison: ReturnType<typeof buildEmailPriorityBreakdown> | null;
+      }>;
+    }
+
+    return SAMPLE_EMAILS.map((sample) => {
+      const baseline = buildEmailPriorityBreakdown(sample.input, {
+        config: DEFAULT_PRIORITY_CONFIG,
+      });
+      const currentBreakdown = buildEmailPriorityBreakdown(sample.input, { config });
+      const comparisonBreakdown = comparisonConfig
+        ? buildEmailPriorityBreakdown(sample.input, { config: comparisonConfig })
+        : null;
+
+      return {
+        sample,
+        baseline,
+        current: currentBreakdown,
+        comparison: comparisonBreakdown,
+      };
+    });
+  }, [config, comparisonConfig]);
 
   const handleResetAll = async () => {
     if (!accessToken) {
@@ -316,6 +445,153 @@ export default function PrioritySettingsPage() {
     });
   };
 
+  const addAdvancedBoost = () => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      next.email.advancedBoosts = [
+        ...next.email.advancedBoosts,
+        {
+          id: createClientId("boost"),
+          label: "New boost",
+          description: null,
+          weight: 5,
+          criteria: {
+            senders: [],
+            domains: [],
+            keywords: [],
+            labels: [],
+            categories: [],
+            hasAttachment: null,
+            minPriority: null,
+          },
+          explanation: null,
+        },
+      ];
+      return next;
+    });
+  };
+
+  const updateAdvancedBoost = (
+    index: number,
+    updater: (boost: PriorityEmailAdvancedBoost) => PriorityEmailAdvancedBoost
+  ) => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      if (!next.email.advancedBoosts[index]) {
+        return prev;
+      }
+      next.email.advancedBoosts = next.email.advancedBoosts.map((boost, i) =>
+        i === index ? updater({ ...boost }) : boost
+      );
+      return next;
+    });
+  };
+
+  const removeAdvancedBoost = (index: number) => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      next.email.advancedBoosts = next.email.advancedBoosts.filter((_, i) => i !== index);
+      return next;
+    });
+  };
+
+  const addActionRule = () => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      next.email.actionRules = [
+        ...next.email.actionRules,
+        {
+          id: createClientId("action"),
+          label: "New action",
+          description: null,
+          actionType: "playbook",
+          categories: [],
+          triageStates: ["unassigned"],
+          minPriority: 0,
+          icon: null,
+          color: null,
+          payload: null,
+        },
+      ];
+      return next;
+    });
+  };
+
+  const updateActionRule = (
+    index: number,
+    updater: (rule: PriorityEmailActionRule) => PriorityEmailActionRule
+  ) => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      if (!next.email.actionRules[index]) {
+        return prev;
+      }
+      next.email.actionRules = next.email.actionRules.map((rule, i) =>
+        i === index ? updater({ ...rule }) : rule
+      );
+      return next;
+    });
+  };
+
+  const removeActionRule = (index: number) => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      next.email.actionRules = next.email.actionRules.filter((_, i) => i !== index);
+      return next;
+    });
+  };
+
+  const updateSchedulingTimezone = (timezone: string) => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      next.scheduling.timezone = timezone;
+      return next;
+    });
+  };
+
+  const addScheduleEntry = () => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      next.scheduling.entries = [
+        ...next.scheduling.entries,
+        {
+          id: createClientId("schedule"),
+          label: "Scheduled preset",
+          presetSlug: presets[0]?.slug ?? "",
+          daysOfWeek: [1],
+          startTime: "08:00",
+          endTime: null,
+          autoApply: true,
+        },
+      ];
+      return next;
+    });
+  };
+
+  const updateScheduleEntry = (
+    index: number,
+    updater: (entry: PrioritySchedulingConfig["entries"][number]) => PrioritySchedulingConfig["entries"][number]
+  ) => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      if (!next.scheduling.entries[index]) {
+        return prev;
+      }
+      next.scheduling.entries = next.scheduling.entries.map((entry, i) =>
+        i === index ? updater({ ...entry }) : entry
+      );
+      return next;
+    });
+  };
+
+  const removeScheduleEntry = (index: number) => {
+    setConfig((prev) => {
+      const next = clonePriorityConfig(prev);
+      next.scheduling.entries = next.scheduling.entries.filter((_, i) => i !== index);
+      return next;
+    });
+  };
+
   const handleApplyPreset = async (slug: string) => {
     if (!accessToken) {
       setError("Authentication required");
@@ -473,6 +749,85 @@ export default function PrioritySettingsPage() {
       {success ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div>
       ) : null}
+
+      {featureFlags.priorityV3 && (
+        <section className="space-y-4">
+          <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Inbox impact preview</h2>
+              <p className="text-sm text-gray-600">
+                Compare the current configuration against defaults and optional presets using representative emails.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center">
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <span>Compare against</span>
+                <select
+                  value={comparisonPreset}
+                  onChange={(event) => setComparisonPreset(event.target.value)}
+                  className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                >
+                  <option value="none">No comparison</option>
+                  <option value="default">Default settings</option>
+                  {presets.map((preset) => (
+                    <option key={preset.slug} value={preset.slug}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </header>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Sample email</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Default</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Current</th>
+                  {comparisonConfig && (
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Comparison</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 bg-white">
+                {sampleEmailResults.map((result) => {
+                  const currentDelta = result.current.total - result.baseline.total;
+                  const comparisonDelta = result.comparison
+                    ? result.comparison.total - result.baseline.total
+                    : 0;
+                  return (
+                    <tr key={result.sample.id}>
+                      <td className="px-4 py-3 font-medium text-gray-900">{result.sample.label}</td>
+                      <td className="px-4 py-3 text-gray-600">{result.baseline.total}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {result.current.total}
+                        <span className="ml-2 text-xs text-gray-500">
+                          {currentDelta === 0 ? "±0" : currentDelta > 0 ? `+${currentDelta}` : currentDelta}
+                        </span>
+                      </td>
+                      {comparisonConfig && result.comparison ? (
+                        <td className="px-4 py-3 text-gray-600">
+                          {result.comparison.total}
+                          <span className="ml-2 text-xs text-gray-500">
+                            {comparisonDelta === 0
+                              ? "±0"
+                              : comparisonDelta > 0
+                              ? `+${comparisonDelta}`
+                              : comparisonDelta}
+                          </span>
+                        </td>
+                      ) : comparisonConfig ? (
+                        <td className="px-4 py-3 text-gray-400">No data</td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="space-y-4">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -904,6 +1259,613 @@ export default function PrioritySettingsPage() {
           )}
         </div>
       </section>
+
+      {featureFlags.priorityV3 && (
+        <section className="space-y-4">
+          <header className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Advanced boosts</h2>
+              <p className="text-sm text-gray-600">
+                Add criteria-based boosts for VIP senders, attachments, keywords, or categories.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={addAdvancedBoost}
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Add boost
+            </button>
+          </header>
+          <div className="space-y-4">
+            {config.email.advancedBoosts.length === 0 ? (
+              <div className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-500 shadow-sm">
+                No advanced boosts configured.
+              </div>
+            ) : (
+              config.email.advancedBoosts.map((boost, index) => (
+                <div key={boost.id} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Label</label>
+                        <input
+                          type="text"
+                          value={boost.label}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({ ...current, label: event.target.value }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Description</label>
+                        <input
+                          type="text"
+                          value={boost.description ?? ""}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({
+                              ...current,
+                              description: event.target.value || null,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Weight</label>
+                        <input
+                          type="number"
+                          min={-100}
+                          max={200}
+                          value={boost.weight}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({
+                              ...current,
+                              weight: (() => {
+                                const parsed = Number(event.target.value);
+                                if (!Number.isFinite(parsed)) {
+                                  return current.weight;
+                                }
+                                return Math.max(-100, Math.min(200, Math.round(parsed)));
+                              })(),
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Senders</label>
+                        <input
+                          type="text"
+                          value={(boost.criteria.senders ?? []).join(", ")}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({
+                              ...current,
+                              criteria: {
+                                ...current.criteria,
+                                senders: event.target.value
+                                  .split(",")
+                                  .map((value) => value.trim())
+                                  .filter((value) => value.length > 0),
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">Comma-separated email addresses.</p>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Domains</label>
+                        <input
+                          type="text"
+                          value={(boost.criteria.domains ?? []).join(", ")}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({
+                              ...current,
+                              criteria: {
+                                ...current.criteria,
+                                domains: event.target.value
+                                  .split(",")
+                                  .map((value) => value.trim())
+                                  .filter((value) => value.length > 0),
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Keywords</label>
+                        <input
+                          type="text"
+                          value={(boost.criteria.keywords ?? []).join(", ")}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({
+                              ...current,
+                              criteria: {
+                                ...current.criteria,
+                                keywords: event.target.value
+                                  .split(",")
+                                  .map((value) => value.trim())
+                                  .filter((value) => value.length > 0),
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Labels</label>
+                        <input
+                          type="text"
+                          value={(boost.criteria.labels ?? []).join(", ")}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({
+                              ...current,
+                              criteria: {
+                                ...current.criteria,
+                                labels: event.target.value
+                                  .split(",")
+                                  .map((value) => value.trim())
+                                  .filter((value) => value.length > 0),
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Categories</label>
+                        <input
+                          type="text"
+                          value={(boost.criteria.categories ?? []).join(", ")}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({
+                              ...current,
+                              criteria: {
+                                ...current.criteria,
+                                categories: event.target.value
+                                  .split(",")
+                                  .map((value) => value.trim())
+                                  .filter((value) => value.length > 0),
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs text-gray-600">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={boost.criteria.hasAttachment === true}
+                            onChange={(event) =>
+                              updateAdvancedBoost(index, (current) => ({
+                                ...current,
+                                criteria: {
+                                  ...current.criteria,
+                                  hasAttachment: event.target.checked ? true : current.criteria.hasAttachment === true ? true : null,
+                                },
+                              }))
+                            }
+                            className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          />
+                          Requires attachment
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={boost.criteria.hasAttachment === false}
+                            onChange={(event) =>
+                              updateAdvancedBoost(index, (current) => ({
+                                ...current,
+                                criteria: {
+                                  ...current.criteria,
+                                  hasAttachment: event.target.checked ? false : current.criteria.hasAttachment === false ? false : null,
+                                },
+                              }))
+                            }
+                            className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          />
+                          Requires no attachment
+                        </label>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Minimum priority</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={boost.criteria.minPriority ?? ""}
+                          onChange={(event) =>
+                            updateAdvancedBoost(index, (current) => ({
+                              ...current,
+                              criteria: {
+                                ...current.criteria,
+                                minPriority:
+                                  event.target.value.trim() === ""
+                                    ? null
+                                    : Math.max(0, Math.min(100, Math.round(Number(event.target.value)))),
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeAdvancedBoost(index)}
+                        className="text-xs font-medium text-red-600 hover:text-red-700"
+                      >
+                        Remove boost
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      )}
+
+      {featureFlags.priorityV3 && (
+        <section className="space-y-4">
+          <header className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Inbox action buttons</h2>
+              <p className="text-sm text-gray-600">Define context-aware actions that appear on high-priority emails.</p>
+            </div>
+            <button
+              type="button"
+              onClick={addActionRule}
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Add action
+            </button>
+          </header>
+          <div className="space-y-4">
+            {config.email.actionRules.length === 0 ? (
+              <div className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-500 shadow-sm">
+                No action rules configured.
+              </div>
+            ) : (
+              config.email.actionRules.map((rule, index) => (
+                <div key={rule.id} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Label</label>
+                        <input
+                          type="text"
+                          value={rule.label}
+                          onChange={(event) =>
+                            updateActionRule(index, (current) => ({ ...current, label: event.target.value }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Description</label>
+                        <input
+                          type="text"
+                          value={rule.description ?? ""}
+                          onChange={(event) =>
+                            updateActionRule(index, (current) => ({
+                              ...current,
+                              description: event.target.value || null,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Action type</label>
+                        <select
+                          value={rule.actionType}
+                          onChange={(event) =>
+                            updateActionRule(index, (current) => ({
+                              ...current,
+                              actionType: event.target.value as PriorityEmailActionRule["actionType"],
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        >
+                          <option value="playbook">Run playbook</option>
+                          <option value="create_lead">Create lead</option>
+                          <option value="open_url">Open URL</option>
+                          <option value="custom">Custom</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Categories</label>
+                        <input
+                          type="text"
+                          value={(rule.categories ?? []).join(", ")}
+                          onChange={(event) =>
+                            updateActionRule(index, (current) => ({
+                              ...current,
+                              categories: event.target.value
+                                .split(",")
+                                .map((value) => value.trim())
+                                .filter((value) => value.length > 0),
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">Comma-separated labels like BOOKING/Offer.</p>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Triage states</label>
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-600">
+                          {(["unassigned", "acknowledged", "snoozed", "resolved"] as EmailTriageState[]).map((state) => (
+                            <label key={`${rule.id}-${state}`} className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={rule.triageStates?.includes(state) ?? false}
+                                onChange={(event) =>
+                                  updateActionRule(index, (current) => ({
+                                    ...current,
+                                    triageStates: event.target.checked
+                                      ? Array.from(new Set([...(current.triageStates ?? []), state]))
+                                      : (current.triageStates ?? []).filter((value) => value !== state),
+                                  }))
+                                }
+                                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                              />
+                              {formatTriageState(state)}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Minimum priority</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={rule.minPriority ?? 0}
+                          onChange={(event) =>
+                            updateActionRule(index, (current) => ({
+                              ...current,
+                              minPriority: Math.max(0, Math.min(100, Math.round(Number(event.target.value)))),
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Icon</label>
+                          <input
+                            type="text"
+                            value={rule.icon ?? ""}
+                            onChange={(event) =>
+                              updateActionRule(index, (current) => ({
+                                ...current,
+                                icon: event.target.value || null,
+                              }))
+                            }
+                            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Color</label>
+                          <input
+                            type="color"
+                            value={rule.color ?? "#2563eb"}
+                            onChange={(event) =>
+                              updateActionRule(index, (current) => ({
+                                ...current,
+                                color: event.target.value,
+                              }))
+                            }
+                            className="mt-1 h-10 w-full rounded border border-gray-300"
+                          />
+                        </div>
+                      </div>
+                      {rule.actionType === "playbook" && (
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Playbook key</label>
+                          <input
+                            type="text"
+                            value={typeof rule.payload?.playbook === "string" ? String(rule.payload?.playbook) : ""}
+                            onChange={(event) =>
+                              updateActionRule(index, (current) => ({
+                                ...current,
+                                payload: { ...(current.payload ?? {}), playbook: event.target.value || undefined },
+                              }))
+                            }
+                            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                          />
+                        </div>
+                      )}
+                      {rule.actionType === "open_url" && (
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">URL</label>
+                          <input
+                            type="url"
+                            value={typeof rule.payload?.url === "string" ? String(rule.payload?.url) : ""}
+                            onChange={(event) =>
+                              updateActionRule(index, (current) => ({
+                                ...current,
+                                payload: { ...(current.payload ?? {}), url: event.target.value || undefined },
+                              }))
+                            }
+                            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                          />
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeActionRule(index)}
+                        className="text-xs font-medium text-red-600 hover:text-red-700"
+                      >
+                        Remove action
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      )}
+
+      {featureFlags.priorityV3 && (
+        <section className="space-y-4">
+          <header className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Preset scheduling</h2>
+              <p className="text-sm text-gray-600">
+                Automatically switch presets during the week. Scheduled presets are evaluated client-side today and future automation workers will honour them.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={addScheduleEntry}
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Add schedule
+            </button>
+          </header>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Timezone</label>
+              <input
+                type="text"
+                value={config.scheduling.timezone}
+                onChange={(event) => updateSchedulingTimezone(event.target.value)}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+            {config.scheduling.entries.length === 0 ? (
+              <div className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-500 shadow-sm">
+                No scheduled presets configured.
+              </div>
+            ) : (
+              config.scheduling.entries.map((entry, index) => (
+                <div key={entry.id} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Label</label>
+                      <input
+                        type="text"
+                        value={entry.label}
+                        onChange={(event) =>
+                          updateScheduleEntry(index, (current) => ({ ...current, label: event.target.value }))
+                        }
+                        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Preset</label>
+                      <select
+                        value={entry.presetSlug}
+                        onChange={(event) =>
+                          updateScheduleEntry(index, (current) => ({ ...current, presetSlug: event.target.value }))
+                        }
+                        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      >
+                        <option value="">Select preset</option>
+                        {presets.map((preset) => (
+                          <option key={`${entry.id}-${preset.slug}`} value={preset.slug}>
+                            {preset.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Start time</label>
+                      <input
+                        type="time"
+                        value={entry.startTime}
+                        onChange={(event) =>
+                          updateScheduleEntry(index, (current) => ({ ...current, startTime: event.target.value }))
+                        }
+                        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">End time</label>
+                      <input
+                        type="time"
+                        value={entry.endTime ?? ""}
+                        onChange={(event) =>
+                          updateScheduleEntry(index, (current) => ({
+                            ...current,
+                            endTime: event.target.value ? event.target.value : null,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-600">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[
+                        "Sun",
+                        "Mon",
+                        "Tue",
+                        "Wed",
+                        "Thu",
+                        "Fri",
+                        "Sat",
+                      ].map((label, dayIndex) => (
+                        <label key={`${entry.id}-day-${dayIndex}`} className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={entry.daysOfWeek.includes(dayIndex)}
+                            onChange={(event) =>
+                              updateScheduleEntry(index, (current) => ({
+                                ...current,
+                                daysOfWeek: event.target.checked
+                                  ? Array.from(new Set([...current.daysOfWeek, dayIndex]))
+                                  : current.daysOfWeek.filter((value) => value !== dayIndex),
+                              }))
+                            }
+                            className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={entry.autoApply}
+                        onChange={(event) =>
+                          updateScheduleEntry(index, (current) => ({
+                            ...current,
+                            autoApply: event.target.checked,
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      />
+                      Auto apply preset
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removeScheduleEntry(index)}
+                      className="text-xs font-medium text-red-600 hover:text-red-700"
+                    >
+                      Remove schedule
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

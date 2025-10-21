@@ -1,14 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { EmailLabel, EmailRecord } from "@kazador/shared";
+import type { EmailLabel, EmailRecord, PriorityEmailActionRule } from "@kazador/shared";
 import { useAuth } from "./AuthProvider";
-import { DEFAULT_EMAIL_LABELS, EMAIL_FALLBACK_LABEL } from "@kazador/shared";
+import {
+  DEFAULT_EMAIL_LABELS,
+  EMAIL_FALLBACK_LABEL,
+  DEFAULT_PRIORITY_CONFIG,
+  calculateEmailInboxPriority,
+  buildEmailPriorityBreakdown,
+  clonePriorityConfig,
+  type PriorityConfig,
+} from "@kazador/shared";
 import {
   DEFAULT_EMAILS_PER_PAGE,
   fetchEmailStats,
   fetchRecentEmails,
+  updateEmailTriage,
+  type UpdateEmailTriageOptions,
 } from "../lib/supabaseClient";
+import { fetchPriorityConfig } from "../lib/priorityConfigClient";
+import { featureFlags } from "../lib/featureFlags";
 import type {
   EmailStatsScope,
   EmailSourceFilter,
@@ -61,6 +73,649 @@ function startCase(label: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+interface EmailCardProps {
+  email: EmailRecord;
+  zone: PriorityZone;
+  onPreview: (email: EmailRecord) => void;
+  onAcknowledge: (email: EmailRecord) => void;
+  onResolve: (email: EmailRecord) => void;
+  onSnooze: (email: EmailRecord) => void;
+  onUnsnooze: (email: EmailRecord) => void;
+  onRunPlaybook: (email: EmailRecord, suggestion: PlaybookSuggestion) => void;
+  onOpenGmail: (email: EmailRecord) => void;
+  loading: boolean;
+  actionRules: PriorityEmailActionRule[];
+  onActionRule: (email: EmailRecord, rule: PriorityEmailActionRule) => void;
+  priorityConfig: PriorityConfig;
+  showBreakdown: boolean;
+  onToggleBreakdown: (email: EmailRecord) => void;
+}
+
+function EmailCard({
+  email,
+  onPreview,
+  onAcknowledge,
+  onResolve,
+  onSnooze,
+  onUnsnooze,
+  onRunPlaybook,
+  onOpenGmail,
+  loading,
+  actionRules,
+  onActionRule,
+  priorityConfig,
+  showBreakdown,
+  onToggleBreakdown,
+}: EmailCardProps) {
+  const suggestion = getPlaybookSuggestion(email);
+  const snoozeActive = isSnoozeActive(email);
+  const attachments = email.attachments ?? [];
+  const projects = email.linkedProjects ?? [];
+  const snoozeLabel = email.snoozedUntil ? formatRelativeTime(email.snoozedUntil) : null;
+  const breakdown = useMemo(
+    () =>
+      buildEmailPriorityBreakdown(
+        {
+          category: email.category,
+          labels: email.labels,
+          receivedAt: email.receivedAt,
+          isRead: email.isRead,
+          triageState: email.triageState,
+          snoozedUntil: email.snoozedUntil ?? null,
+          fromEmail: email.fromEmail,
+          fromName: email.fromName,
+          subject: email.subject,
+          hasAttachments: email.hasAttachments ?? null,
+        },
+        { config: priorityConfig }
+      ),
+    [email, priorityConfig]
+  );
+
+  return (
+    <article className="flex h-full flex-col justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-indigo-200 hover:shadow-md">
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <PriorityBadge score={email.priorityScore} />
+              <span className="text-xs text-gray-500">{formatRelativeTime(email.receivedAt)}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onPreview(email)}
+              className="text-left text-base font-semibold text-gray-900 hover:text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              {email.subject || "(No subject)"}
+            </button>
+            <p className="text-xs text-gray-600">
+              From {email.fromName ? `${email.fromName} · ${email.fromEmail}` : email.fromEmail}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${triageStateClass(email.triageState)}`}
+          >
+            {formatTriageState(email.triageState)}
+          </span>
+          <span className="inline-flex items-center rounded-full border border-gray-200 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-600">
+            {formatLabel(email.category)}
+          </span>
+          <span className="inline-flex items-center rounded-full border border-gray-200 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-600">
+            {formatSourceLabel(email.source)}
+          </span>
+          {email.triageState === "snoozed" && (
+            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-medium text-amber-700">
+              Snoozed {snoozeLabel ? `until ${snoozeLabel}` : ""} {snoozeActive ? "" : "(expired)"}
+            </span>
+          )}
+        </div>
+        {projects.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {projects.map((project) => (
+              <span
+                key={`${email.id}-${project.projectId}`}
+                className="inline-flex items-center rounded border px-3 py-1 text-xs font-medium"
+                style={{ borderColor: project.color ?? "#c7d2fe", color: project.color ?? "#4338ca" }}
+              >
+                {project.name}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {email.labels && email.labels.length > 0 ? (
+            email.labels.map((label) => (
+              <span
+                key={`${email.id}-${label}`}
+                className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium uppercase tracking-wide text-indigo-600"
+              >
+                {formatLabel(label)}
+              </span>
+            ))
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+              Unlabelled
+            </span>
+          )}
+        </div>
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+            <span className="font-medium text-gray-700">Attachments:</span>
+            {attachments.slice(0, 3).map((attachment) => (
+              <span
+                key={attachment.id}
+                className="inline-flex items-center rounded border border-gray-200 bg-gray-50 px-2 py-1"
+              >
+                📎 {attachment.filename}
+              </span>
+            ))}
+            {attachments.length > 3 && <span>+{attachments.length - 3} more</span>}
+          </div>
+        )}
+        <p className="text-sm leading-relaxed text-gray-700">
+          {email.summary ? email.summary : "No summary available for this email."}
+        </p>
+        {suggestion && (
+          <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+            <p className="font-semibold">💡 {suggestion.label}</p>
+            <p className="mt-1 text-xs text-sky-600">{suggestion.description}</p>
+          </div>
+        )}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => onAcknowledge(email)}
+          disabled={loading || email.triageState === "acknowledged"}
+          className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Acknowledge
+        </button>
+        {email.triageState === "snoozed" ? (
+          <button
+            type="button"
+            onClick={() => onUnsnooze(email)}
+            disabled={loading}
+            className="inline-flex items-center rounded border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Unsnooze
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onSnooze(email)}
+            disabled={loading}
+            className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Snooze
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onResolve(email)}
+          disabled={loading || email.triageState === "resolved"}
+          className="inline-flex items-center rounded border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Resolve
+        </button>
+        {actionRules.map((rule) => {
+          const style = rule.color
+            ? {
+                backgroundColor: rule.color,
+                borderColor: rule.color,
+                color: "#ffffff",
+              }
+            : undefined;
+          return (
+            <button
+              key={rule.id}
+              type="button"
+              onClick={() => onActionRule(email, rule)}
+              disabled={loading}
+              style={style}
+              className={`inline-flex items-center rounded border px-3 py-1 text-xs font-medium transition ${
+                style ? "hover:opacity-90" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              } disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              {rule.label}
+            </button>
+          );
+        })}
+        {suggestion && (
+          <button
+            type="button"
+            onClick={() => onRunPlaybook(email, suggestion)}
+            disabled={loading}
+            className="inline-flex items-center rounded border border-indigo-300 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Run playbook
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onOpenGmail(email)}
+          className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
+        >
+          Open in Gmail
+        </button>
+        {featureFlags.priorityV3 && (
+          <button
+            type="button"
+            onClick={() => onToggleBreakdown(email)}
+            className="inline-flex items-center rounded border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-100"
+          >
+            {showBreakdown ? "Hide why" : "Why this priority"}
+          </button>
+        )}
+      </div>
+      {featureFlags.priorityV3 && showBreakdown && (
+        <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+          <p className="mb-2 font-semibold text-gray-800">Priority breakdown</p>
+          <ul className="space-y-1">
+            {breakdown.components.map((component, index) => (
+              <li key={`${email.id}-component-${index}`} className="flex items-center justify-between">
+                <span>{component.label}</span>
+                <span className="font-semibold">{component.value >= 0 ? `+${component.value}` : component.value}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] text-gray-500">Score: {breakdown.total}</p>
+        </div>
+      )}
+    </article>
+  );
+}
+
+interface EmailPreviewProps {
+  email: EmailRecord;
+  isOpen: boolean;
+  onClose: () => void;
+  onAcknowledge: (email: EmailRecord) => void;
+  onResolve: (email: EmailRecord) => void;
+  onSnooze: (email: EmailRecord) => void;
+  onUnsnooze: (email: EmailRecord) => void;
+  onRunPlaybook: (email: EmailRecord, suggestion: PlaybookSuggestion) => void;
+  onOpenGmail: (email: EmailRecord) => void;
+  loading: boolean;
+  actionRules: PriorityEmailActionRule[];
+  onActionRule: (email: EmailRecord, rule: PriorityEmailActionRule) => void;
+  priorityConfig: PriorityConfig;
+}
+
+function EmailPreview({
+  email,
+  isOpen,
+  onClose,
+  onAcknowledge,
+  onResolve,
+  onSnooze,
+  onUnsnooze,
+  onRunPlaybook,
+  onOpenGmail,
+  loading,
+  actionRules,
+  onActionRule,
+  priorityConfig,
+}: EmailPreviewProps) {
+  const suggestion = getPlaybookSuggestion(email);
+  const attachments = email.attachments ?? [];
+  const projects = email.linkedProjects ?? [];
+  const snoozeActive = isSnoozeActive(email);
+  const snoozeLabel = email.snoozedUntil ? formatRelativeTime(email.snoozedUntil) : null;
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const breakdown = useMemo(
+    () =>
+      buildEmailPriorityBreakdown(
+        {
+          category: email.category,
+          labels: email.labels,
+          receivedAt: email.receivedAt,
+          isRead: email.isRead,
+          triageState: email.triageState,
+          snoozedUntil: email.snoozedUntil ?? null,
+          fromEmail: email.fromEmail,
+          fromName: email.fromName,
+          subject: email.subject,
+          hasAttachments: email.hasAttachments ?? null,
+        },
+        { config: priorityConfig }
+      ),
+    [email, priorityConfig]
+  );
+
+  useEffect(() => {
+    setShowBreakdown(false);
+  }, [email.id]);
+
+  return (
+    <div
+      className={`fixed inset-0 z-40 flex items-stretch justify-end transition-opacity duration-150 ${
+        isOpen ? "opacity-100" : "pointer-events-none opacity-0"
+      }`}
+    >
+      <div className="flex-1 bg-black/30" role="presentation" onClick={onClose} />
+      <aside
+        className={`relative ml-auto flex h-full w-full max-w-xl flex-col bg-white shadow-xl transition-transform duration-200 ${
+          isOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+        role="dialog"
+        aria-modal="true"
+      >
+        <header className="flex items-start justify-between border-b border-gray-200 px-6 py-4">
+          <div className="max-w-md space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              {formatReceivedAt(email.receivedAt)}
+            </p>
+            <h3 className="text-lg font-semibold text-gray-900">{email.subject || "(No subject)"}</h3>
+            <p className="text-sm text-gray-600">
+              From {email.fromName ? `${email.fromName} · ${email.fromEmail}` : email.fromEmail}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center rounded border border-gray-200 px-3 py-1 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-100"
+          >
+            Close
+          </button>
+        </header>
+        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${triageStateClass(email.triageState)}`}
+              >
+                {formatTriageState(email.triageState)}
+              </span>
+              <PriorityBadge score={email.priorityScore} />
+              <span className="inline-flex items-center rounded-full border border-gray-200 px-3 py-1 text-xs font-medium uppercase tracking-wide text-gray-600">
+                {formatSourceLabel(email.source)}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-gray-200 px-3 py-1 text-xs font-medium uppercase tracking-wide text-gray-600">
+                {formatLabel(email.category)}
+              </span>
+              {email.triageState === "snoozed" && (
+                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                  Snoozed {snoozeLabel ? `until ${snoozeLabel}` : ""} {snoozeActive ? "" : "(expired)"}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {email.labels && email.labels.length > 0 ? (
+                email.labels.map((label) => (
+                  <span
+                    key={`${email.id}-preview-${label}`}
+                    className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium uppercase tracking-wide text-indigo-600"
+                  >
+                    {formatLabel(label)}
+                  </span>
+                ))
+              ) : (
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Unlabelled
+                </span>
+              )}
+            </div>
+            {projects.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {projects.map((project) => (
+                  <span
+                    key={`preview-${email.id}-${project.projectId}`}
+                    className="inline-flex items-center rounded border px-3 py-1 text-xs font-medium"
+                    style={{ borderColor: project.color ?? "#c7d2fe", color: project.color ?? "#4338ca" }}
+                  >
+                    {project.name}
+                  </span>
+                ))}
+              </div>
+            )}
+            {attachments.length > 0 && (
+              <div className="space-y-2 text-sm text-gray-700">
+                <p className="font-semibold text-gray-800">Attachments</p>
+                <ul className="space-y-1">
+                  {attachments.map((attachment) => (
+                    <li key={`preview-attachment-${attachment.id}`} className="flex items-center gap-2">
+                      <span>📎</span>
+                      <span>{attachment.filename}</span>
+                      {attachment.size != null && (
+                        <span className="text-xs text-gray-500">
+                          {(attachment.size / 1024).toFixed(1)} KB
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {suggestion && (
+              <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                <p className="font-semibold">💡 {suggestion.label}</p>
+                <p className="mt-1 text-xs text-sky-600">{suggestion.description}</p>
+              </div>
+            )}
+          </section>
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-gray-700">Summary</h4>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
+              {email.summary ?? "No summary available for this email."}
+            </p>
+          </section>
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-gray-700">Metadata</h4>
+            <dl className="grid grid-cols-1 gap-3 text-sm text-gray-600 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-gray-500">Sender</dt>
+                <dd>{email.fromEmail}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-gray-500">Received</dt>
+                <dd>{formatReceivedAt(email.receivedAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-gray-500">Priority score</dt>
+                <dd>{email.priorityScore ?? "N/A"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-gray-500">Triage state</dt>
+                <dd>{formatTriageState(email.triageState)}</dd>
+              </div>
+            </dl>
+          </section>
+          {featureFlags.priorityV3 && showBreakdown && (
+            <section className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-700">Priority breakdown</h4>
+              <ul className="space-y-1 text-xs text-gray-700">
+                {breakdown.components.map((component, index) => (
+                  <li key={`preview-breakdown-${index}`} className="flex items-center justify-between">
+                    <span>{component.label}</span>
+                    <span className="font-semibold">{component.value >= 0 ? `+${component.value}` : component.value}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-gray-500">Score: {breakdown.total}</p>
+            </section>
+          )}
+        </div>
+        <footer className="border-t border-gray-200 px-6 py-4">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onAcknowledge(email)}
+              disabled={loading || email.triageState === "acknowledged"}
+              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Acknowledge
+            </button>
+            {email.triageState === "snoozed" ? (
+              <button
+                type="button"
+                onClick={() => onUnsnooze(email)}
+                disabled={loading}
+                className="inline-flex items-center rounded border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Unsnooze
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onSnooze(email)}
+                disabled={loading}
+                className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Snooze
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onResolve(email)}
+              disabled={loading || email.triageState === "resolved"}
+              className="inline-flex items-center rounded border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Resolve
+            </button>
+            {suggestion && (
+              <button
+                type="button"
+                onClick={() => onRunPlaybook(email, suggestion)}
+                disabled={loading}
+                className="inline-flex items-center rounded border border-indigo-300 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Run playbook
+              </button>
+            )}
+            {actionRules.map((rule) => {
+              const style = rule.color
+                ? {
+                    backgroundColor: rule.color,
+                    borderColor: rule.color,
+                    color: "#ffffff",
+                  }
+                : undefined;
+              return (
+                <button
+                  key={`preview-action-${rule.id}`}
+                  type="button"
+                  onClick={() => onActionRule(email, rule)}
+                  disabled={loading}
+                  style={style}
+                  className={`inline-flex items-center rounded border px-3 py-1 text-xs font-medium transition ${
+                    style ? "hover:opacity-90" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  {rule.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => onOpenGmail(email)}
+              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
+            >
+              Open in Gmail
+            </button>
+            {featureFlags.priorityV3 && (
+              <button
+                type="button"
+                onClick={() => setShowBreakdown((prev) => !prev)}
+                className="inline-flex items-center rounded border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-100"
+              >
+                {showBreakdown ? "Hide why" : "Why this priority"}
+              </button>
+            )}
+          </div>
+        </footer>
+      </aside>
+    </div>
+  );
+}
+
+interface SnoozeModalProps {
+  email: EmailRecord;
+  onApply: (email: EmailRecord, isoTimestamp: string) => void;
+  onClear: (email: EmailRecord) => void;
+  onClose: () => void;
+}
+
+function SnoozeModal({ email, onApply, onClear, onClose }: SnoozeModalProps) {
+  const [customValue, setCustomValue] = useState(() => {
+    if (email.snoozedUntil) {
+      const date = new Date(email.snoozedUntil);
+      if (!Number.isNaN(date.getTime())) {
+        return date.toISOString().slice(0, 16);
+      }
+    }
+    return "";
+  });
+
+  const presets = buildSnoozePresets();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Snooze email</h3>
+            <p className="text-xs text-gray-500">Choose how long to pause this thread.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center rounded border border-gray-200 px-3 py-1 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-100"
+          >
+            Close
+          </button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {presets.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => onApply(email, preset.compute())}
+              className="w-full rounded border border-gray-200 bg-white px-3 py-2 text-left text-sm font-medium text-gray-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 space-y-2">
+          <label className="text-xs font-medium text-gray-600" htmlFor="custom-snooze">
+            Custom snooze
+          </label>
+          <input
+            id="custom-snooze"
+            type="datetime-local"
+            value={customValue}
+            onChange={(event) => setCustomValue(event.target.value)}
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (!customValue) return;
+                const iso = new Date(customValue).toISOString();
+                onApply(email, iso);
+              }}
+              className="inline-flex items-center rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white shadow transition hover:bg-indigo-700"
+            >
+              Apply custom snooze
+            </button>
+            <button
+              type="button"
+              onClick={() => onClear(email)}
+              className="inline-flex items-center rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+            >
+              Clear snooze
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function formatLabel(label: EmailLabel): string {
@@ -143,26 +798,6 @@ function triageStateClass(value: EmailRecord["triageState"]): string {
   }
 }
 
-function priorityBadge(score: EmailRecord["priorityScore"]): { label: string; className: string } | null {
-  if (typeof score !== "number" || Number.isNaN(score)) {
-    return null;
-  }
-
-  if (score >= 80) {
-    return { label: `Priority ${score}`, className: "bg-rose-50 text-rose-700 border border-rose-100" };
-  }
-
-  if (score >= 50) {
-    return { label: `Priority ${score}`, className: "bg-orange-50 text-orange-700 border border-orange-100" };
-  }
-
-  if (score > 0) {
-    return { label: `Priority ${score}`, className: "bg-indigo-50 text-indigo-700 border border-indigo-100" };
-  }
-
-  return { label: "Priority 0", className: "bg-gray-50 text-gray-600 border border-gray-200" };
-}
-
 function formatSourceLabel(source: EmailRecord["source"]): string {
   if (!source) {
     return "Unknown";
@@ -174,6 +809,226 @@ function formatSourceLabel(source: EmailRecord["source"]): string {
   }
 
   return source;
+}
+
+type PriorityZone = "critical" | "high" | "medium" | "low" | "snoozed" | "resolved";
+
+interface PlaybookSuggestion {
+  label: string;
+  description: string;
+  action: string;
+}
+
+const PRIORITY_ZONE_DEFINITIONS: Array<{
+  zone: PriorityZone;
+  label: string;
+  subtitle: string;
+}> = [
+  { zone: "critical", label: "Critical", subtitle: "Priority 80+ · immediate attention" },
+  { zone: "high", label: "High", subtitle: "Priority 60-79 · respond soon" },
+  { zone: "medium", label: "Medium", subtitle: "Priority 40-59 · plan follow-up" },
+  { zone: "low", label: "Low", subtitle: "Priority < 40 · monitor" },
+  { zone: "snoozed", label: "Snoozed", subtitle: "Parked until the snooze expires" },
+  { zone: "resolved", label: "Resolved", subtitle: "Archived or completed items" },
+];
+
+const PRIORITY_FILTER_OPTIONS: Array<{ value: PriorityZone | "all"; label: string }> = [
+  { value: "all", label: "All" },
+  ...PRIORITY_ZONE_DEFINITIONS.map((definition) => ({ value: definition.zone, label: definition.label })),
+];
+
+function getPriorityZone(email: EmailRecord): PriorityZone {
+  if (email.triageState === "resolved") {
+    return "resolved";
+  }
+  if (email.triageState === "snoozed") {
+    return "snoozed";
+  }
+
+  const score = typeof email.priorityScore === "number" ? email.priorityScore : 0;
+  if (score >= 80) return "critical";
+  if (score >= 60) return "high";
+  if (score >= 40) return "medium";
+  return "low";
+}
+
+function isSnoozeActive(email: EmailRecord, now = new Date()): boolean {
+  if (email.triageState !== "snoozed" || !email.snoozedUntil) {
+    return false;
+  }
+  const until = new Date(email.snoozedUntil);
+  return !Number.isNaN(until.getTime()) && until.getTime() > now.getTime();
+}
+
+function formatRelativeTime(timestamp: string): string {
+  try {
+    const target = new Date(timestamp).getTime();
+    const diff = target - Date.now();
+    const abs = Math.abs(diff);
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+
+    const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+    if (abs < minute) {
+      return "now";
+    }
+    if (abs < hour) {
+      return formatter.format(Math.round(diff / minute), "minute");
+    }
+    if (abs < day) {
+      return formatter.format(Math.round(diff / hour), "hour");
+    }
+    return formatter.format(Math.round(diff / day), "day");
+  } catch (err) {
+    return timestamp;
+  }
+}
+
+function isActionNeeded(email: EmailRecord, now = new Date()): boolean {
+  if (email.triageState === "resolved" || email.triageState === "acknowledged") {
+    return false;
+  }
+
+  if (email.triageState === "snoozed") {
+    return !isSnoozeActive(email, now);
+  }
+
+  return true;
+}
+
+function getPlaybookSuggestion(email: EmailRecord): PlaybookSuggestion | null {
+  const category = email.category?.toUpperCase() ?? "";
+  if (category.startsWith("BOOKING/")) {
+    return {
+      label: "Booking enquiry",
+      description: "Prep lead sheet, draft response, and sync availability",
+      action: "booking-enquiry",
+    };
+  }
+  if (category.startsWith("LEGAL/")) {
+    return {
+      label: "Contract review",
+      description: "Route to legal checklist and request redlines",
+      action: "legal-review",
+    };
+  }
+  if (category.startsWith("FINANCE/")) {
+    return {
+      label: "Finance follow-up",
+      description: "Queue settlement review and update payment tracker",
+      action: "finance-follow-up",
+    };
+  }
+  return null;
+}
+
+function getActionRulesForEmail(
+  email: EmailRecord,
+  config: PriorityConfig
+): PriorityEmailActionRule[] {
+  const rules = config.email.actionRules ?? [];
+  const score = email.priorityScore ??
+    calculateEmailInboxPriority(
+      {
+        category: email.category,
+        labels: email.labels,
+        receivedAt: email.receivedAt,
+        isRead: email.isRead,
+        triageState: email.triageState,
+        snoozedUntil: email.snoozedUntil ?? null,
+        fromEmail: email.fromEmail,
+        fromName: email.fromName,
+        subject: email.subject,
+        hasAttachments: email.hasAttachments ?? null,
+      },
+      { config }
+    );
+
+  return rules.filter((rule) => {
+    if (rule.minPriority != null && score < rule.minPriority) {
+      return false;
+    }
+    if (rule.categories && rule.categories.length > 0) {
+      const categoryMatch = rule.categories.some((value) => value.toLowerCase() === email.category.toLowerCase());
+      if (!categoryMatch) {
+        return false;
+      }
+    }
+    if (rule.triageStates && rule.triageStates.length > 0) {
+      if (!rule.triageStates.includes((email.triageState ?? "unassigned") as EmailRecord["triageState"])) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+type SnoozeOption = {
+  id: string;
+  label: string;
+  compute: () => string;
+};
+
+function buildSnoozePresets(now = new Date()): SnoozeOption[] {
+  const startOfDay = new Date(now);
+  startOfDay.setHours(18, 0, 0, 0);
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  tomorrow.setHours(9, 0, 0, 0);
+
+  const nextWeek = new Date(now);
+  const day = nextWeek.getDay();
+  const daysUntilMonday = (8 - day) % 7 || 7;
+  nextWeek.setDate(nextWeek.getDate() + daysUntilMonday);
+  nextWeek.setHours(9, 0, 0, 0);
+
+  return [
+    {
+      id: "later-today",
+      label: "Later today (6pm)",
+      compute: () => startOfDay.toISOString(),
+    },
+    {
+      id: "tomorrow",
+      label: "Tomorrow (9am)",
+      compute: () => tomorrow.toISOString(),
+    },
+    {
+      id: "next-week",
+      label: "Next week (Mon 9am)",
+      compute: () => nextWeek.toISOString(),
+    },
+  ];
+}
+
+function getGmailUrl(emailId: string): string {
+  return `https://mail.google.com/mail/u/0/#inbox/${emailId}`;
+}
+
+function PriorityBadge({ score }: { score?: number | null }) {
+  if (typeof score !== "number" || Number.isNaN(score)) {
+    return null;
+  }
+
+  let className = "bg-gray-100 text-gray-600 border border-gray-200";
+  if (score >= 80) {
+    className = "bg-rose-50 text-rose-700 border border-rose-200";
+  } else if (score >= 60) {
+    className = "bg-orange-50 text-orange-700 border border-orange-200";
+  } else if (score >= 40) {
+    className = "bg-amber-50 text-amber-700 border border-amber-200";
+  } else if (score > 0) {
+    className = "bg-indigo-50 text-indigo-700 border border-indigo-200";
+  }
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${className}`}>
+      Priority {score}
+    </span>
+  );
 }
 
 export default function EmailDashboard() {
@@ -199,6 +1054,35 @@ export default function EmailDashboard() {
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [selectedEmail, setSelectedEmail] = useState<EmailRecord | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [priorityConfig, setPriorityConfig] = useState<PriorityConfig>(() => clonePriorityConfig(DEFAULT_PRIORITY_CONFIG));
+  const [priorityConfigLoading, setPriorityConfigLoading] = useState(true);
+  const [priorityConfigError, setPriorityConfigError] = useState<string | null>(null);
+  const [priorityFilter, setPriorityFilter] = useState<PriorityZone | "all">("all");
+  const [actionFilter, setActionFilter] = useState<"needs-action" | "all" | "snoozed" | "resolved" | "acknowledged">("needs-action");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
+  const [updatingEmailIds, setUpdatingEmailIds] = useState<Set<string>>(new Set());
+  const [snoozeTarget, setSnoozeTarget] = useState<EmailRecord | null>(null);
+  const [expandedBreakdownIds, setExpandedBreakdownIds] = useState<Set<string>>(new Set());
+  const addUpdatingEmail = useCallback((id: string) => {
+    setUpdatingEmailIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const removeUpdatingEmail = useCallback((id: string) => {
+    setUpdatingEmailIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const updateEmailState = useCallback((updated: EmailRecord) => {
+    setEmails((prev) => prev.map((email) => (email.id === updated.id ? updated : email)));
+    setSelectedEmail((prev) => (prev && prev.id === updated.id ? updated : prev));
+  }, []);
   const emailPageRef = useRef<number>(1);
   const filtersHydratedRef = useRef(false);
 
@@ -249,6 +1133,40 @@ export default function EmailDashboard() {
     }
     window.localStorage.setItem(FILTER_STORAGE_KEYS.label, labelFilter);
   }, [labelFilter]);
+
+  useEffect(() => {
+    if (!featureFlags.priorityV3 || !accessToken) {
+      setPriorityConfig(clonePriorityConfig(DEFAULT_PRIORITY_CONFIG));
+      setPriorityConfigLoading(false);
+      setPriorityConfigError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setPriorityConfigLoading(true);
+    setPriorityConfigError(null);
+
+    fetchPriorityConfig(accessToken)
+      .then((response) => {
+        if (cancelled) return;
+        setPriorityConfig(clonePriorityConfig(response.config));
+        setPriorityConfigError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPriorityConfig(clonePriorityConfig(DEFAULT_PRIORITY_CONFIG));
+        setPriorityConfigError(err instanceof Error ? err.message : "Failed to load priority configuration");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPriorityConfigLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
   const applyEmailResponse = useCallback(
     (response: EmailListResponse, requestedPage: number) => {
@@ -330,6 +1248,36 @@ export default function EmailDashboard() {
     ]
   );
 
+  const performTriageUpdate = useCallback(
+    async (
+      emailId: string,
+      updates: Omit<UpdateEmailTriageOptions, "accessToken">,
+      successMessage?: string
+    ) => {
+      if (!accessToken) {
+        setStatusMessage({ type: "error", message: "Authentication required. Please sign in again." });
+        return;
+      }
+
+      addUpdatingEmail(emailId);
+      try {
+        const updated = await updateEmailTriage(emailId, { ...updates, accessToken });
+        updateEmailState(updated);
+        if (successMessage) {
+          setStatusMessage({ type: "success", message: successMessage });
+        }
+        await loadData({ silent: true });
+      } catch (err) {
+        console.error("Failed to update email triage", err);
+        const message = err instanceof Error ? err.message : "Failed to update email";
+        setStatusMessage({ type: "error", message });
+      } finally {
+        removeUpdatingEmail(emailId);
+      }
+    },
+    [accessToken, addUpdatingEmail, loadData, removeUpdatingEmail, updateEmailState]
+  );
+
   const handleScopeChange = useCallback((nextScope: EmailStatsScope) => {
     setStatsScope(nextScope);
   }, []);
@@ -374,6 +1322,125 @@ export default function EmailDashboard() {
   const handleManualRefresh = useCallback(() => {
     void loadData();
   }, [loadData]);
+
+  const handleAcknowledgeEmail = useCallback(
+    (email: EmailRecord) => {
+      void performTriageUpdate(email.id, { triageState: "acknowledged", isRead: true }, "Email acknowledged");
+    },
+    [performTriageUpdate]
+  );
+
+  const handleResolveEmail = useCallback(
+    (email: EmailRecord) => {
+      void performTriageUpdate(email.id, { triageState: "resolved", isRead: true, snoozedUntil: null }, "Email resolved");
+    },
+    [performTriageUpdate]
+  );
+
+  const handleUnsnoozeEmail = useCallback(
+    (email: EmailRecord) => {
+      void performTriageUpdate(
+        email.id,
+        { triageState: "unassigned", snoozedUntil: null },
+        "Email unsnoozed"
+      );
+    },
+    [performTriageUpdate]
+  );
+
+  const handleOpenSnoozeModal = useCallback((email: EmailRecord) => {
+    setSnoozeTarget(email);
+  }, []);
+
+  const handleApplySnooze = useCallback(
+    (email: EmailRecord, isoTimestamp: string) => {
+      const snoozeUntil = new Date(isoTimestamp);
+      const readable = Number.isNaN(snoozeUntil.getTime())
+        ? "selected time"
+        : snoozeUntil.toLocaleString();
+      void performTriageUpdate(
+        email.id,
+        { triageState: "snoozed", snoozedUntil: isoTimestamp, isRead: false },
+        `Email snoozed until ${readable}`
+      );
+      setSnoozeTarget(null);
+    },
+    [performTriageUpdate]
+  );
+
+  const handleClearSnooze = useCallback(
+    (email: EmailRecord) => {
+      void performTriageUpdate(
+        email.id,
+        { triageState: "unassigned", snoozedUntil: null },
+        "Snooze cleared"
+      );
+      setSnoozeTarget(null);
+    },
+    [performTriageUpdate]
+  );
+
+  const handleRunPlaybook = useCallback((email: EmailRecord, suggestion: PlaybookSuggestion) => {
+    setStatusMessage({
+      type: "success",
+      message: `Playbook “${suggestion.label}” queued for “${email.subject || "Untitled email"}”.`,
+    });
+  }, []);
+
+  const handleOpenGmail = useCallback((email: EmailRecord) => {
+    window.open(getGmailUrl(email.id), "_blank", "noopener");
+  }, []);
+
+  const handleActionRule = useCallback(
+    (email: EmailRecord, rule: PriorityEmailActionRule) => {
+      switch (rule.actionType) {
+        case "playbook": {
+          const suggestion: PlaybookSuggestion = {
+            label: rule.label,
+            description: rule.description ?? "",
+            action: String((rule.payload as any)?.playbook ?? rule.id),
+          };
+          handleRunPlaybook(email, suggestion);
+          break;
+        }
+        case "open_url": {
+          const url = typeof (rule.payload as any)?.url === "string" ? String((rule.payload as any).url) : null;
+          if (url) {
+            window.open(url, "_blank", "noopener");
+            setStatusMessage({ type: "success", message: `${rule.label} opened in a new tab.` });
+          } else {
+            setStatusMessage({ type: "error", message: "No URL configured for this action." });
+          }
+          break;
+        }
+        case "create_lead": {
+          setStatusMessage({
+            type: "success",
+            message: `Lead created for ${email.subject || email.fromEmail}.`,
+          });
+          break;
+        }
+        case "custom":
+        default: {
+          setStatusMessage({ type: "success", message: `${rule.label} triggered.` });
+          break;
+        }
+      }
+    },
+    [handleRunPlaybook]
+  );
+
+  const handleToggleBreakdown = useCallback((email: EmailRecord) => {
+    setExpandedBreakdownIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(email.id)) {
+        next.delete(email.id);
+      } else {
+        next.add(email.id);
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!accessToken) {
@@ -563,19 +1630,95 @@ export default function EmailDashboard() {
     return values;
   }, [labelStatsEntries]);
 
-  const visibleEmails = useMemo(() => {
-    if (labelFilter === "all") {
-      return emails;
-    }
+  const effectivePriorityConfig = useMemo(() => priorityConfig ?? DEFAULT_PRIORITY_CONFIG, [priorityConfig]);
 
-    return emails.filter((email) => {
-      const labels = Array.isArray(email.labels) ? email.labels : [];
-      if (labels.length === 0) {
-        return labelFilter === "unlabelled";
-      }
-      return labels.includes(labelFilter);
+  const projectOptions = useMemo(() => {
+    const entries = new Map<string, string>();
+    emails.forEach((email) => {
+      email.linkedProjects?.forEach((project) => {
+        if (project.projectId && !entries.has(project.projectId)) {
+          entries.set(project.projectId, project.name);
+        }
+      });
     });
-  }, [emails, labelFilter]);
+    return [
+      { value: "all", label: "All projects" },
+      ...Array.from(entries.entries()).map(([value, label]) => ({ value, label })),
+    ];
+  }, [emails]);
+
+  const filteredEmails = useMemo(() => {
+    const now = new Date();
+    return emails.filter((email) => {
+      if (priorityFilter !== "all" && getPriorityZone(email) !== priorityFilter) {
+        return false;
+      }
+
+      switch (actionFilter) {
+        case "needs-action":
+          if (!isActionNeeded(email, now)) {
+            return false;
+          }
+          break;
+        case "snoozed":
+          if (email.triageState !== "snoozed") {
+            return false;
+          }
+          break;
+        case "resolved":
+          if (email.triageState !== "resolved") {
+            return false;
+          }
+          break;
+        case "acknowledged":
+          if (email.triageState !== "acknowledged") {
+            return false;
+          }
+          break;
+        default:
+          break;
+      }
+
+      if (projectFilter !== "all") {
+        const matchesProject = email.linkedProjects?.some(
+          (project) => project.projectId === projectFilter
+        );
+        if (!matchesProject) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [emails, priorityFilter, actionFilter, projectFilter]);
+
+  const groupedEmails = useMemo(() => {
+    const groups = PRIORITY_ZONE_DEFINITIONS.map((definition) => ({
+      ...definition,
+      emails: [] as EmailRecord[],
+    }));
+    const lookup = new Map(groups.map((group) => [group.zone, group]));
+
+    filteredEmails.forEach((email) => {
+      const zone = getPriorityZone(email);
+      const bucket = lookup.get(zone);
+      if (bucket) {
+        bucket.emails.push(email);
+      }
+    });
+
+    groups.forEach((group) => {
+      group.emails.sort((a, b) => {
+        const scoreDiff = (b.priorityScore ?? 0) - (a.priorityScore ?? 0);
+        if (scoreDiff !== 0) {
+          return scoreDiff;
+        }
+        return new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime();
+      });
+    });
+
+    return groups;
+  }, [filteredEmails]);
 
   const hasLabelFilter = labelFilter !== "all";
   const activeScopeLabel = statsScope === "unread" ? "Unread only" : "All emails";
@@ -588,8 +1731,6 @@ export default function EmailDashboard() {
   const perPage = emailPagination.perPage > 0 ? emailPagination.perPage : DEFAULT_EMAILS_PER_PAGE;
   const totalEmails = emailPagination.total >= 0 ? emailPagination.total : emails.length;
   const totalPages = emailPagination.totalPages >= 0 ? emailPagination.totalPages : 0;
-  const rangeStart = emails.length > 0 ? (currentPage - 1) * perPage + 1 : 0;
-  const rangeEnd = emails.length > 0 ? rangeStart + emails.length - 1 : 0;
   const displayTotalPages =
     totalPages > 0 ? totalPages : totalEmails > 0 ? Math.ceil(totalEmails / perPage) : 1;
   const disablePrevious = loading || currentPage <= 1;
@@ -603,35 +1744,47 @@ export default function EmailDashboard() {
   const topCategoryLabel = highlightedTopLabel ? formatLabel(highlightedTopLabel.label as EmailLabel) : "No leading category";
   const topCategoryCount = highlightedTopLabel?.count ?? 0;
 
-  const tableSummary = useMemo(() => {
-    const sourceSummarySuffix = sourceFilter !== "all" ? ` (${SOURCE_LABEL_MAP[sourceFilter].toLowerCase()})` : "";
+  const activePriorityLabel =
+    priorityFilter === "all"
+      ? "All priorities"
+      : PRIORITY_ZONE_DEFINITIONS.find((def) => def.zone === priorityFilter)?.label ?? "All priorities";
 
-    if (visibleEmails.length === 0) {
-      if (emails.length === 0) {
-        return `Showing 0 emails${sourceSummarySuffix}`;
-      }
-      if (hasLabelFilter) {
-        return `No emails labelled ${activeLabelFilterLabel}${sourceSummarySuffix}`;
-      }
-      return `Showing 0 emails${sourceSummarySuffix}`;
+  const actionFilterLabelMap: Record<typeof actionFilter, string> = {
+    "needs-action": "Needs action",
+    all: "All triage states",
+    snoozed: "Snoozed",
+    resolved: "Resolved",
+    acknowledged: "Acknowledged",
+  };
+
+  const actionFilterOptions: Array<{ value: typeof actionFilter; label: string }> = [
+    { value: "needs-action", label: "Needs action" },
+    { value: "all", label: "All states" },
+    { value: "snoozed", label: "Snoozed" },
+    { value: "acknowledged", label: "Acknowledged" },
+    { value: "resolved", label: "Resolved" },
+  ];
+
+  const activeProjectLabel =
+    projectFilter === "all"
+      ? "All projects"
+      : projectOptions.find((option) => option.value === projectFilter)?.label ?? "All projects";
+
+  const cardsSummary = useMemo(() => {
+    const sourceSuffix = sourceFilter !== "all" ? ` (${SOURCE_LABEL_MAP[sourceFilter].toLowerCase()})` : "";
+    if (totalEmails === 0) {
+      return `Showing 0 emails${sourceSuffix}`;
     }
-
-    if (hasLabelFilter) {
-      const count = visibleEmails.length;
-      return `Showing ${count} ${count === 1 ? "email" : "emails"} labelled ${activeLabelFilterLabel}${sourceSummarySuffix}`;
+    if (filteredEmails.length === 0) {
+      return `No emails match the current filters${sourceSuffix}`;
     }
+    if (filteredEmails.length === totalEmails) {
+      return `Showing ${filteredEmails.length} ${filteredEmails.length === 1 ? "email" : "emails"}${sourceSuffix}`;
+    }
+    return `Showing ${filteredEmails.length} of ${totalEmails} emails${sourceSuffix}`;
+  }, [filteredEmails.length, sourceFilter, totalEmails]);
 
-    return `Showing ${rangeStart}-${rangeEnd} of ${totalEmails} emails${sourceSummarySuffix}`;
-  }, [
-    activeLabelFilterLabel,
-    emails.length,
-    hasLabelFilter,
-    rangeEnd,
-    rangeStart,
-    sourceFilter,
-    totalEmails,
-    visibleEmails.length,
-  ]);
+  const hasAnyGroupedEmails = groupedEmails.some((group) => group.emails.length > 0);
 
   const selectedEmailPriority = selectedEmail ? priorityBadge(selectedEmail.priorityScore) : null;
 
@@ -645,7 +1798,7 @@ export default function EmailDashboard() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h2 className="text-2xl font-semibold">
-              Emails by category
+              Inbox command center
               <span className="ml-2 text-sm font-normal text-gray-500">
                 ({filterSummary})
               </span>
@@ -653,9 +1806,7 @@ export default function EmailDashboard() {
             <span className="text-xs text-gray-500">Last refreshed: {lastRefreshedLabel}</span>
           </div>
           <div className="flex items-center gap-3">
-            {initialized && loading && (
-              <span className="text-xs text-gray-500">Refreshing…</span>
-            )}
+            {initialized && loading && <span className="text-xs text-gray-500">Refreshing…</span>}
             <button
               type="button"
               onClick={handleManualRefresh}
@@ -736,10 +1887,68 @@ export default function EmailDashboard() {
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">Priority:</span>
+            <div className="flex flex-wrap gap-1">
+              {PRIORITY_FILTER_OPTIONS.map((option) => {
+                const isActive = priorityFilter === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                      isActive ? "bg-indigo-600 text-white shadow" : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                    onClick={() => setPriorityFilter(option.value)}
+                    aria-pressed={isActive}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">Status:</span>
+            <select
+              value={actionFilter}
+              onChange={(event) => setActionFilter(event.target.value as typeof actionFilter)}
+              className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              {actionFilterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">Project:</span>
+            <select
+              value={projectFilter}
+              onChange={(event) => setProjectFilter(event.target.value)}
+              className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              {projectOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+          <span>Priority: {activePriorityLabel}</span>
+          <span>Action: {actionFilterLabelMap[actionFilter]}</span>
+          <span>Project: {activeProjectLabel}</span>
+          <span>{cardsSummary}</span>
         </div>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {featureFlags.priorityV3 && priorityConfigError && (
+        <p className="text-sm text-amber-600">{priorityConfigError}</p>
+      )}
 
       {statusMessage && (
         <p
@@ -767,9 +1976,7 @@ export default function EmailDashboard() {
         </div>
         <div
           className={`rounded-lg border p-4 shadow-sm ${
-            fallbackCount > 0
-              ? "border-amber-200 bg-amber-50"
-              : "border-gray-200 bg-white"
+            fallbackCount > 0 ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-white"
           }`}
         >
           <p className="text-sm font-medium text-gray-500">Needs tagging</p>
@@ -806,22 +2013,15 @@ export default function EmailDashboard() {
                 key={label}
                 type="button"
                 onClick={() => handleLabelTileClick(label as EmailLabel)}
-                className={`flex h-full flex-col items-start justify-between rounded border bg-white p-4 text-left shadow transition ${
-                  isActive
-                    ? "border-indigo-500 ring-1 ring-indigo-200"
-                    : "border-gray-200 hover:border-indigo-200 hover:shadow-md"
+                className={`flex flex-col items-start rounded-lg border p-4 text-left shadow-sm transition ${
+                  isActive ? "border-indigo-300 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-200"
                 }`}
               >
-                <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    #{index + 1}
-                  </h3>
-                  <p className="mt-1 text-lg font-semibold text-gray-900">{formatLabel(label)}</p>
-                </div>
-                <p className="mt-4 text-3xl font-bold text-indigo-600">{count}</p>
-                <span className="mt-2 text-xs text-gray-500">
-                  {isActive ? "Filtering applied" : "Click to filter by this label"}
+                <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                  Top #{index + 1}
                 </span>
+                <span className="mt-1 text-base font-medium text-gray-900">{formatLabel(label as EmailLabel)}</span>
+                <span className="mt-1 text-xs text-gray-500">{count.toLocaleString()} emails</span>
               </button>
             );
           })
@@ -829,287 +2029,122 @@ export default function EmailDashboard() {
       </div>
 
       {otherLabelEntries.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Other labels
-          </span>
-          {otherLabelEntries.map(({ label, count }) => {
-            const isActive = labelFilter === label;
-            return (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-700">Other active labels</h3>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {otherLabelEntries.map(({ label, count }) => (
               <button
                 key={label}
                 type="button"
                 onClick={() => handleLabelTileClick(label as EmailLabel)}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition ${
-                  isActive
-                    ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                    : "border-gray-200 bg-white text-gray-600 hover:border-indigo-200 hover:text-indigo-700"
+                className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide transition ${
+                  labelFilter === label
+                    ? "bg-indigo-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                 }`}
               >
-                <span>{formatLabel(label)}</span>
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
-                  {count}
-                </span>
+                {formatLabel(label as EmailLabel)}
+                <span className="ml-1 text-[11px] font-normal">({count})</span>
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
       )}
 
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-semibold">Latest emails</h2>
-          <span className="text-xs text-gray-500">{tableSummary}</span>
-        </div>
-        <div className="overflow-x-auto rounded border border-gray-200 bg-white shadow">
-          {visibleEmails.length === 0 ? (
-            <p className="px-6 py-8 text-sm text-gray-600">
-              {hasLabelFilter
-                ? `No emails labelled ${activeLabelFilterLabel}.`
-                : "No recent emails to display."}
-            </p>
-          ) : (
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th scope="col" className="px-4 py-3">Subject</th>
-                  <th scope="col" className="px-4 py-3">Sender</th>
-                  <th scope="col" className="px-4 py-3">Received</th>
-                  <th scope="col" className="px-4 py-3">Status</th>
-                  <th scope="col" className="px-4 py-3">Labels</th>
-                  <th scope="col" className="px-4 py-3">Summary</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {visibleEmails.map((email) => {
-                  const senderName = email.fromName?.trim();
-                  const isFallback = email.category === EMAIL_FALLBACK_LABEL;
-                  const triageLabel = formatTriageState(email.triageState);
-                  const triageClasses = triageStateClass(email.triageState);
-                  const priority = priorityBadge(email.priorityScore);
-                  const sourceLabel = formatSourceLabel(email.source);
-                  const rowClasses = `align-top transition ${
-                    isFallback
-                      ? "cursor-pointer border-l-4 border-amber-400 bg-amber-50/60 hover:bg-amber-50"
-                      : "cursor-pointer hover:bg-gray-50"
-                  }`;
-                  const handleRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleEmailRowClick(email);
-                    }
-                  };
-
-                  return (
-                    <tr
-                      key={email.id}
-                      className={rowClasses}
-                      onClick={() => handleEmailRowClick(email)}
-                      onKeyDown={handleRowKeyDown}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <td className="px-4 py-3 font-semibold text-gray-900">{email.subject}</td>
-                      <td className="px-4 py-3 text-gray-700">
-                        <div className="flex flex-col">
-                          <span>{senderName || email.fromEmail}</span>
-                          {senderName && (
-                            <span className="text-xs text-gray-500">{email.fromEmail}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
-                        {formatReceivedAt(email.receivedAt)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        <div className="flex flex-col gap-1">
-                          <span
-                            className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${triageClasses}`}
-                          >
-                            {triageLabel}
-                          </span>
-                          {priority && (
-                            <span
-                              className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${priority.className}`}
-                            >
-                              {priority.label}
-                            </span>
-                          )}
-                          <span className="text-xs text-gray-500">Source: {sourceLabel}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
-                          {email.labels && email.labels.length > 0 ? (
-                            email.labels.map((label) => (
-                              <span
-                                key={`${email.id}-${label}`}
-                                className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium uppercase tracking-wide text-indigo-600"
-                              >
-                                {formatLabel(label)}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-                              Unlabelled
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        {email.summary ? (
-                          <span className="block max-h-24 overflow-hidden" title={email.summary}>
-                            {email.summary}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">No summary available.</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs text-gray-500">
-            Page {currentPage} of {displayTotalPages}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePreviousPage}
-              disabled={disablePrevious}
-              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Previous
-            </button>
-            <span className="text-sm text-gray-600">{currentPage}</span>
-            <button
-              type="button"
-              onClick={handleNextPage}
-              disabled={disableNext}
-              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Next
-            </button>
+      <div className="space-y-6">
+        {groupedEmails.map((group) => (
+          group.emails.length === 0 ? null : (
+            <section key={group.zone} className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {group.label}
+                    <span className="ml-2 text-sm font-normal text-gray-500">({group.emails.length})</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">{group.subtitle}</p>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {group.emails.map((email) => (
+                  <EmailCard
+                    key={email.id}
+                    email={email}
+                    zone={group.zone}
+                    onPreview={handleEmailRowClick}
+                    onAcknowledge={handleAcknowledgeEmail}
+                    onResolve={handleResolveEmail}
+                    onSnooze={handleOpenSnoozeModal}
+                    onUnsnooze={handleUnsnoozeEmail}
+                    onRunPlaybook={handleRunPlaybook}
+                    onOpenGmail={handleOpenGmail}
+                    loading={updatingEmailIds.has(email.id)}
+                    actionRules={featureFlags.priorityV3 ? getActionRulesForEmail(email, effectivePriorityConfig) : []}
+                    onActionRule={handleActionRule}
+                    priorityConfig={effectivePriorityConfig}
+                    showBreakdown={featureFlags.priorityV3 && expandedBreakdownIds.has(email.id)}
+                    onToggleBreakdown={handleToggleBreakdown}
+                  />
+                ))}
+              </div>
+            </section>
+          )
+        ))}
+        {!hasAnyGroupedEmails && (
+          <div className="rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500 shadow-sm">
+            No emails match the current filters. Adjust priority, action, or project filters to broaden your view.
           </div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-xs text-gray-500">
+          Page {currentPage} of {displayTotalPages}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePreviousPage}
+            disabled={disablePrevious}
+            className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            onClick={handleNextPage}
+            disabled={disableNext}
+            className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Next
+          </button>
         </div>
-      </section>
+      </div>
 
       {selectedEmail && (
-        <div
-          className={`fixed inset-0 z-40 flex items-stretch justify-end transition-opacity duration-150 ${
-            isPreviewOpen ? "opacity-100" : "pointer-events-none opacity-0"
-          }`}
-        >
-          <div
-            className="flex-1 bg-black/30"
-            role="presentation"
-            onClick={handleClosePreview}
-          />
-          <aside
-            className={`relative ml-auto flex h-full w-full max-w-xl flex-col bg-white shadow-xl transition-transform duration-200 ${
-              isPreviewOpen ? "translate-x-0" : "translate-x-full"
-            }`}
-            role="dialog"
-            aria-modal="true"
-          >
-            <header className="flex items-start justify-between border-b border-gray-200 px-6 py-4">
-              <div className="max-w-md space-y-1">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  {formatReceivedAt(selectedEmail.receivedAt)}
-                </p>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {selectedEmail.subject || "(No subject)"}
-                </h3>
-                <p className="text-sm text-gray-600">
-                  From {selectedEmail.fromName ? `${selectedEmail.fromName} · ${selectedEmail.fromEmail}` : selectedEmail.fromEmail}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleClosePreview}
-                className="inline-flex items-center rounded border border-gray-200 px-3 py-1 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-100"
-              >
-                Close
-              </button>
-            </header>
-            <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
-              <section className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${triageStateClass(selectedEmail.triageState)}`}
-                  >
-                    {formatTriageState(selectedEmail.triageState)}
-                  </span>
-                  {selectedEmailPriority && (
-                    <span
-                      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${selectedEmailPriority.className}`}
-                    >
-                      {selectedEmailPriority.label}
-                    </span>
-                  )}
-                  <span className="inline-flex items-center rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600">
-                    Source: {formatSourceLabel(selectedEmail.source)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {selectedEmail.labels && selectedEmail.labels.length > 0 ? (
-                    selectedEmail.labels.map((label) => (
-                      <span
-                        key={`${selectedEmail.id}-preview-${label}`}
-                        className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium uppercase tracking-wide text-indigo-600"
-                      >
-                        {formatLabel(label)}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Unlabelled
-                    </span>
-                  )}
-                </div>
-                {selectedEmail.category === EMAIL_FALLBACK_LABEL && (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                    This email is uncategorised. Consider applying a label or updating your automations so
-                    future messages are classified automatically.
-                  </div>
-                )}
-              </section>
+        <EmailPreview
+          email={selectedEmail}
+          isOpen={isPreviewOpen}
+          onClose={handleClosePreview}
+          onAcknowledge={handleAcknowledgeEmail}
+          onResolve={handleResolveEmail}
+          onSnooze={handleOpenSnoozeModal}
+          onUnsnooze={handleUnsnoozeEmail}
+          onRunPlaybook={handleRunPlaybook}
+          onOpenGmail={handleOpenGmail}
+          loading={updatingEmailIds.has(selectedEmail.id)}
+          actionRules={featureFlags.priorityV3 ? getActionRulesForEmail(selectedEmail, effectivePriorityConfig) : []}
+          onActionRule={handleActionRule}
+          priorityConfig={effectivePriorityConfig}
+        />
+      )}
 
-              <section className="space-y-2">
-                <h4 className="text-sm font-semibold text-gray-700">Summary</h4>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
-                  {selectedEmail.summary ?? "No summary available for this email."}
-                </p>
-              </section>
-
-              <section className="space-y-2">
-                <h4 className="text-sm font-semibold text-gray-700">Metadata</h4>
-                <dl className="grid grid-cols-1 gap-3 text-sm text-gray-600 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-gray-500">Sender</dt>
-                    <dd>{selectedEmail.fromEmail}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-gray-500">Received</dt>
-                    <dd>{formatReceivedAt(selectedEmail.receivedAt)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-gray-500">Category</dt>
-                    <dd>{formatLabel(selectedEmail.category)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-gray-500">Triage state</dt>
-                    <dd>{formatTriageState(selectedEmail.triageState)}</dd>
-                  </div>
-                </dl>
-              </section>
-            </div>
-          </aside>
-        </div>
+      {snoozeTarget && (
+        <SnoozeModal
+          email={snoozeTarget}
+          onApply={handleApplySnooze}
+          onClear={handleClearSnooze}
+          onClose={() => setSnoozeTarget(null)}
+        />
       )}
     </div>
   );

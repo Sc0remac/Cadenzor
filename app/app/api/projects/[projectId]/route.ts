@@ -226,8 +226,9 @@ export async function GET(request: Request, { params }: Params) {
     const { data: emailsData, error: emailsError } = await supabase
       .from("emails")
       .select(
-        "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, source, triage_state, triaged_at, priority_score"
+        "id, user_id, from_name, from_email, subject, received_at, category, is_read, summary, labels, source, triage_state, triaged_at, snoozed_until, priority_score"
       )
+      .eq("user_id", user.id)
       .in("id", Array.from(new Set(emailIds)));
 
     if (emailsError) {
@@ -388,6 +389,7 @@ function mapEmailRow(row: any): EmailRecord {
 
   return {
     id: row.id as string,
+    userId: (row.user_id as string) ?? null,
     fromName: (row.from_name as string) ?? null,
     fromEmail: row.from_email as string,
     subject: row.subject as string,
@@ -399,6 +401,7 @@ function mapEmailRow(row: any): EmailRecord {
     priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
     triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
     triagedAt: row.triaged_at ? String(row.triaged_at) : null,
+    snoozedUntil: row.snoozed_until ? String(row.snoozed_until) : null,
     source,
   };
 }

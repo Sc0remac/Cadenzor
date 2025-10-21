@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const { supabase } = authResult;
+  const { supabase, user } = authResult;
 
   const url = new URL(request.url);
   const scope = url.searchParams.get("scope");
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     }
   }
 
-  let query = supabase.from("emails").select("category, labels, source");
+  let query = supabase.from("emails").select("category, labels, source").eq("user_id", user.id);
   if (!includeRead) {
     query = query.eq("is_read", false);
   }

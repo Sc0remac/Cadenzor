@@ -1,49 +1,14 @@
 import { NextResponse } from "next/server";
 import type { EmailRecord } from "@kazador/shared";
-import {
-  normaliseLabel,
-  normaliseLabels,
-  ensureDefaultLabelCoverage,
-  EMAIL_FALLBACK_LABEL,
-  DEFAULT_EMAIL_SOURCE,
-} from "@kazador/shared";
+import { EMAIL_FALLBACK_LABEL, normaliseLabels } from "@kazador/shared";
 import type { EmailSource } from "@kazador/shared";
 import { requireAuthenticatedUser } from "../../../lib/serverAuth";
+import { EMAIL_SELECT_COLUMNS, enrichEmailRecords, mapEmailRow } from "./utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const KNOWN_SOURCES = new Set<EmailSource>(["gmail", "seeded", "manual", "unknown"]);
-
-function normaliseSource(value: unknown): EmailSource {
-  if (typeof value === "string") {
-    const lowered = value.toLowerCase() as EmailSource;
-    if (KNOWN_SOURCES.has(lowered)) {
-      return lowered;
-    }
-  }
-  return DEFAULT_EMAIL_SOURCE;
-}
-
-function mapRow(row: any): EmailRecord {
-  const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
-
-  return {
-    id: row.id,
-    fromName: row.from_name,
-    fromEmail: row.from_email,
-    subject: row.subject,
-    receivedAt: row.received_at,
-    category: normaliseLabel(row.category),
-    isRead: row.is_read,
-    summary: row.summary ?? null,
-    labels,
-    priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
-    triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
-    triagedAt: row.triaged_at ?? null,
-    source: normaliseSource(row.source),
-  };
-}
 
 export async function GET(request: Request) {
   const authResult = await requireAuthenticatedUser(request);
@@ -51,7 +16,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const { supabase } = authResult;
+  const { supabase, user } = authResult;
 
   const { searchParams } = new URL(request.url);
   const pageParam = searchParams.get("page");
@@ -86,10 +51,9 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("emails")
-    .select(
-      "id, from_name, from_email, subject, received_at, category, is_read, summary, labels, source, triage_state, triaged_at, priority_score",
-      { count: "exact" }
-    )
+    .select(EMAIL_SELECT_COLUMNS, { count: "exact" })
+    .eq("user_id", user.id)
+    .order("priority_score", { ascending: false, nullsFirst: false })
     .order("received_at", { ascending: false });
 
   if (labelFilter) {
@@ -107,7 +71,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const items = Array.isArray(data) ? data.map(mapRow) : [];
+  const baseItems = Array.isArray(data) ? data.map(mapEmailRow) : [];
+  const items = await enrichEmailRecords(supabase, user.id, baseItems);
 
   const total = typeof count === "number" ? count : items.length;
   const totalPages = total > 0 ? Math.ceil(total / perPage) : 0;

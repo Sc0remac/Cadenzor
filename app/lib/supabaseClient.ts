@@ -41,6 +41,13 @@ export interface EmailListResponse {
   pagination: EmailPagination;
 }
 
+export interface UpdateEmailTriageOptions {
+  triageState?: EmailRecord["triageState"];
+  snoozedUntil?: string | null;
+  isRead?: boolean;
+  accessToken?: string;
+}
+
 export interface ProfileSummary {
   id: string;
   email: string | null;
@@ -176,6 +183,30 @@ export async function fetchRecentEmails(
   }
 
   return { items, pagination };
+}
+
+export async function updateEmailTriage(
+  emailId: string,
+  options: UpdateEmailTriageOptions
+): Promise<EmailRecord> {
+  const { accessToken, triageState, snoozedUntil, isRead } = options;
+
+  const response = await fetch(`/api/emails/${emailId}`, {
+    method: "PATCH",
+    headers: {
+      ...buildHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ triageState, snoozedUntil, isRead }),
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to update email triage");
+  }
+
+  return payload?.email as EmailRecord;
 }
 
 export interface ProjectListItem {

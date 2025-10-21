@@ -98,6 +98,7 @@ describe("GET /api/email-stats", () => {
     requireAuthenticatedUserSpy.mockResolvedValue({
       ok: true,
       supabase: stub.supabase,
+      user: { id: "user-123" },
     } as any);
 
     const response = await GET(new Request("https://kazador.test/api/email-stats"));
@@ -108,7 +109,8 @@ describe("GET /api/email-stats", () => {
 
     expect(stub.supabase.from).toHaveBeenCalledWith("emails");
     expect(stub.selectMock).toHaveBeenCalledWith("category, labels, source");
-    expect(stub.eqMock).toHaveBeenCalledWith("is_read", false);
+    expect(stub.eqMock).toHaveBeenNthCalledWith(1, "user_id", "user-123");
+    expect(stub.eqMock).toHaveBeenNthCalledWith(2, "is_read", false);
     expect(stub.likeMock).not.toHaveBeenCalled();
   });
 
@@ -118,13 +120,15 @@ describe("GET /api/email-stats", () => {
     requireAuthenticatedUserSpy.mockResolvedValue({
       ok: true,
       supabase: stub.supabase,
+      user: { id: "user-123" },
     } as any);
 
     const response = await GET(
       new Request("https://kazador.test/api/email-stats?scope=all&source=seeded")
     );
 
-    expect(stub.eqMock).toHaveBeenCalledWith("source", "seeded");
+    expect(stub.eqMock).toHaveBeenNthCalledWith(1, "user_id", "user-123");
+    expect(stub.eqMock).toHaveBeenNthCalledWith(2, "source", "seeded");
     expect(stub.likeMock).not.toHaveBeenCalled();
 
     expect(response.status).toBe(500);
