@@ -9,4 +9,5 @@ export * from "./projectSuggestions";
 export * from "./priorityConfig";
 export * from "./automationRules";
 export * from "./laneAutoAssignment";
+export * from "./projectAssignmentRules";
 export { DEFAULT_EMAIL_SOURCE } from "./types";

@@ -1,7 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { EmailLabel, EmailRecord, PriorityEmailActionRule } from "@kazador/shared";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import type {
+  EmailLabel,
+  EmailRecord,
+  EmailProjectContext,
+  PriorityEmailActionRule,
+  ProjectRecord,
+  ProjectEmailLinkRecord,
+  ProjectAssignmentRuleConfidence,
+  TimelineLaneDefinition,
+} from "@kazador/shared";
 import { useAuth } from "./AuthProvider";
 import {
   DEFAULT_EMAIL_LABELS,
@@ -16,8 +25,12 @@ import {
   DEFAULT_EMAILS_PER_PAGE,
   fetchEmailStats,
   fetchRecentEmails,
+  fetchProjects,
+  linkEmailToProject,
+  unlinkEmailFromProject,
   updateEmailTriage,
   type UpdateEmailTriageOptions,
+  type ProjectListItem,
 } from "../lib/supabaseClient";
 import { fetchPriorityConfig } from "../lib/priorityConfigClient";
 import { featureFlags } from "../lib/featureFlags";
@@ -27,6 +40,7 @@ import type {
   EmailListResponse,
   EmailPagination,
 } from "../lib/supabaseClient";
+import { fetchLaneDefinitions } from "../lib/laneDefinitionsClient";
 
 type StatsState = Record<string, number>;
 
@@ -85,6 +99,7 @@ interface EmailCardProps {
   onUnsnooze: (email: EmailRecord) => void;
   onRunPlaybook: (email: EmailRecord, suggestion: PlaybookSuggestion) => void;
   onOpenGmail: (email: EmailRecord) => void;
+  onLinkProject: (email: EmailRecord) => void;
   loading: boolean;
   actionRules: PriorityEmailActionRule[];
   onActionRule: (email: EmailRecord, rule: PriorityEmailActionRule) => void;
@@ -102,6 +117,7 @@ function EmailCard({
   onUnsnooze,
   onRunPlaybook,
   onOpenGmail,
+  onLinkProject,
   loading,
   actionRules,
   onActionRule,
@@ -340,6 +356,7 @@ interface EmailPreviewProps {
   onUnsnooze: (email: EmailRecord) => void;
   onRunPlaybook: (email: EmailRecord, suggestion: PlaybookSuggestion) => void;
   onOpenGmail: (email: EmailRecord) => void;
+  onLinkProject: (email: EmailRecord) => void;
   loading: boolean;
   actionRules: PriorityEmailActionRule[];
   onActionRule: (email: EmailRecord, rule: PriorityEmailActionRule) => void;
@@ -356,6 +373,7 @@ function EmailPreview({
   onUnsnooze,
   onRunPlaybook,
   onOpenGmail,
+  onLinkProject,
   loading,
   actionRules,
   onActionRule,
@@ -617,6 +635,13 @@ function EmailPreview({
             >
               Open in Gmail
             </button>
+            <button
+              type="button"
+              onClick={() => onLinkProject(email)}
+              className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
+            >
+              Assign to project
+            </button>
             {featureFlags.priorityV3 && (
               <button
                 type="button"
@@ -713,6 +738,320 @@ function SnoozeModal({ email, onApply, onClear, onClose }: SnoozeModalProps) {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface LinkProjectModalProps {
+  email: EmailRecord;
+  open: boolean;
+  accessToken?: string | null;
+  onClose: () => void;
+  onLinked: (payload: {
+    emailId: string;
+    project: ProjectRecord;
+    link: ProjectEmailLinkRecord;
+    timelineItem: TimelineItemRecord | null;
+  }) => void;
+  onUnlinked: (payload: { emailId: string; projectId: string; linkId: string }) => void;
+}
+
+function LinkProjectModal({ email, open, accessToken, onClose, onLinked, onUnlinked }: LinkProjectModalProps) {
+  const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [lanes, setLanes] = useState<TimelineLaneDefinition[]>([]);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [selectedLaneId, setSelectedLaneId] = useState<string | null>(null);
+  const [confidenceLevel, setConfidenceLevel] = useState<ProjectAssignmentRuleConfidence>("high");
+  const [note, setNote] = useState<string>("");
+  const [createTimelineItem, setCreateTimelineItem] = useState<boolean>(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [projectList, laneDefinitions] = await Promise.all([
+          fetchProjects({ accessToken: accessToken ?? undefined }),
+          fetchLaneDefinitions(accessToken ?? undefined),
+        ]);
+        if (!cancelled) {
+          setProjects(projectList);
+          setLanes(laneDefinitions);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load projects");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    setProjectSearch("");
+    setSelectedProjectId("");
+    setSelectedLaneId(null);
+    setConfidenceLevel("high");
+    setNote("");
+    setCreateTimelineItem(false);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, accessToken]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!selectedProjectId && projects.length > 0) {
+      const linkedIds = new Set((email.linkedProjects ?? []).map((project) => project.projectId));
+      const first = projects.find((item) => !linkedIds.has(item.project.id)) ?? projects[0];
+      if (first) {
+        setSelectedProjectId(first.project.id);
+      }
+    }
+  }, [open, projects, selectedProjectId, email.linkedProjects]);
+
+  if (!open) {
+    return null;
+  }
+
+  const projectMatches = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    if (!query) {
+      return projects;
+    }
+    return projects.filter((item) => {
+      const name = item.project.name.toLowerCase();
+      const description = (item.project.description ?? "").toLowerCase();
+      return name.includes(query) || description.includes(query);
+    });
+  }, [projects, projectSearch]);
+
+  const selectedProject = useMemo(() => {
+    return projects.find((item) => item.project.id === selectedProjectId)?.project ?? null;
+  }, [projects, selectedProjectId]);
+
+  const existingLinks = email.linkedProjects ?? [];
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedProject) {
+      setError("Select a project to continue.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await linkEmailToProject(selectedProject.id, email.id, accessToken ?? undefined, {
+        laneId: selectedLaneId,
+        note: note.trim() || null,
+        confidenceLevel,
+        createTimelineItem,
+      });
+
+      if (response.alreadyLinked) {
+        setError("Email is already linked to this project.");
+        return;
+      }
+
+      onLinked({ emailId: email.id, project: selectedProject, link: response.link, timelineItem: response.timelineItem });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to link email");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnlink = async (projectId: string, linkId: string | null) => {
+    if (!linkId) return;
+    setUnlinkingId(linkId);
+    try {
+      await unlinkEmailFromProject(projectId, linkId, accessToken ?? undefined);
+      onUnlinked({ emailId: email.id, projectId, linkId });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unlink email");
+    } finally {
+      setUnlinkingId(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8">
+      <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl">
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Link email to project</h3>
+              <p className="mt-1 text-sm text-gray-500">Choose a project, optional lane, and add context before linking.</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-gray-200 px-3 py-1 text-sm font-medium text-gray-600 transition hover:bg-gray-100"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-6 px-6 py-5">
+            <div className="rounded-md border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+              <p className="font-semibold text-gray-900">{email.subject || "(No subject)"}</p>
+              <p className="mt-1 text-xs text-gray-500">From {email.fromName ? `${email.fromName} · ${email.fromEmail}` : email.fromEmail}</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="font-medium text-gray-700">Project</span>
+                <input
+                  type="search"
+                  placeholder="Search projects"
+                  value={projectSearch}
+                  onChange={(event) => setProjectSearch(event.target.value)}
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                />
+                <select
+                  value={selectedProjectId}
+                  onChange={(event) => setSelectedProjectId(event.target.value)}
+                  className="mt-2 h-40 min-h-[10rem] rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  size={6}
+                >
+                  {projectMatches.length === 0 ? (
+                    <option value="" disabled>
+                      {loading ? "Loading projects…" : "No projects match"}
+                    </option>
+                  ) : (
+                    projectMatches.map((item) => (
+                      <option key={item.project.id} value={item.project.id}>
+                        {item.project.name} {item.project.status === "paused" ? "(Paused)" : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+
+              <div className="flex flex-col gap-4">
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="font-medium text-gray-700">Lane (optional)</span>
+                  <select
+                    value={selectedLaneId ?? ""}
+                    onChange={(event) => setSelectedLaneId(event.target.value || null)}
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  >
+                    <option value="">Auto assign</option>
+                    {lanes.map((lane) => (
+                      <option key={lane.id} value={lane.id}>
+                        {lane.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="font-medium text-gray-700">Confidence</span>
+                  <select
+                    value={confidenceLevel}
+                    onChange={(event) => setConfidenceLevel(event.target.value as ProjectAssignmentRuleConfidence)}
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  >
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="font-medium text-gray-700">Note (optional)</span>
+                  <textarea
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    rows={3}
+                    className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  />
+                </label>
+
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={createTimelineItem}
+                    onChange={(event) => setCreateTimelineItem(event.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                  />
+                  Also create timeline item
+                </label>
+              </div>
+            </div>
+
+            {error ? (
+              <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
+            ) : null}
+
+            <div>
+              <h4 className="text-sm font-semibold text-gray-800">Existing project links</h4>
+              {existingLinks.length === 0 ? (
+                <p className="mt-2 text-sm text-gray-500">This email is not linked to any projects.</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {existingLinks.map((project) => {
+                    const noteValue = typeof project.metadata?.note === "string" ? project.metadata.note : null;
+                    const ruleName = typeof project.metadata?.rule_name === "string" ? project.metadata.rule_name : null;
+                    return (
+                      <li key={`${email.id}-${project.projectId}`} className="flex items-start justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{project.name}</p>
+                          <p className="text-xs text-gray-500">
+                            Source: {project.source ? startCase(project.source) : "manual"}
+                            {ruleName ? ` • Rule: ${ruleName}` : ""}
+                          </p>
+                          {noteValue ? <p className="mt-1 text-xs text-gray-600">Note: {noteValue}</p> : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleUnlink(project.projectId, project.linkId ?? null)}
+                          disabled={unlinkingId === project.linkId}
+                          className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {unlinkingId === project.linkId ? "Unlinking…" : "Unlink"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading || !selectedProject}
+              className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+            >
+              {loading ? "Linking…" : "Link to project"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -1062,6 +1401,7 @@ export default function EmailDashboard() {
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [updatingEmailIds, setUpdatingEmailIds] = useState<Set<string>>(new Set());
   const [snoozeTarget, setSnoozeTarget] = useState<EmailRecord | null>(null);
+  const [projectLinkTarget, setProjectLinkTarget] = useState<EmailRecord | null>(null);
   const [expandedBreakdownIds, setExpandedBreakdownIds] = useState<Set<string>>(new Set());
   const addUpdatingEmail = useCallback((id: string) => {
     setUpdatingEmailIds((prev) => {
@@ -1083,8 +1423,43 @@ export default function EmailDashboard() {
     setEmails((prev) => prev.map((email) => (email.id === updated.id ? updated : email)));
     setSelectedEmail((prev) => (prev && prev.id === updated.id ? updated : prev));
   }, []);
+
+  const updateEmailProjects = useCallback(
+    (emailId: string, transform: (projects: EmailProjectContext[]) => EmailProjectContext[]) => {
+      setEmails((prev) =>
+        prev.map((email) =>
+          email.id === emailId
+            ? {
+                ...email,
+                linkedProjects: transform(email.linkedProjects ?? []),
+              }
+            : email
+        )
+      );
+
+      setSelectedEmail((prev) =>
+        prev && prev.id === emailId
+          ? {
+              ...prev,
+              linkedProjects: transform(prev.linkedProjects ?? []),
+            }
+          : prev
+      );
+    },
+    []
+  );
   const emailPageRef = useRef<number>(1);
   const filtersHydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (!projectLinkTarget) {
+      return;
+    }
+    const refreshed = emails.find((email) => email.id === projectLinkTarget.id);
+    if (refreshed && refreshed !== projectLinkTarget) {
+      setProjectLinkTarget(refreshed);
+    }
+  }, [emails, projectLinkTarget]);
 
   useEffect(() => {
     if (filtersHydratedRef.current || typeof window === "undefined") {
@@ -1378,6 +1753,50 @@ export default function EmailDashboard() {
       setSnoozeTarget(null);
     },
     [performTriageUpdate]
+  );
+
+  const handleOpenProjectLinkModal = useCallback((email: EmailRecord) => {
+    setProjectLinkTarget(email);
+  }, []);
+
+  const handleCloseProjectLinkModal = useCallback(() => {
+    setProjectLinkTarget(null);
+  }, []);
+
+  const handleProjectLinked = useCallback(
+    ({ emailId, project, link, timelineItem: _timelineItem }: { emailId: string; project: ProjectRecord; link: ProjectEmailLinkRecord; timelineItem: TimelineItemRecord | null }) => {
+      updateEmailProjects(emailId, (projects) => {
+        const nextEntry: EmailProjectContext = {
+          projectId: project.id,
+          name: project.name,
+          status: project.status,
+          color: project.color ?? null,
+          linkId: link.id,
+          source: link.source,
+          confidence: link.confidence ?? null,
+          metadata: link.metadata ?? null,
+          linkedAt: link.createdAt,
+        };
+        const exists = projects.some((item) => item.projectId === project.id);
+        if (exists) {
+          return projects.map((item) => (item.projectId === project.id ? nextEntry : item));
+        }
+        return [...projects, nextEntry];
+      });
+      setStatusMessage({ type: "success", message: `Email linked to ${project.name}` });
+    },
+    [updateEmailProjects]
+  );
+
+  const handleProjectUnlinked = useCallback(
+    ({ emailId, projectId }: { emailId: string; projectId: string }) => {
+      const emailRecord = emails.find((item) => item.id === emailId);
+      const projectName =
+        emailRecord?.linkedProjects?.find((item) => item.projectId === projectId)?.name ?? "project";
+      updateEmailProjects(emailId, (projects) => projects.filter((item) => item.projectId !== projectId));
+      setStatusMessage({ type: "success", message: `Email unlinked from ${projectName}` });
+    },
+    [emails, updateEmailProjects]
   );
 
   const handleRunPlaybook = useCallback((email: EmailRecord, suggestion: PlaybookSuggestion) => {
@@ -2077,6 +2496,7 @@ export default function EmailDashboard() {
                     onUnsnooze={handleUnsnoozeEmail}
                     onRunPlaybook={handleRunPlaybook}
                     onOpenGmail={handleOpenGmail}
+                    onLinkProject={handleOpenProjectLinkModal}
                     loading={updatingEmailIds.has(email.id)}
                     actionRules={featureFlags.priorityV3 ? getActionRulesForEmail(email, effectivePriorityConfig) : []}
                     onActionRule={handleActionRule}
@@ -2131,6 +2551,7 @@ export default function EmailDashboard() {
           onUnsnooze={handleUnsnoozeEmail}
           onRunPlaybook={handleRunPlaybook}
           onOpenGmail={handleOpenGmail}
+          onLinkProject={handleOpenProjectLinkModal}
           loading={updatingEmailIds.has(selectedEmail.id)}
           actionRules={featureFlags.priorityV3 ? getActionRulesForEmail(selectedEmail, effectivePriorityConfig) : []}
           onActionRule={handleActionRule}
@@ -2144,6 +2565,16 @@ export default function EmailDashboard() {
           onApply={handleApplySnooze}
           onClear={handleClearSnooze}
           onClose={() => setSnoozeTarget(null)}
+        />
+      )}
+      {projectLinkTarget && (
+        <LinkProjectModal
+          email={projectLinkTarget}
+          open={Boolean(projectLinkTarget)}
+          accessToken={accessToken}
+          onClose={handleCloseProjectLinkModal}
+          onLinked={handleProjectLinked}
+          onUnlinked={handleProjectUnlinked}
         />
       )}
     </div>

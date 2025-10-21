@@ -334,8 +334,43 @@ describe("supabaseClient", () => {
   });
 
   it("links and unlinks emails", async () => {
-    mockResponse(200, {});
-    await expect(linkEmailToProject("proj", "email", "token")).resolves.toBeUndefined();
+    mockResponse(200, {
+      link: {
+        id: "link-1",
+        projectId: "proj",
+        emailId: "email",
+        confidence: 1,
+        source: "manual",
+        metadata: {},
+        createdAt: "2025-12-20T00:00:00.000Z",
+      },
+      timelineItem: null,
+      alreadyLinked: false,
+    });
+    await expect(linkEmailToProject("proj", "email", "token")).resolves.toEqual({
+      link: {
+        id: "link-1",
+        projectId: "proj",
+        emailId: "email",
+        confidence: 1,
+        source: "manual",
+        metadata: {},
+        createdAt: "2025-12-20T00:00:00.000Z",
+      },
+      timelineItem: null,
+      alreadyLinked: false,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/emails/email/link-project",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: "Bearer token",
+          "Content-Type": "application/json",
+        },
+      })
+    );
 
     mockResponse(200, {});
     await expect(unlinkEmailFromProject("proj", "link", "token")).resolves.toBeUndefined();

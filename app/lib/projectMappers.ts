@@ -173,6 +173,7 @@ export function mapProjectEmailLinkRow(row: any): ProjectEmailLinkRecord {
     emailId: row.email_id as string,
     confidence: row.confidence != null ? Number(row.confidence) : null,
     source: row.source as ProjectEmailLinkRecord["source"],
+    metadata: parseJson<Record<string, unknown>>(row.metadata),
     createdAt: String(row.created_at),
   };
 }

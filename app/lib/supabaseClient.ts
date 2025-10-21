@@ -22,6 +22,7 @@ import type {
   TimelineLaneDefinition,
   CalendarEventRecord,
   CalendarSyncStatus,
+  ProjectAssignmentRuleConfidence,
 } from "@kazador/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -1581,24 +1582,51 @@ export async function deleteProjectTask(
   }
 }
 
+export interface LinkEmailToProjectOptions {
+  laneId?: string | null;
+  note?: string | null;
+  confidenceLevel?: ProjectAssignmentRuleConfidence | null;
+  createTimelineItem?: boolean;
+}
+
+export interface LinkEmailToProjectResponse {
+  link: ProjectEmailLinkRecord;
+  timelineItem: TimelineItemRecord | null;
+  alreadyLinked: boolean;
+}
+
 export async function linkEmailToProject(
   projectId: string,
   emailId: string,
-  accessToken?: string
-): Promise<void> {
-  const response = await fetch(`/api/projects/${projectId}/emails`, {
+  accessToken?: string,
+  options: LinkEmailToProjectOptions = {}
+): Promise<LinkEmailToProjectResponse> {
+  const response = await fetch(`/api/emails/${emailId}/link-project`, {
     method: "POST",
     headers: {
       ...buildHeaders(accessToken),
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ emailId }),
+    body: JSON.stringify({
+      projectId,
+      laneId: options.laneId ?? null,
+      note: options.note ?? null,
+      confidenceLevel: options.confidenceLevel ?? null,
+      createTimelineItem: options.createTimelineItem ?? false,
+    }),
   });
 
+  const payload = await response.json();
+
   if (!response.ok) {
-    const body = await response.json();
-    throw new Error(body?.error || "Failed to attach email to project");
+    throw new Error(payload?.error || "Failed to attach email to project");
   }
+
+  return {
+    link: payload.link as ProjectEmailLinkRecord,
+    timelineItem: (payload.timelineItem ?? null) as TimelineItemRecord | null,
+    alreadyLinked: Boolean(payload.alreadyLinked),
+  };
 }
 
 export async function unlinkEmailFromProject(

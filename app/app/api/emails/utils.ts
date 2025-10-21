@@ -108,7 +108,7 @@ export async function enrichEmailRecords(
       if (accessibleProjectIds.length > 0) {
         const { data: linkRows, error: linkError } = await supabase
           .from("project_email_links")
-          .select("email_id, project_id, projects(id, name, color, status)")
+          .select("id, email_id, project_id, confidence, source, metadata, created_at, projects(id, name, color, status)")
           .in("email_id", emailIds)
           .in("project_id", accessibleProjectIds);
 
@@ -130,6 +130,12 @@ export async function enrichEmailRecords(
               name: project.name ?? "Unnamed project",
               color: project.color ?? null,
               status: (project.status as EmailProjectContext["status"]) ?? "active",
+              linkId: (row.id as string) ?? null,
+              source: (row.source as EmailProjectContext["source"]) ?? "manual",
+              confidence: row.confidence != null ? Number(row.confidence) : null,
+              metadata:
+                row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : null,
+              linkedAt: row.created_at ? String(row.created_at) : null,
             };
 
             const list = linkedProjectsByEmail.get(emailId) ?? [];

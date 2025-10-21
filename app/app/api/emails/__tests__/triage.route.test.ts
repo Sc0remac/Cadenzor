@@ -92,6 +92,7 @@ function createSupabaseStub() {
 
   const attachmentsTable = {
     select: vi.fn(() => ({
+      in: vi.fn(async () => ({ data: [], error: null })),
       eq: vi.fn(async () => ({ count: 0, error: null })),
     })),
   };

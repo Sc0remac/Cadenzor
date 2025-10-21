@@ -16,8 +16,14 @@ import {
   type EmailTriageState,
   type PriorityConfig,
   type PriorityConfigInput,
+  type ProjectAssignmentRule,
 } from "@kazador/shared";
 import { classifyEmail } from "./classifyEmail.js";
+import {
+  applyProjectAssignmentRules,
+  loadProjectAssignmentRulesForUser,
+  loadProjectRuleOverridesForUser,
+} from "./projectRuleEngine.js";
 
 function decodeBase64Url(data: string): string {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
@@ -220,6 +226,7 @@ async function main() {
 
   const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 5);
   const priorityConfigCache = new Map<string, PriorityConfig>();
+  const projectRuleCache = new Map<string, { rules: ProjectAssignmentRule[]; overrides: Set<string> }>();
 
   try {
     for (const account of accounts) {
@@ -230,6 +237,7 @@ async function main() {
           supabase,
           maxEmails,
           priorityConfigCache,
+          projectRuleCache,
         });
       } catch (accountError) {
         console.error(
@@ -251,10 +259,11 @@ interface ProcessGmailAccountOptions {
   supabase: SupabaseDb;
   maxEmails: number;
   priorityConfigCache: Map<string, PriorityConfig>;
+  projectRuleCache: Map<string, { rules: ProjectAssignmentRule[]; overrides: Set<string> }>;
 }
 
 async function processGmailAccount(options: ProcessGmailAccountOptions): Promise<void> {
-  const { account, credentials, supabase, maxEmails, priorityConfigCache } = options;
+  const { account, credentials, supabase, maxEmails, priorityConfigCache, projectRuleCache } = options;
   const gmail = createGmailClient(account, credentials);
 
   const listRes = await gmail.users.messages.list({
@@ -267,6 +276,16 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
   if (messages.length === 0) {
     console.log(`No unread messages for ${account.email ?? account.userId}.`);
     return;
+  }
+
+  let ruleBundle = projectRuleCache.get(account.userId);
+  if (!ruleBundle) {
+    const [rules, overrides] = await Promise.all([
+      loadProjectAssignmentRulesForUser(supabase, account.userId),
+      loadProjectRuleOverridesForUser(supabase, account.userId),
+    ]);
+    ruleBundle = { rules, overrides };
+    projectRuleCache.set(account.userId, ruleBundle);
   }
 
   const labelCache: Map<string, string> = new Map();
@@ -470,6 +489,31 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
       }
     } catch (err) {
       console.error(`Failed to apply Gmail labels for message ${msg.id}`, err);
+    }
+
+    try {
+      await applyProjectAssignmentRules(
+        supabase,
+        account.userId,
+        {
+          id: msg.id,
+          subject,
+          fromName,
+          fromEmail,
+          body,
+          summary,
+          category,
+          labels,
+          priorityScore,
+          triageState,
+          receivedAt,
+          hasAttachments,
+        },
+        ruleBundle.rules,
+        ruleBundle.overrides
+      );
+    } catch (err) {
+      console.error("Failed to apply project assignment rules", err);
     }
 
     console.log(

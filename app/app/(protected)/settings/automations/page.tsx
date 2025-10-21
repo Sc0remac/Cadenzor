@@ -15,6 +15,7 @@ import {
   fetchAutomationRules,
   updateAutomationRule,
 } from "@/lib/automationRulesClient";
+import ProjectEmailRulesSection from "./ProjectEmailRulesSection";
 
 function cloneRule(rule: AutomationRule): AutomationRule {
   return JSON.parse(JSON.stringify(rule)) as AutomationRule;
@@ -500,7 +501,7 @@ export default function AutomationSettingsPage() {
           </div>
         </div>
       ) : null}
+      <ProjectEmailRulesSection accessToken={accessToken} />
     </div>
   );
 }
-

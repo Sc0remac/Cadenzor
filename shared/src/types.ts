@@ -374,6 +374,11 @@ export interface EmailProjectContext {
   name: string;
   status: ProjectStatus;
   color: string | null;
+  linkId: string | null;
+  source: ProjectLinkSource | null;
+  confidence: number | null;
+  metadata: Record<string, unknown> | null;
+  linkedAt: string | null;
 }
 
 /**
@@ -570,6 +575,7 @@ export interface ProjectEmailLinkRecord {
   emailId: string;
   confidence: number | null;
   source: ProjectLinkSource;
+  metadata: Record<string, unknown> | null;
   createdAt: string;
 }
 
