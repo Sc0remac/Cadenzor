@@ -284,6 +284,62 @@ export type EmailSource = "gmail" | "seeded" | "manual" | "unknown";
 export const DEFAULT_EMAIL_SOURCE: EmailSource = "gmail";
 export const EMAIL_FALLBACK_LABEL: EmailLabel = "MISC/Uncategorized";
 
+export interface PriorityEmailBoostCriteria {
+  senders?: string[];
+  domains?: string[];
+  keywords?: string[];
+  labels?: string[];
+  categories?: string[];
+  hasAttachment?: boolean | null;
+  minPriority?: number | null;
+}
+
+export interface PriorityEmailAdvancedBoost {
+  id: string;
+  label: string;
+  description: string | null;
+  weight: number;
+  criteria: PriorityEmailBoostCriteria;
+  explanation?: string | null;
+}
+
+export type PriorityEmailActionType = "playbook" | "create_lead" | "open_url" | "custom";
+
+export interface PriorityEmailActionRule {
+  id: string;
+  label: string;
+  description: string | null;
+  actionType: PriorityEmailActionType;
+  categories?: string[];
+  triageStates?: EmailTriageState[];
+  minPriority?: number;
+  icon?: string | null;
+  color?: string | null;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface PriorityExplainabilityConfig {
+  showBreakdown: boolean;
+  auditLog: boolean;
+  includeComponentMetadata: boolean;
+}
+
+export interface PriorityPresetScheduleEntry {
+  id: string;
+  label: string;
+  presetSlug: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime?: string | null;
+  autoApply: boolean;
+}
+
+export interface PrioritySchedulingConfig {
+  timezone: string;
+  entries: PriorityPresetScheduleEntry[];
+  lastEvaluatedAt?: string | null;
+}
+
 /**
  * A simple shape representing an email stored in the database. It contains
  * minimal information used by the frontend and worker. Additional fields
@@ -293,6 +349,7 @@ export type EmailTriageState = "unassigned" | "acknowledged" | "snoozed" | "reso
 
 export interface EmailRecord {
   id: string;
+  userId?: string | null;
   fromName: string | null;
   fromEmail: string;
   subject: string;
@@ -304,7 +361,19 @@ export interface EmailRecord {
   priorityScore?: number | null;
   triageState?: EmailTriageState;
   triagedAt?: string | null;
+  snoozedUntil?: string | null;
   source?: EmailSource;
+  attachments?: EmailAttachmentRecord[] | null;
+  linkedProjects?: EmailProjectContext[] | null;
+  hasAttachments?: boolean | null;
+  attachmentCount?: number | null;
+}
+
+export interface EmailProjectContext {
+  projectId: string;
+  name: string;
+  status: ProjectStatus;
+  color: string | null;
 }
 
 /**

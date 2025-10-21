@@ -1,0 +1,139 @@
+ReferenceError: normaliseLabels is not defined
+    at GET (webpack-internal:///(rsc)/./app/api/emails/route.ts:53:24)
+    at async /Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:57228
+    at async eT.execute (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:46851)
+    at async eT.handle (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:58760)
+    at async doRender (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1366:42)
+    at async cacheEntry.responseCache.get.routeKind (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1588:28)
+    at async DevServer.renderToResponseWithComponentsImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1496:28)
+    at async DevServer.renderPageComponent (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1924:24)
+    at async DevServer.renderToResponseImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1962:32)
+    at async DevServer.pipeImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/next-server.js:272:17)
+    at async DevServer.handleRequestImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:818:17)
+    at async /Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/dev/next-dev-server.js:339:20
+    at async Span.traceAsyncFn (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async invokeRender (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:179:21)
+    at async handleRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:359:24)
+    at async requestHandlerImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/start-server.js:141:13)
+ GET /api/emails?page=1&perPage=10&label=MISC%2FUncategorized&source=gmail 500 in 996ms
+ GET /api/email-stats?scope=unread 200 in 1172ms
+ GET /api/email-stats?scope=unread 200 in 1186ms
+ GET /api/email-stats?scope=unread&source=gmail 200 in 1185ms
+ GET /api/emails?page=1&perPage=10 200 in 1280ms
+ GET /api/emails?page=1&perPage=10 200 in 1309ms
+ ○ Compiling /api/classify-emails ...
+ ✓ Compiled /api/classify-emails in 939ms (1411 modules)
+ ✓ Compiled in 835ms (1741 modules)
+ ⚠ ../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./components/EmailDashboard.tsx
+
+../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./components/EmailDashboard.tsx
+
+../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./app/api/digest/today/route.ts
+ ⚠ ../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./components/EmailDashboard.tsx
+
+../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./components/EmailDashboard.tsx
+
+../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./app/api/digest/today/route.ts
+ ⚠ ../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./components/EmailDashboard.tsx
+
+../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./components/EmailDashboard.tsx
+
+../shared/src/index.ts
+export 'DEFAULT_EMAIL_SOURCE' (reexported as 'DEFAULT_EMAIL_SOURCE') was not found in './labelUtils' (possible exports: ensureDefaultLabelCoverage, normaliseLabel, normaliseLabels, selectPrimaryCategory)
+
+Import trace for requested module:
+../shared/src/index.ts
+./app/api/emails/route.ts
+ GET /api/emails?page=1&perPage=10 200 in 1167ms
+ GET /api/emails?page=1&perPage=10 200 in 1177ms
+ GET /api/email-stats?scope=unread 200 in 1262ms
+ GET /api/email-stats?scope=unread 200 in 1246ms
+ GET /api/email-stats?scope=unread&source=gmail 200 in 1232ms
+ ⨯ ReferenceError: normaliseLabels is not defined
+    at GET (webpack-internal:///(rsc)/./app/api/emails/route.ts:53:24)
+    at async /Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:57228
+    at async eT.execute (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:46851)
+    at async eT.handle (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:58760)
+    at async doRender (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1366:42)
+    at async cacheEntry.responseCache.get.routeKind (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1588:28)
+    at async DevServer.renderToResponseWithComponentsImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1496:28)
+    at async DevServer.renderPageComponent (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1924:24)
+    at async DevServer.renderToResponseImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1962:32)
+    at async DevServer.pipeImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/next-server.js:272:17)
+    at async DevServer.handleRequestImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:818:17)
+    at async /Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/dev/next-dev-server.js:339:20
+    at async Span.traceAsyncFn (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async invokeRender (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:179:21)
+    at async handleRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:359:24)
+    at async requestHandlerImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/start-server.js:141:13)
+ GET /api/emails?page=1&perPage=10&label=MISC%2FUncategorized&source=gmail 500 in 243ms
+ GET /api/email-stats?scope=unread&source=gmail 200 in 101ms
+ ⨯ ReferenceError: normaliseLabels is not defined
+    at GET (webpack-internal:///(rsc)/./app/api/emails/route.ts:53:24)
+    at async /Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:57228
+    at async eT.execute (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:46851)
+    at async eT.handle (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:58760)
+    at async doRender (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1366:42)
+    at async cacheEntry.responseCache.get.routeKind (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1588:28)
+    at async DevServer.renderToResponseWithComponentsImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1496:28)
+    at async DevServer.renderPageComponent (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1924:24)
+    at async DevServer.renderToResponseImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:1962:32)
+    at async DevServer.pipeImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/next-server.js:272:17)
+    at async DevServer.handleRequestImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/base-server.js:818:17)
+    at async /Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/dev/next-dev-server.js:339:20
+    at async Span.traceAsyncFn (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async invokeRender (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:179:21)
+    at async handleRequest (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:359:24)
+    at async requestHandlerImpl (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (/Users/cormackerr/Desktop/Cadenzor/app/node_modules/next/dist/server/lib/start-server.js:141:13)
+ GET /api/emails?page=1&perPage=10&label=MISC%2FUncategorized&source=gmail 500 in 109ms
+^C
+cormackerr@Cormacs-MacBook-Air app % 

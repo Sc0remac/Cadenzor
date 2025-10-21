@@ -12,20 +12,14 @@ import type {
   DigestPayload,
 } from "./types";
 import { buildConflictIndex, detectTimelineConflicts, type TimelineConflict } from "./timelineConflicts";
-import { getPriorityConfig, type PriorityConfig, type PriorityEmailCrossLabelRule } from "./priorityConfig";
+import { getPriorityConfig, type PriorityConfig } from "./priorityConfig";
+import { calculateEmailPriorityComponents } from "./emailPriority";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
 
 interface ScoreComponent {
   label: string;
   value: number;
-}
-
-function matchesCrossLabelRule(rule: PriorityEmailCrossLabelRule, label: string): boolean {
-  const comparisonLabel = rule.caseInsensitive ? label.toLowerCase() : label;
-  const prefix = rule.caseInsensitive ? rule.prefix.toLowerCase() : rule.prefix;
-  return comparisonLabel.startsWith(prefix);
 }
 
 export interface ComputeTopActionsInput {
@@ -66,17 +60,6 @@ function formatDays(diffDays: number): string {
     return "<1d";
   }
   return `${Math.round(absolute)}d`;
-}
-
-function formatHours(diffHours: number): string {
-  const absolute = Math.abs(diffHours);
-  if (absolute < 1) {
-    return "<1h";
-  }
-  if (absolute < 24) {
-    return `${Math.round(absolute)}h`;
-  }
-  return formatDays(diffHours / 24);
 }
 
 function computeDateComponent(
@@ -139,69 +122,23 @@ function computeEmailComponents(
   now: Date,
   config: PriorityConfig["email"]
 ): ScoreComponent[] {
-  const components: ScoreComponent[] = [];
-  const categoryWeight = config.categoryWeights[email.category] ?? config.defaultCategoryWeight;
-  components.push({ label: `Category ${email.category}`, value: categoryWeight });
+  const components = calculateEmailPriorityComponents(
+    {
+      category: email.category,
+      labels: email.labels ?? [],
+      receivedAt: email.receivedAt,
+      isRead: email.isRead,
+      triageState: email.triageState,
+      snoozedUntil: (email as unknown as { snoozedUntil?: string | null }).snoozedUntil ?? null,
+      modelScore: email.priorityScore ?? null,
+    },
+    { now, config }
+  );
 
-  if (email.priorityScore != null && !Number.isNaN(email.priorityScore)) {
-    const clamped = Math.min(100, Math.max(0, email.priorityScore));
-    const priorityValue = Math.round(clamped * config.modelPriorityWeight);
-    if (priorityValue !== 0) {
-      components.push({ label: `Model priority ${email.priorityScore}`, value: priorityValue });
-    }
-  }
-
-  if (email.receivedAt) {
-    const received = new Date(email.receivedAt);
-    if (!Number.isNaN(received.getTime())) {
-      const diffMs = now.getTime() - received.getTime();
-      if (diffMs >= 0) {
-        const ageHours = diffMs / HOUR_MS;
-        let ageValue: number;
-        const idleConfig = config.idleAge;
-        if (ageHours < idleConfig.shortWindowHours) {
-          ageValue = Math.round(ageHours * idleConfig.shortWindowMultiplier);
-        } else if (ageHours < idleConfig.mediumWindowEndHours) {
-          const hoursIntoMedium = Math.max(0, ageHours - idleConfig.mediumWindowStartHours);
-          ageValue = Math.round(idleConfig.mediumWindowBase + hoursIntoMedium * idleConfig.mediumWindowMultiplier);
-        } else {
-          const hoursBeyondLongStart = Math.max(0, ageHours - idleConfig.longWindowStartHours);
-          const incremental = Math.min(
-            idleConfig.longWindowMaxBonus,
-            hoursBeyondLongStart * idleConfig.longWindowMultiplier
-          );
-          ageValue = Math.round(idleConfig.longWindowBase + incremental);
-        }
-
-        if (email.triageState === "snoozed") {
-          ageValue = Math.round(ageValue * config.snoozeAgeReduction);
-        }
-
-        if (ageValue !== 0) {
-          components.push({ label: `Idle ${formatHours(ageHours)}`, value: ageValue });
-        }
-      }
-    }
-  }
-
-  if (!email.isRead) {
-    components.push({ label: "Unread in inbox", value: config.unreadBonus });
-  }
-
-  const state = email.triageState ?? "unassigned";
-  const triageAdjustment = config.triageStateAdjustments[state] ?? 0;
-  if (triageAdjustment !== 0) {
-    components.push({ label: `Triage ${state}`, value: triageAdjustment });
-  }
-
-  const uniqueLabels = Array.isArray(email.labels) ? Array.from(new Set(email.labels)) : [];
-  for (const rule of config.crossLabelRules) {
-    if (uniqueLabels.some((label) => matchesCrossLabelRule(rule, label))) {
-      components.push({ label: rule.description, value: rule.weight });
-    }
-  }
-
-  return components;
+  return components.map((component) => ({
+    label: component.label,
+    value: component.value,
+  }));
 }
 
 function buildEmailTopAction(

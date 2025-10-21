@@ -3181,6 +3181,7 @@ CREATE TABLE public.email_attachments (
 
 CREATE TABLE public.emails (
     id text NOT NULL,
+    user_id uuid REFERENCES auth.users(id),
     from_name text,
     from_email text NOT NULL,
     subject text,
@@ -3192,6 +3193,7 @@ CREATE TABLE public.emails (
     source text DEFAULT 'gmail'::text NOT NULL,
     triage_state text DEFAULT 'unassigned'::text NOT NULL,
     triaged_at timestamp with time zone,
+    snoozed_until timestamp with time zone,
     priority_score integer DEFAULT 0 NOT NULL,
     CONSTRAINT emails_triage_state_check CHECK ((triage_state = ANY (ARRAY['unassigned'::text, 'acknowledged'::text, 'snoozed'::text, 'resolved'::text])))
 );
@@ -5063,10 +5065,24 @@ CREATE INDEX emails_labels_gin_idx ON public.emails USING GIN (labels jsonb_path
 
 
 --
--- Name: emails_triage_priority_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: emails_user_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX emails_triage_priority_idx ON public.emails USING btree (triage_state, priority_score DESC, received_at DESC);
+CREATE INDEX emails_user_id_idx ON public.emails USING btree (user_id);
+
+
+--
+-- Name: emails_user_received_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX emails_user_received_at_idx ON public.emails USING btree (user_id, received_at DESC);
+
+
+--
+-- Name: emails_user_triage_priority_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX emails_user_triage_priority_idx ON public.emails USING btree (user_id, triage_state, priority_score DESC, received_at DESC);
 
 
 --
@@ -6583,17 +6599,31 @@ CREATE POLICY email_attachments_service_role_only ON public.email_attachments US
 ALTER TABLE public.emails ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: emails emails_anon_read; Type: POLICY; Schema: public; Owner: -
+-- Name: emails emails_owner_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY emails_anon_read ON public.emails FOR SELECT USING (true);
+CREATE POLICY emails_owner_select ON public.emails FOR SELECT USING (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
 
 
 --
--- Name: emails emails_service_role_all; Type: POLICY; Schema: public; Owner: -
+-- Name: emails emails_owner_modify; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY emails_service_role_all ON public.emails USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+CREATE POLICY emails_owner_modify ON public.emails FOR INSERT WITH CHECK (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
+
+
+--
+-- Name: emails emails_owner_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY emails_owner_update ON public.emails FOR UPDATE USING (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id))) WITH CHECK (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
+
+
+--
+-- Name: emails emails_owner_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY emails_owner_delete ON public.emails FOR DELETE USING (((auth.role() = 'service_role'::text) OR (auth.uid() = user_id)));
 
 
 --

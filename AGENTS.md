@@ -43,7 +43,8 @@ Next.js 14 App Router project with Tailwind CSS styling. Uses Supabase auth on t
 - `(auth)/login/page.tsx` – Public login form using `LoginForm` to sign in with Supabase email/password.
 - `(protected)/layout.tsx` – Suspense-wrapped guard that enforces authentication (`AuthGuard`) and renders `AppShell` navigation.
 - `(protected)/page.tsx` – Home route delegating to `HomeDashboard`.
-- `(protected)/inbox/page.tsx` – Inbox surface embedding `EmailDashboard` to inspect classified mail.
+- `(protected)/inbox/page.tsx` – Inbox surface embedding `EmailDashboard` to inspect classified mail with priority zones, explainability overlays, and rule-driven action buttons.
+- `(protected)/settings/priorities/page.tsx` – Priority control centre with preset catalog, impact previews, advanced boosts/action rules editor, and scheduled preset switching.
 - `(protected)/today/page.tsx` – Today digest view via `TodayDashboard`.
 - `(protected)/projects/page.tsx` – Project listing, search, status filters, creation dialog.
 - `(protected)/profile/page.tsx` – Profile management UI (calls Supabase to edit metadata & Drive integration).
@@ -63,7 +64,7 @@ Global stylesheet lives at `app/app/globals.css`.
 ### 3.2 React components (`app/components/`)
 The component library is grouped by feature area:
 - `AppShell`, `AuthGuard`, `AuthProvider`, `LoginForm` – authentication context, protected routing, layout chrome, sign-in workflow.
-- `EmailDashboard` – polling email stats, pagination, manual classification trigger, filters (label, scope, seeded/fake sources), status toasts, 60s refresh cadence.
+- `EmailDashboard` – priority-zoned card layout with explainability breakdowns, configurable action buttons, snooze slate, Gmail launch, stats polling, pagination, and label/source filters with 60s refresh cadence.
 - `home/HomeDashboard` – high-level digest summary, top priorities, upcoming deadlines, seeded email feed.
 - `today/TodayDashboard` – rich Today digest including historical runs, per-project metrics, approvals, top actions.
 - `projects/` – project cards, creation dialog, Timeline Studio (week/day focus, lane filters, conflict overlays), files tab for asset management.
@@ -165,3 +166,4 @@ With this guide, contributors should be able to navigate the codebase, identify 
 - **2025-12-05T19:15:00Z** – Introduced the hybrid timeline calendar experience plus refreshed Gantt: new `TimelineCalendarView` grid with lane rule callouts, conflict alerts, and quick actions; timeline page toggle defaults to calendar mode; existing `TimelineStudio` gains larger cards, prominent today marker, dim lane context, and quarter/week labelling upgrades.
 - **2025-12-07T10:00:00Z** – Polished lane auto-assignment: consolidated lane metadata into a modal, added the lane selector + inline rule builder panel, enriched operator guidance, enabled “Apply to existing tasks” with the `/api/timeline-lanes/:id/reapply` endpoint, and improved shared matching (accent-insensitive text compares).
 - **2025-12-08T14:30:00Z** – Refreshed the `/calendar` experience: tightened outer layout to 75% viewport width, expanded month/week/day canvases, added padding to month cells and timed blocks to avoid clipped borders, inset scroll areas, and enlarged the event detail modal to prevent content truncation.
+- **2025-12-09T11:00:00Z** – Delivered Priority Phase 3: advanced email boosts, rule-based inbox actions, explainability toggles, preset scheduling, sample impact previews, and worker recalculation for project-linked emails.

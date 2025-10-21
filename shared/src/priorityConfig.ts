@@ -1,4 +1,10 @@
-import type { EmailTriageState } from "./types";
+import type {
+  EmailTriageState,
+  PriorityEmailActionRule,
+  PriorityEmailAdvancedBoost,
+  PriorityExplainabilityConfig,
+  PrioritySchedulingConfig,
+} from "./types";
 
 export interface PriorityTimeConfig {
   upcomingBaseScore: number;
@@ -37,6 +43,9 @@ export interface PriorityEmailConfig {
   triageStateAdjustments: Record<EmailTriageState, number>;
   crossLabelRules: PriorityEmailCrossLabelRule[];
   idleAge: PriorityEmailIdleAgeConfig;
+  advancedBoosts: PriorityEmailAdvancedBoost[];
+  actionRules: PriorityEmailActionRule[];
+  explainability: PriorityExplainabilityConfig;
 }
 
 export interface PriorityTaskConfig {
@@ -73,6 +82,7 @@ export interface PriorityConfig {
   tasks: PriorityTaskConfig;
   timeline: PriorityTimelineConfig;
   health: PriorityHealthConfig;
+  scheduling: PrioritySchedulingConfig;
 }
 
 export type PriorityConfigInput = {
@@ -86,10 +96,14 @@ export type PriorityConfigInput = {
     triageStateAdjustments?: Partial<Record<EmailTriageState, unknown>> | null;
     crossLabelRules?: Array<Partial<PriorityEmailCrossLabelRule>> | null;
     idleAge?: Partial<PriorityEmailIdleAgeConfig> | null;
+    advancedBoosts?: Array<Partial<PriorityEmailAdvancedBoost>> | null;
+    actionRules?: Array<Partial<PriorityEmailActionRule>> | null;
+    explainability?: Partial<PriorityExplainabilityConfig> | null;
   } | null;
   tasks?: Partial<PriorityTaskConfig> | null;
   timeline?: Partial<PriorityTimelineConfig> | null;
   health?: Partial<PriorityHealthConfig> | null;
+  scheduling?: Partial<PrioritySchedulingConfig> | null;
 } | null;
 
 export type PriorityConfigSource = "default" | "custom";
@@ -147,6 +161,35 @@ function sanitizeBoolean(value: unknown, fallback: boolean): boolean {
     if (lower === "false" || lower === "0") return false;
   }
   return fallback;
+}
+
+function sanitizeString(value: unknown, fallback = ""): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+  return fallback;
+}
+
+function sanitizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => {
+          if (typeof entry === "string") {
+            const trimmed = entry.trim();
+            return trimmed.length > 0 ? trimmed : null;
+          }
+          if (entry == null) return null;
+          const coerced = String(entry).trim();
+          return coerced.length > 0 ? coerced : null;
+        })
+        .filter((entry): entry is string => Boolean(entry))
+    )
+  );
 }
 
 function clone<T>(value: T): T {
@@ -264,6 +307,63 @@ const PRIORITY_CONFIG_DATA: PriorityConfig = {
       longWindowMultiplier: 1.5,
       longWindowMaxBonus: 28,
     },
+    advancedBoosts: [
+      {
+        id: "vip-senders",
+        label: "VIP senders",
+        description: "Boost key agents and partners for immediate follow-up.",
+        weight: 12,
+        criteria: {
+          senders: ["oran@kazador.io", "agent@kazadoragency.com"],
+        },
+        explanation: "Designated VIP senders",
+      },
+      {
+        id: "attachment-alert",
+        label: "Attachments included",
+        description: "Attachments often contain contracts or assets that need review.",
+        weight: 6,
+        criteria: {
+          hasAttachment: true,
+        },
+        explanation: "Attachments present",
+      },
+    ],
+    actionRules: [
+      {
+        id: "booking-playbook",
+        label: "Run booking playbook",
+        description: "Kick off the booking workflow when high-priority offers arrive.",
+        actionType: "playbook",
+        categories: ["BOOKING/Offer"],
+        triageStates: ["unassigned", "acknowledged"],
+        minPriority: 70,
+        icon: "Ticket",
+        color: "#2563eb",
+        payload: {
+          playbook: "booking-enquiry",
+        },
+      },
+      {
+        id: "legal-review",
+        label: "Request legal review",
+        description: "Send for legal review when contracts hit the inbox.",
+        actionType: "create_lead",
+        categories: ["LEGAL/Contract_Draft", "LEGAL/Contract_Executed"],
+        triageStates: ["unassigned"],
+        minPriority: 60,
+        icon: "Scale",
+        color: "#7c3aed",
+        payload: {
+          queue: "legal",
+        },
+      },
+    ],
+    explainability: {
+      showBreakdown: true,
+      auditLog: true,
+      includeComponentMetadata: true,
+    },
   },
   tasks: {
     noDueDateValue: 10,
@@ -296,6 +396,11 @@ const PRIORITY_CONFIG_DATA: PriorityConfig = {
     conflictPenaltyCap: 30,
     linkedEmailPenaltyPerItem: 2,
     linkedEmailPenaltyCap: 20,
+  },
+  scheduling: {
+    timezone: "UTC",
+    entries: [],
+    lastEvaluatedAt: null,
   },
 };
 
@@ -578,6 +683,190 @@ function sanitizeCrossLabelRules(
   return merged;
 }
 
+const TRIAGE_STATES: EmailTriageState[] = ["unassigned", "acknowledged", "snoozed", "resolved"];
+
+function sanitizeAdvancedBoosts(
+  boosts: Array<Partial<PriorityEmailAdvancedBoost>> | null | undefined,
+  base: PriorityEmailAdvancedBoost[]
+): PriorityEmailAdvancedBoost[] {
+  const source = Array.isArray(boosts) ? boosts : [];
+  if (source.length === 0) {
+    return base.map((boost) => clone(boost));
+  }
+
+  return source.map((candidate, index) => {
+    const fallback = base[index] ?? base[0];
+    const id = sanitizeString(candidate?.id, fallback?.id ?? `boost-${index}`);
+    const label = sanitizeString(candidate?.label, fallback?.label ?? "Custom boost");
+    const description = sanitizeString(candidate?.description, fallback?.description ?? "");
+    const weight = sanitizeNumber(candidate?.weight, fallback?.weight ?? 0, {
+      min: -100,
+      max: 200,
+      round: true,
+    });
+    const criteria = candidate?.criteria && typeof candidate.criteria === "object" ? candidate.criteria : {};
+
+    const hasAttachmentRaw = (criteria as any).hasAttachment;
+    let hasAttachment: boolean | null = null;
+    if (hasAttachmentRaw === true || hasAttachmentRaw === false) {
+      hasAttachment = hasAttachmentRaw;
+    } else if (typeof hasAttachmentRaw === "string") {
+      const normalized = hasAttachmentRaw.trim().toLowerCase();
+      if (normalized === "true" || normalized === "1") hasAttachment = true;
+      if (normalized === "false" || normalized === "0") hasAttachment = false;
+    }
+
+    const minPriorityRaw = (criteria as any).minPriority;
+    const minPriorityValue = sanitizeNumber(
+      minPriorityRaw,
+      fallback?.criteria?.minPriority ?? 0,
+      {
+        min: 0,
+        max: 100,
+        round: true,
+      }
+    );
+
+    return {
+      id,
+      label,
+      description: description || null,
+      weight,
+      criteria: {
+        senders: sanitizeStringArray((criteria as any).senders ?? fallback?.criteria?.senders ?? []),
+        domains: sanitizeStringArray((criteria as any).domains ?? fallback?.criteria?.domains ?? []),
+        keywords: sanitizeStringArray((criteria as any).keywords ?? fallback?.criteria?.keywords ?? []),
+        labels: sanitizeStringArray((criteria as any).labels ?? fallback?.criteria?.labels ?? []),
+        categories: sanitizeStringArray((criteria as any).categories ?? fallback?.criteria?.categories ?? []),
+        hasAttachment,
+        minPriority:
+          minPriorityRaw == null && fallback?.criteria?.minPriority == null ? null : minPriorityValue,
+      },
+      explanation: sanitizeString(candidate?.explanation, fallback?.explanation ?? "") || null,
+    } satisfies PriorityEmailAdvancedBoost;
+  });
+}
+
+function sanitizeActionRules(
+  rules: Array<Partial<PriorityEmailActionRule>> | null | undefined,
+  base: PriorityEmailActionRule[]
+): PriorityEmailActionRule[] {
+  const source = Array.isArray(rules) ? rules : [];
+  if (source.length === 0) {
+    return base.map((rule) => clone(rule));
+  }
+
+  return source.map((candidate, index) => {
+    const fallback = base[index] ?? base[0];
+    const id = sanitizeString(candidate?.id, fallback?.id ?? `action-${index}`);
+    const label = sanitizeString(candidate?.label, fallback?.label ?? "Custom action");
+    const description = sanitizeString(candidate?.description, fallback?.description ?? "");
+    const actionType = ((): PriorityEmailActionRule["actionType"] => {
+      switch (candidate?.actionType) {
+        case "playbook":
+        case "create_lead":
+        case "open_url":
+        case "custom":
+          return candidate.actionType;
+        default:
+          return fallback?.actionType ?? "playbook";
+      }
+    })();
+    const triageStates = Array.isArray(candidate?.triageStates)
+      ? candidate.triageStates.filter((state): state is EmailTriageState => TRIAGE_STATES.includes(state as EmailTriageState))
+      : fallback?.triageStates ?? [];
+    const minPriority = sanitizeNumber(candidate?.minPriority, fallback?.minPriority ?? 0, {
+      min: 0,
+      max: 100,
+      round: true,
+    });
+
+    return {
+      id,
+      label,
+      description: description || null,
+      actionType,
+      categories: sanitizeStringArray(candidate?.categories ?? fallback?.categories ?? []),
+      triageStates,
+      minPriority,
+      icon: sanitizeString(candidate?.icon, fallback?.icon ?? "") || null,
+      color: sanitizeString(candidate?.color, fallback?.color ?? "") || null,
+      payload: (() => {
+        if (candidate?.payload && typeof candidate.payload === "object") {
+          return { ...candidate.payload };
+        }
+        if (fallback?.payload && typeof fallback.payload === "object") {
+          return { ...fallback.payload };
+        }
+        return null;
+      })(),
+    } satisfies PriorityEmailActionRule;
+  });
+}
+
+function sanitizeExplainability(
+  input: Partial<PriorityExplainabilityConfig> | null | undefined,
+  base: PriorityExplainabilityConfig
+): PriorityExplainabilityConfig {
+  if (!input || typeof input !== "object") {
+    return clone(base);
+  }
+  return {
+    showBreakdown: sanitizeBoolean(input.showBreakdown, base.showBreakdown),
+    auditLog: sanitizeBoolean(input.auditLog, base.auditLog),
+    includeComponentMetadata: sanitizeBoolean(
+      input.includeComponentMetadata,
+      base.includeComponentMetadata
+    ),
+  } satisfies PriorityExplainabilityConfig;
+}
+
+function sanitizeSchedulingConfig(
+  input: Partial<PrioritySchedulingConfig> | null | undefined,
+  base: PrioritySchedulingConfig
+): PrioritySchedulingConfig {
+  if (!input || typeof input !== "object") {
+    return clone(base);
+  }
+
+  const entries = Array.isArray(input.entries)
+    ? input.entries.map((entry, index) => {
+        const fallback = base.entries[index] ?? base.entries[0];
+        const id = sanitizeString(entry?.id, fallback?.id ?? `schedule-${index}`);
+        const label = sanitizeString(entry?.label, fallback?.label ?? "Scheduled preset");
+        const presetSlug = sanitizeString(entry?.presetSlug, fallback?.presetSlug ?? "");
+        const days = Array.isArray(entry?.daysOfWeek)
+          ? Array.from(
+              new Set(
+                entry.daysOfWeek
+                  .map((day) => Number(day))
+                  .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+              )
+            )
+          : fallback?.daysOfWeek ?? [];
+        const startTime = sanitizeString(entry?.startTime, fallback?.startTime ?? "08:00");
+        const endTime = sanitizeString(entry?.endTime, fallback?.endTime ?? "") || null;
+        const autoApply = sanitizeBoolean(entry?.autoApply, fallback?.autoApply ?? true);
+
+        return {
+          id,
+          label,
+          presetSlug,
+          daysOfWeek: days,
+          startTime,
+          endTime,
+          autoApply,
+        };
+      })
+    : base.entries.map((entry) => clone(entry));
+
+  return {
+    timezone: sanitizeString(input.timezone, base.timezone || "UTC"),
+    entries,
+    lastEvaluatedAt: sanitizeString(input.lastEvaluatedAt, base.lastEvaluatedAt ?? "") || null,
+  } satisfies PrioritySchedulingConfig;
+}
+
 function sanitizeEmailConfig(
   input: Exclude<PriorityConfigInput, null>["email"],
   base: PriorityEmailConfig
@@ -649,6 +938,9 @@ function sanitizeEmailConfig(
         round: true,
       }),
     },
+    advancedBoosts: sanitizeAdvancedBoosts(input.advancedBoosts, base.advancedBoosts),
+    actionRules: sanitizeActionRules(input.actionRules, base.actionRules),
+    explainability: sanitizeExplainability(input.explainability, base.explainability),
   } satisfies PriorityEmailConfig;
 }
 
@@ -780,6 +1072,7 @@ export function normalizePriorityConfigInput(
     tasks: sanitizeTaskConfig(configInput.tasks, workingBase.tasks),
     timeline: sanitizeTimelineConfig(configInput.timeline, workingBase.timeline),
     health: sanitizeHealthConfig(configInput.health, workingBase.health),
+    scheduling: sanitizeSchedulingConfig(configInput.scheduling, workingBase.scheduling),
   } satisfies PriorityConfig;
 }
 

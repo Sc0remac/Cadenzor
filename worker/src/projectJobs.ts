@@ -11,6 +11,11 @@ import {
   type ProjectRecord,
   DEFAULT_EMAIL_SOURCE,
   type EmailSource,
+  calculateEmailInboxPriority,
+  DEFAULT_PRIORITY_CONFIG,
+  normalizePriorityConfigInput,
+  type PriorityConfig,
+  type PriorityConfigInput,
 } from "@kazador/shared";
 
 type ServiceSupabase = SupabaseClient<any, any, any>;
@@ -25,6 +30,60 @@ interface Metrics {
 }
 
 const ORIGIN = "projectMetricsRefresh";
+
+const userPriorityConfigCache = new Map<string, PriorityConfig>();
+
+async function loadUserPriorityConfig(client: SupabaseClient, userId: string): Promise<PriorityConfig> {
+  if (userPriorityConfigCache.has(userId)) {
+    return userPriorityConfigCache.get(userId)!;
+  }
+
+  const { data, error } = await client
+    .from("user_preferences")
+    .select("priority_config")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[priority] Failed to load user priority config for ${userId}`, error);
+    const fallback = DEFAULT_PRIORITY_CONFIG;
+    userPriorityConfigCache.set(userId, fallback);
+    return fallback;
+  }
+
+  const overrides = data?.priority_config ? (data.priority_config as PriorityConfigInput) : null;
+  const config = overrides
+    ? normalizePriorityConfigInput(overrides, DEFAULT_PRIORITY_CONFIG)
+    : DEFAULT_PRIORITY_CONFIG;
+  userPriorityConfigCache.set(userId, config);
+  return config;
+}
+
+async function loadProjectPriorityProfile(client: SupabaseClient, projectId: string): Promise<PriorityConfigInput | null> {
+  const { data, error } = await client
+    .from("projects")
+    .select("priority_profile")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[priority] Failed to load project profile for ${projectId}`, error);
+    return null;
+  }
+
+  if (!data?.priority_profile) {
+    return null;
+  }
+
+  const profile = data.priority_profile;
+  if (profile && typeof profile === "object" && profile.priorityConfig) {
+    return profile.priorityConfig as PriorityConfigInput;
+  }
+  if (profile && typeof profile === "object") {
+    return profile as PriorityConfigInput;
+  }
+  return null;
+}
 
 function parseJson<T>(value: any): T {
   if (value == null) {
@@ -67,6 +126,7 @@ function mapEmailRow(row: any): EmailRecord {
   const source = KNOWN_EMAIL_SOURCES.has(rawSource) ? rawSource : DEFAULT_EMAIL_SOURCE;
   return {
     id: row.id as string,
+    userId: (row.user_id as string) ?? null,
     fromName: (row.from_name as string) ?? null,
     fromEmail: row.from_email as string,
     subject: row.subject as string,
@@ -78,6 +138,7 @@ function mapEmailRow(row: any): EmailRecord {
     priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
     triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
     triagedAt: row.triaged_at ? String(row.triaged_at) : null,
+    snoozedUntil: row.snoozed_until ? String(row.snoozed_until) : null,
     source,
   };
 }
@@ -248,7 +309,7 @@ export async function suggestProjectLinksForEmail(emailId: string, limit = 3) {
   const { data: emailRow, error: emailError } = await client
     .from("emails")
     .select(
-      "id, subject, summary, from_name, from_email, received_at, category, is_read, labels, source, triage_state, triaged_at, priority_score"
+      "id, user_id, subject, summary, from_name, from_email, received_at, category, is_read, labels, source, triage_state, triaged_at, snoozed_until, priority_score"
     )
     .eq("id", emailId)
     .maybeSingle();
@@ -371,7 +432,7 @@ async function applyProjectEmailLink(
   if (payload.shouldCreateTimeline) {
     const { data: emailRow, error: emailError } = await client
       .from("emails")
-      .select("id, subject, received_at, labels, from_name, from_email, category, is_read, summary, source, triage_state, triaged_at, priority_score")
+      .select("id, user_id, subject, received_at, labels, from_name, from_email, category, is_read, summary, source, triage_state, triaged_at, snoozed_until, priority_score")
       .eq("id", emailId)
       .maybeSingle();
 
@@ -400,6 +461,53 @@ async function applyProjectEmailLink(
 
       await client.from("timeline_items").insert(insertPayload);
     }
+  }
+
+  const { data: emailForRecalc, error: recalcError } = await client
+    .from("emails")
+    .select("id, user_id, subject, received_at, labels, from_name, from_email, category, is_read, summary, source, triage_state, triaged_at, snoozed_until, priority_score")
+    .eq("id", emailId)
+    .maybeSingle();
+
+  if (recalcError) {
+    throw recalcError;
+  }
+
+  if (emailForRecalc?.user_id) {
+    const emailRecord = mapEmailRow(emailForRecalc);
+    const baseConfig = await loadUserPriorityConfig(client, emailRecord.userId ?? "");
+    const projectOverrides = await loadProjectPriorityProfile(client, projectId);
+    const effectiveConfig = projectOverrides
+      ? normalizePriorityConfigInput(projectOverrides, baseConfig)
+      : baseConfig;
+
+    const { count: attachmentCount } = await client
+      .from("email_attachments")
+      .select("id", { count: "exact", head: true })
+      .eq("email_id", emailId);
+
+    const hasAttachments = typeof attachmentCount === "number" ? attachmentCount > 0 : false;
+
+    const updatedScore = calculateEmailInboxPriority(
+      {
+        category: emailRecord.category,
+        labels: emailRecord.labels,
+        receivedAt: emailRecord.receivedAt,
+        isRead: emailRecord.isRead,
+        triageState: emailRecord.triageState,
+        snoozedUntil: emailRecord.snoozedUntil ?? null,
+        fromEmail: emailRecord.fromEmail,
+        fromName: emailRecord.fromName,
+        subject: emailRecord.subject,
+        hasAttachments,
+      },
+      { config: effectiveConfig ?? DEFAULT_PRIORITY_CONFIG }
+    );
+
+    await client
+      .from("emails")
+      .update({ priority_score: updatedScore })
+      .eq("id", emailId);
   }
 }
 
