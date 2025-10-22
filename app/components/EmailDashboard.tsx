@@ -183,6 +183,24 @@ function EmailCard({
           <span className="inline-flex items-center rounded-full border border-gray-200 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-600">
             {formatSourceLabel(email.source)}
           </span>
+          {email.sentiment && (
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-wide ${
+                email.sentiment.label === "positive"
+                  ? "border border-green-200 bg-green-50 text-green-700"
+                  : email.sentiment.label === "negative"
+                  ? "border border-red-200 bg-red-50 text-red-700"
+                  : "border border-gray-200 bg-gray-50 text-gray-600"
+              }`}
+            >
+              {email.sentiment.label === "positive" ? "😊" : email.sentiment.label === "negative" ? "😟" : "😐"} {email.sentiment.label}
+              {email.sentiment.confidence > 0 && (
+                <span className="ml-1 text-[10px] opacity-75">
+                  {Math.round(email.sentiment.confidence * 100)}%
+                </span>
+              )}
+            </span>
+          )}
           {email.triageState === "snoozed" && (
             <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-medium text-amber-700">
               Snoozed {snoozeLabel ? `until ${snoozeLabel}` : ""} {snoozeActive ? "" : "(expired)"}

@@ -334,7 +334,14 @@ export async function analyzeEmail(
 
         const summary = parseSummary((parsed as Record<string, unknown>)?.summary);
         const labels = parseLabels((parsed as Record<string, unknown>)?.labels);
-        const sentiment = normaliseEmailSentiment((parsed as Record<string, unknown>)?.sentiment);
+        const rawSentiment = (parsed as Record<string, unknown>)?.sentiment;
+        const sentiment = normaliseEmailSentiment(rawSentiment);
+
+        console.log('[SENTIMENT DEBUG] OpenAI response:', {
+          rawSentiment,
+          normalisedSentiment: sentiment,
+          fullParsed: parsed,
+        });
 
         return { summary, labels, sentiment };
       }

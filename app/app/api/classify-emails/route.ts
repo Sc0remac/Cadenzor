@@ -12,8 +12,11 @@ import {
   DEFAULT_PRIORITY_CONFIG,
   normalizePriorityConfigInput,
   EMAIL_FALLBACK_LABEL,
+  normaliseEmailSentiment,
+  DEFAULT_EMAIL_SENTIMENT,
   type PriorityConfig,
   type PriorityConfigInput,
+  type EmailSentiment,
 } from "@kazador/shared";
 import type { EmailLabel } from "@kazador/shared";
 import { getGmailAccount, ensureGmailOAuthClient } from "@/lib/googleGmailClient";
@@ -245,13 +248,12 @@ export async function POST(request: Request) {
 
     const listRes = await gmail.users.messages.list({
       userId: "me",
-      q: "is:unread",
       maxResults: maxEmails,
     });
 
     const messages = listRes.data.messages || [];
     if (messages.length === 0) {
-      return NextResponse.json({ processed: 0, message: "No unread messages" });
+      return NextResponse.json({ processed: 0, message: "No messages found" });
     }
 
     const processed: Array<{ id: string; category: EmailLabel; labels: EmailLabel[] }> = [];
@@ -284,7 +286,7 @@ export async function POST(request: Request) {
 
         const { data: existingEmail, error: existingEmailError } = await supabase
           .from("emails")
-          .select("summary, labels, triage_state, snoozed_until")
+          .select("summary, labels, sentiment, triage_state, snoozed_until")
           .eq("id", msg.id)
           .eq("user_id", requester.id)
           .maybeSingle();
@@ -295,8 +297,9 @@ export async function POST(request: Request) {
 
         let summary = typeof existingEmail?.summary === "string" ? existingEmail.summary.trim() : "";
         let labels = normaliseLabels(existingEmail?.labels ?? []);
+        let sentiment: EmailSentiment = normaliseEmailSentiment(existingEmail?.sentiment ?? null);
 
-        if (!summary || labels.length === 0) {
+        if (!summary || labels.length === 0 || !sentiment || sentiment.confidence === 0) {
           try {
             const aiResult = await analyzeEmail({
               subject,
@@ -306,10 +309,15 @@ export async function POST(request: Request) {
             });
             summary = aiResult.summary;
             labels = normaliseLabels(aiResult.labels);
+            sentiment = aiResult.sentiment;
           } catch (err) {
             console.error(`AI classification failed for message ${msg.id}`, err);
             labels = heuristicLabels(subject, body);
           }
+        }
+
+        if (!sentiment || sentiment.confidence === 0) {
+          sentiment = { ...DEFAULT_EMAIL_SENTIMENT };
         }
 
         if (labels.length === 0) {
@@ -373,6 +381,7 @@ export async function POST(request: Request) {
               is_read: isRead,
               summary,
               labels,
+              sentiment,
               source: "gmail",
               priority_score: priorityScore,
               triage_state: triageState,

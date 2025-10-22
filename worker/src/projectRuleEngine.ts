@@ -5,6 +5,7 @@ import {
   evaluateProjectAssignmentRule,
   normalizeProjectAssignmentRuleInput,
   type EmailSentiment,
+  type EmailTriageState,
   type ProjectAssignmentRule,
   type ProjectAssignmentRuleInput,
 } from "@kazador/shared";
@@ -188,7 +189,7 @@ export async function applyProjectAssignmentRules(
         category: email.category,
         labels: email.labels,
         priorityScore: email.priorityScore ?? null,
-        triageState: email.triageState ?? null,
+        triageState: (email.triageState as EmailTriageState) ?? undefined,
         receivedAt: email.receivedAt,
         attachments: email.hasAttachments ? [{ id: "placeholder", emailId: email.id, filename: "", mimeType: null, size: null, storageBucket: null, storagePath: null, sha256: null, metadata: {}, createdAt: nowIso }] : [],
         summary: email.summary,

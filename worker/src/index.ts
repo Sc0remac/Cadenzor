@@ -224,7 +224,7 @@ async function main() {
     return;
   }
 
-  const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 5);
+  const maxEmails = Number(process.env.MAX_EMAILS_TO_PROCESS || 10);
   const priorityConfigCache = new Map<string, PriorityConfig>();
   const projectRuleCache = new Map<string, { rules: ProjectAssignmentRule[]; overrides: Set<string> }>();
 
@@ -268,13 +268,12 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
 
   const listRes = await gmail.users.messages.list({
     userId: "me",
-    q: "is:unread",
     maxResults: maxEmails,
   });
 
   const messages = listRes.data.messages || [];
   if (messages.length === 0) {
-    console.log(`No unread messages for ${account.email ?? account.userId}.`);
+    console.log(`No messages found for ${account.email ?? account.userId}.`);
     return;
   }
 
@@ -419,6 +418,12 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
     const category = classification.category;
     const sentiment = classification.sentiment;
 
+    console.log(`[SENTIMENT DEBUG] Email ${msg.id}:`, {
+      sentiment,
+      usedAi: classification.usedAi,
+      usedCachedSummary: classification.usedCachedSummary,
+    });
+
     const { error: contactError } = await supabase
       .from("contacts")
       .upsert(
@@ -472,6 +477,12 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
     };
 
     payloadToUpsert.triage_state = triageState;
+
+    console.log(`[SENTIMENT DEBUG] Upserting payload for ${msg.id}:`, {
+      sentiment: payloadToUpsert.sentiment,
+      sentimentType: typeof payloadToUpsert.sentiment,
+      sentimentJSON: JSON.stringify(payloadToUpsert.sentiment),
+    });
 
     const { error: emailError } = await supabase
       .from("emails")
