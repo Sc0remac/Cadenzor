@@ -1,0 +1,228 @@
+Email-to-Project Automation: How It Works & Recommendations
+
+  1. When Rules Trigger ⏰
+
+  Current behavior:
+  - ✅ Rules ONLY run on NEW incoming emails (worker/src/index.ts:269-291)
+  - ❌ Rules DO NOT automatically run on existing emails
+
+  Why your test email from hello@emails.tote.co.uk isn't showing:
+  - If that email arrived BEFORE you created the rule, it was never evaluated
+  - The worker only processes new unread emails when it polls Gmail
+
+  Solution - Manual Replay:
+  You need a "Re-run rules on existing emails" button. There's probably an API endpoint at
+  /api/project-assignment-rules/replay (based on your file list) that can backfill existing emails.
+
+  Try this:
+  # If you have a replay endpoint:
+  POST /api/project-assignment-rules/replay
+  { "userId": "your-user-id" }
+
+  ---
+  2. Where Emails Should Appear 📧
+
+  Current implementation:
+  The Inbox tab (/app/(protected)/projects/[projectId]/page.tsx:1306-1410) shows:
+  1. Suggested email links (AI/rule suggestions awaiting approval)
+  2. Manual attach form (attach by email ID)
+  3. Linked emails list (hub.emailLinks) - this is where your email should appear
+
+  Your email should be visible here once:
+  - The rule runs (either on new emails or via replay)
+  - The link is created in project_email_links table
+  - The project hub API loads it into hub.emailLinks
+
+  What the inbox shows:
+  {hub.emailLinks.map(({ link, email }) => (
+    <EmailRow
+      key={link.id}
+      linkId={link.id}
+      email={email}
+      onUnlink={() => void removeEmailLink(link.id)}
+      onFileAttachments={() => startFilingAttachments(email)}
+      canFileAttachments={driveSources.length > 0}
+    />
+  ))}
+
+  It displays:
+  - Email subject
+  - From address
+  - Received date
+  - Link source (manual/rule/AI)
+  - Confidence score
+  - Unlink button
+  - File attachments to Drive button
+
+  ---
+  3. Timeline Items from Emails 📅
+
+  Your concern is 100% correct. Here's why emails shouldn't auto-create timeline items:
+
+  Problem: Emails don't have natural dates
+
+  // Email has:
+  {
+    subject: "Re: Barry show offer",
+    receivedAt: "2025-10-21T10:30:00Z", // When it arrived
+    // ❌ No startsAt or endsAt
+  }
+
+  // Timeline item needs:
+  {
+    title: "...",
+    startsAt: "2025-11-15T20:00:00Z", // Show start time
+    endsAt: "2025-11-15T23:00:00Z",   // Show end time
+  }
+
+  If you create a timeline item from an email:
+  - What date do you use? receivedAt? That's when the email arrived, not when the show is!
+  - Most emails reference future dates but don't have them structured
+  - You'd need NLP to extract "May 10th at 8pm" from the body
+
+  Current implementation (/api/emails/[emailId]/link-project/route.ts:170-217):
+
+  When createTimelineItem: true, it:
+  1. Gets timeline type from email category:
+  const timelineType = getTimelineTypeForEmailCategory(emailRow.category);
+  // BOOKING → LIVE_HOLD
+  // LEGAL → LEGAL_ACTION
+  // PROMO → PROMO_SLOT
+  2. Creates timeline item with:
+    - Title = email subject
+    - Description = email summary
+    - startsAt/endsAt = NULL ← This is the problem!
+  3. Links email ID to timeline item
+
+  Result: Timeline item with no dates → doesn't show on the timeline view
+
+  ---
+  4. My Recommendation ✅
+
+  Phase 1: Simplify Rules (Do This Now)
+
+  Keep automation ONLY for linking emails to projects:
+  - ✅ Auto-link emails to projects based on sender/category/keywords
+  - ✅ Show linked emails in project Inbox tab
+  - ❌ Don't auto-create timeline items
+
+  Remove the "Create timeline item" checkbox from rules. It's confusing because:
+  1. No dates = invisible timeline item
+  2. Users can't tell what dates to use
+  3. Email linking is already valuable on its own
+
+  Phase 2: Manual Timeline Creation (Better UX)
+
+  Add a button in the Inbox tab next to each linked email:
+
+  <EmailRow>
+    <button onClick={() => createTimelineItemFromEmail(email)}>
+      + Add to Timeline
+    </button>
+  </EmailRow>
+
+  When clicked, open a modal:
+  ┌─────────────────────────────────────────────────┐
+  │ Create Timeline Item from Email                │
+  │                                                 │
+  │ Email: "Offer for Fabric London - May 10"      │
+  │                                                 │
+  │ Type: [LIVE_HOLD ▼]                             │
+  │ Start: [2025-05-10 20:00] (datetime picker)    │
+  │ End:   [2025-05-10 23:00]                       │
+  │ Lane:  [LIVE_HOLDS ▼]                           │
+  │                                                 │
+  │         [Cancel]         [Create Timeline Item]│
+  └─────────────────────────────────────────────────┘
+
+  Why this is better:
+  - User can extract the correct dates from the email body
+  - System doesn't guess wrong dates
+  - Timeline items are meaningful and visible
+  - User stays in control
+
+  ---
+  5. What's Missing: Replay Existing Emails
+
+  You need to trigger rules on past emails. Check if you have this endpoint:
+
+  // POST /api/project-assignment-rules/replay
+  async function replayRules(userId: string) {
+    const rules = await loadProjectAssignmentRulesForUser(supabase, userId);
+    const overrides = await loadProjectRuleOverridesForUser(supabase, userId);
+
+    // Get all emails for this user
+    const { data: emails } = await supabase
+      .from('emails')
+      .select('*')
+      .eq('user_id', userId)
+      .order('received_at', { ascending: false })
+      .limit(1000); // Or no limit
+
+    for (const email of emails) {
+      await applyProjectAssignmentRules(
+        supabase,
+        userId,
+        email,
+        rules,
+        overrides
+      );
+    }
+  }
+
+  Add a button in /settings/automations:
+  [Re-run all rules on existing emails]
+
+  ---
+  6. Summary: Your Next Steps
+
+  Immediate fixes:
+
+  1. Trigger replay on existing emails to link the test email from hello@emails.tote.co.uk
+    - Either call the replay API endpoint
+    - Or wait for the next email from that sender
+  2. Check project Inbox tab (/projects/[projectId] → Inbox tab)
+    - Linked emails should appear in the "Linked emails" section
+    - Not the timeline (unless they have dates)
+  3. Remove "Create timeline item" from rules (or make it clearer that dates are required)
+
+  Better long-term solution:
+
+  Rules configuration:
+  interface ProjectAssignmentRule {
+    conditions: {
+      senders?: string[];     // ✅ Keep
+      categories?: string[];  // ✅ Keep
+      keywords?: string[];    // ✅ Keep
+    };
+    actions: {
+      linkToProject: string;     // ✅ Keep
+      assignToLane?: string;     // ✅ Keep (optional)
+      confidence: "low" | "medium" | "high"; // ✅ Keep
+      // ❌ Remove createTimelineItem
+    };
+  }
+
+  UI in Inbox tab:
+  Linked Emails (3)
+
+  ┌────────────────────────────────────────────────┐
+  │ From: hello@emails.tote.co.uk                  │
+  │ Subject: Test email                             │
+  │ Linked via: Rule "Test automation"             │
+  │                                                 │
+  │ [View in Gmail] [+ Add to Timeline] [Unlink]   │
+  └────────────────────────────────────────────────┘
+
+  ---
+  TL;DR
+
+  Your issues:
+  1. ✅ Rule runs on new emails only → Add replay button
+  2. ✅ Emails should show in project Inbox tab → They do (if linked)
+  3. ✅ Timeline items from emails are invisible → Don't auto-create them
+
+  Best solution:
+  - Rules = Email linking only (sender → project)
+  - Timeline creation = Manual (user picks dates from email)
+  - Add replay button for existing emails
