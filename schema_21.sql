@@ -3189,6 +3189,7 @@ CREATE TABLE public.emails (
     is_read boolean DEFAULT false,
     summary text,
     labels jsonb,
+    sentiment jsonb,
     triage_state text DEFAULT 'unassigned'::text NOT NULL,
     triaged_at timestamp with time zone,
     priority_score integer DEFAULT 0 NOT NULL,

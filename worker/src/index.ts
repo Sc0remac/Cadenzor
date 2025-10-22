@@ -383,7 +383,7 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
 
     const { data: existingEmail, error: existingEmailError } = await supabase
       .from("emails")
-      .select("summary, labels, triage_state, snoozed_until, is_read")
+      .select("summary, labels, sentiment, triage_state, snoozed_until, is_read")
       .eq("id", msg.id)
       .eq("user_id", account.userId)
       .maybeSingle();
@@ -400,6 +400,7 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
         fromEmail,
         cachedSummary: existingEmail?.summary ?? null,
         cachedLabels: existingEmail?.labels ?? null,
+        cachedSentiment: existingEmail?.sentiment ?? null,
       },
       {
         analyzeEmail,
@@ -416,6 +417,7 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
     const summary = classification.summary;
     const labels = classification.labels;
     const category = classification.category;
+    const sentiment = classification.sentiment;
 
     const { error: contactError } = await supabase
       .from("contacts")
@@ -464,6 +466,7 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
       is_read: isRead,
       summary,
       labels,
+      sentiment,
       source: "gmail",
       priority_score: priorityScore,
     };
@@ -508,6 +511,7 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
           triageState,
           receivedAt,
           hasAttachments,
+          sentiment,
         },
         ruleBundle.rules,
         ruleBundle.overrides

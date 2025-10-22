@@ -2,6 +2,14 @@ import type { PriorityConfig, PriorityConfigSource } from "./priorityConfig";
 
 export type EmailLabel = string;
 
+export const EMAIL_SENTIMENT_LABELS = ["positive", "neutral", "negative"] as const;
+export type EmailSentimentLabel = (typeof EMAIL_SENTIMENT_LABELS)[number];
+
+export interface EmailSentiment {
+  label: EmailSentimentLabel;
+  confidence: number;
+}
+
 export interface LabelDefinition {
   name: EmailLabel;
   meaning: string;
@@ -358,6 +366,7 @@ export interface EmailRecord {
   isRead: boolean;
   summary?: string | null;
   labels?: EmailLabel[];
+  sentiment?: EmailSentiment | null;
   priorityScore?: number | null;
   triageState?: EmailTriageState;
   triagedAt?: string | null;

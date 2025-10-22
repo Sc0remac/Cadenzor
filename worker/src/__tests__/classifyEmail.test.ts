@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMAIL_FALLBACK_LABEL, ensureDefaultLabelCoverage, normaliseLabels, selectPrimaryCategory } from "@kazador/shared";
+import {
+  DEFAULT_EMAIL_SENTIMENT,
+  EMAIL_FALLBACK_LABEL,
+  ensureDefaultLabelCoverage,
+  normaliseLabels,
+  selectPrimaryCategory,
+} from "@kazador/shared";
 import { classifyEmail } from "../classifyEmail";
 
 describe("classifyEmail", () => {
@@ -22,6 +28,7 @@ describe("classifyEmail", () => {
           fromEmail: "sender@example.com",
           cachedSummary: "Cached summary",
           cachedLabels: ["FINANCE/Invoice"],
+          cachedSentiment: { label: "negative", confidence: 0.6 },
         },
         {
           analyzeEmail: analyze,
@@ -36,6 +43,7 @@ describe("classifyEmail", () => {
       expect(heuristics).not.toHaveBeenCalled();
       expect(result.summary).toBe("Cached summary");
       expect(result.labels).toEqual(["FINANCE/Invoice"]);
+      expect(result.sentiment).toEqual({ label: "negative", confidence: 0.6 });
       expect(result.usedCachedSummary).toBe(true);
       expect(result.usedCachedLabels).toBe(true);
       expect(result.usedAi).toBe(false);
@@ -51,6 +59,7 @@ describe("classifyEmail", () => {
           fromEmail: "sender@example.com",
           cachedSummary: "  Cached summary with spaces  ",
           cachedLabels: ["FINANCE/Invoice"],
+          cachedSentiment: { label: "neutral", confidence: 0.9 },
         },
         {
           analyzeEmail: vi.fn(),
@@ -63,12 +72,14 @@ describe("classifyEmail", () => {
 
       expect(result.summary).toBe("Cached summary with spaces");
       expect(result.usedCachedSummary).toBe(true);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.9 });
     });
 
     it("calls AI when cached summary is empty string", async () => {
       const analyze = vi.fn().mockResolvedValue({
         summary: "AI summary",
         labels: ["LEGAL/Contract_Draft"],
+        sentiment: { label: "Positive", confidence: 82 },
       });
 
       const result = await classifyEmail(
@@ -93,12 +104,14 @@ describe("classifyEmail", () => {
       expect(result.summary).toBe("AI summary");
       expect(result.usedCachedSummary).toBe(false);
       expect(result.usedAi).toBe(true);
+      expect(result.sentiment).toEqual({ label: "positive", confidence: 0.82 });
     });
 
     it("calls AI when cached labels are empty", async () => {
       const analyze = vi.fn().mockResolvedValue({
         summary: "AI summary",
         labels: ["BOOKING/Offer"],
+        sentiment: { label: "NEGATIVE", confidence: 0.4 },
       });
 
       const result = await classifyEmail(
@@ -122,12 +135,14 @@ describe("classifyEmail", () => {
       expect(analyze).toHaveBeenCalledOnce();
       expect(result.usedCachedLabels).toBe(false);
       expect(result.usedAi).toBe(true);
+      expect(result.sentiment).toEqual({ label: "negative", confidence: 0.4 });
     });
 
     it("handles null as cached summary", async () => {
       const analyze = vi.fn().mockResolvedValue({
         summary: "AI summary",
         labels: ["PROMO/Press_Feature"],
+        sentiment: { label: "neutral", confidence: 0.51 },
       });
 
       const result = await classifyEmail(
@@ -150,6 +165,7 @@ describe("classifyEmail", () => {
 
       expect(result.usedCachedSummary).toBe(false);
       expect(result.usedAi).toBe(true);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.51 });
     });
   });
 
@@ -158,6 +174,7 @@ describe("classifyEmail", () => {
       const analyze = vi.fn().mockResolvedValue({
         summary: "Contract for venue booking",
         labels: ["LEGAL/Contract_Draft", "venue/Fabric", "city/London"],
+        sentiment: { label: "positive", confidence: 0.73 },
       });
 
       const result = await classifyEmail(
@@ -188,12 +205,14 @@ describe("classifyEmail", () => {
       expect(result.category).toBe("LEGAL/Contract_Draft");
       expect(result.usedAi).toBe(true);
       expect(result.usedHeuristics).toBe(false);
+      expect(result.sentiment).toEqual({ label: "positive", confidence: 0.73 });
     });
 
     it("trims whitespace from AI summary", async () => {
       const analyze = vi.fn().mockResolvedValue({
         summary: "  AI summary with extra spaces  ",
         labels: ["FINANCE/Invoice"],
+        sentiment: { label: "neutral", confidence: 0.2 },
       });
 
       const result = await classifyEmail(
@@ -213,12 +232,14 @@ describe("classifyEmail", () => {
       );
 
       expect(result.summary).toBe("AI summary with extra spaces");
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.2 });
     });
 
     it("handles AI returning empty summary", async () => {
       const analyze = vi.fn().mockResolvedValue({
         summary: "",
         labels: ["BOOKING/Offer"],
+        sentiment: { label: "Positive", confidence: 0.3 },
       });
 
       const result = await classifyEmail(
@@ -239,12 +260,14 @@ describe("classifyEmail", () => {
 
       expect(result.summary).toBe("");
       expect(result.labels).toContain("BOOKING/Offer");
+      expect(result.sentiment).toEqual({ label: "positive", confidence: 0.3 });
     });
 
     it("handles AI returning non-string summary", async () => {
       const analyze = vi.fn().mockResolvedValue({
         summary: null,
         labels: ["ASSETS/Artwork"],
+        sentiment: { label: "neutral", confidence: 50 },
       });
 
       const result = await classifyEmail(
@@ -265,6 +288,32 @@ describe("classifyEmail", () => {
 
       expect(result.summary).toBe("");
       expect(result.labels).toContain("ASSETS/Artwork");
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.5 });
+    });
+
+    it("defaults sentiment to neutral when AI omits the field", async () => {
+      const analyze = vi.fn().mockResolvedValue({
+        summary: "AI summary",
+        labels: ["BOOKING/Offer"],
+      });
+
+      const result = await classifyEmail(
+        {
+          subject: "Offer",
+          body: "Show details",
+          fromName: "Promoter",
+          fromEmail: "promoter@example.com",
+        },
+        {
+          analyzeEmail: analyze,
+          heuristicLabels: vi.fn(),
+          normaliseLabels: deps.normaliseLabels,
+          ensureDefaultLabelCoverage: deps.ensureDefaultLabelCoverage,
+          selectPrimaryCategory: deps.selectPrimaryCategory,
+        }
+      );
+
+      expect(result.sentiment).toEqual(DEFAULT_EMAIL_SENTIMENT);
     });
   });
 
@@ -296,6 +345,7 @@ describe("classifyEmail", () => {
       expect(result.usedAi).toBe(false); // AI call failed before setting flag
       expect(result.category).toBe("BOOKING/Offer");
       expect(onError).toHaveBeenCalledWith(expect.any(Error));
+      expect(result.sentiment).toEqual(DEFAULT_EMAIL_SENTIMENT);
     });
 
     it("calls onError callback with Error instance", async () => {
@@ -381,7 +431,11 @@ describe("classifyEmail", () => {
           fromEmail: "airline@example.com",
         },
         {
-          analyzeEmail: vi.fn().mockResolvedValue({ summary: "Flight confirmed", labels: [] }),
+          analyzeEmail: vi.fn().mockResolvedValue({
+            summary: "Flight confirmed",
+            labels: [],
+            sentiment: { label: "neutral", confidence: 0.25 },
+          }),
           heuristicLabels: heuristics,
           normaliseLabels: deps.normaliseLabels,
           ensureDefaultLabelCoverage: deps.ensureDefaultLabelCoverage,
@@ -392,6 +446,7 @@ describe("classifyEmail", () => {
       expect(heuristics).toHaveBeenCalledWith("Flight booking", "Confirmed");
       expect(result.labels).toContain("LOGISTICS/Travel");
       expect(result.usedHeuristics).toBe(true);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.25 });
     });
   });
 
@@ -407,7 +462,11 @@ describe("classifyEmail", () => {
           cachedLabels: [],
         },
         {
-          analyzeEmail: vi.fn().mockResolvedValue({ summary: "", labels: [] }),
+          analyzeEmail: vi.fn().mockResolvedValue({
+            summary: "",
+            labels: [],
+            sentiment: { label: "neutral", confidence: 0 },
+          }),
           heuristicLabels: vi.fn().mockReturnValue([]),
           normaliseLabels: deps.normaliseLabels,
           ensureDefaultLabelCoverage: deps.ensureDefaultLabelCoverage,
@@ -418,6 +477,7 @@ describe("classifyEmail", () => {
       expect(result.labels).toEqual([EMAIL_FALLBACK_LABEL]);
       expect(result.category).toBe(EMAIL_FALLBACK_LABEL);
       expect(result.usedHeuristics).toBe(true);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0 });
     });
 
     it("uses fallback label when all sources return empty arrays", async () => {
@@ -429,7 +489,11 @@ describe("classifyEmail", () => {
           fromEmail: "unknown@example.com",
         },
         {
-          analyzeEmail: vi.fn().mockResolvedValue({ summary: "", labels: [] }),
+          analyzeEmail: vi.fn().mockResolvedValue({
+            summary: "",
+            labels: [],
+            sentiment: { label: "neutral", confidence: 0 },
+          }),
           heuristicLabels: vi.fn().mockReturnValue([]),
           normaliseLabels: deps.normaliseLabels,
           ensureDefaultLabelCoverage: (labels) => labels, // Return empty
@@ -439,6 +503,7 @@ describe("classifyEmail", () => {
 
       expect(result.labels).toEqual([EMAIL_FALLBACK_LABEL]);
       expect(result.category).toBe(EMAIL_FALLBACK_LABEL);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0 });
     });
   });
 
@@ -448,6 +513,7 @@ describe("classifyEmail", () => {
       const analyze = vi.fn().mockResolvedValue({
         summary: "Contract",
         labels: ["legal/contract_draft"], // Malformed
+        sentiment: { label: "positive", confidence: 0.5 },
       });
 
       const result = await classifyEmail(
@@ -493,6 +559,7 @@ describe("classifyEmail", () => {
 
       expect(ensureCoverage).toHaveBeenCalled();
       expect(result.labels).toEqual(["BOOKING/Offer", "territory/GB"]);
+      expect(result.sentiment).toEqual(DEFAULT_EMAIL_SENTIMENT);
     });
   });
 
@@ -555,6 +622,7 @@ describe("classifyEmail", () => {
           fromEmail: "sender@example.com",
           cachedSummary: "Cached",
           cachedLabels: ["FINANCE/Invoice"],
+          cachedSentiment: { label: "neutral", confidence: 0.3 },
         },
         {
           analyzeEmail: vi.fn(),
@@ -569,6 +637,7 @@ describe("classifyEmail", () => {
       expect(result.usedCachedLabels).toBe(true);
       expect(result.usedAi).toBe(false);
       expect(result.usedHeuristics).toBe(false);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.3 });
     });
 
     it("sets correct tracking flags for AI path", async () => {
@@ -580,7 +649,11 @@ describe("classifyEmail", () => {
           fromEmail: "sender@example.com",
         },
         {
-          analyzeEmail: vi.fn().mockResolvedValue({ summary: "AI summary", labels: ["BOOKING/Offer"] }),
+          analyzeEmail: vi.fn().mockResolvedValue({
+            summary: "AI summary",
+            labels: ["BOOKING/Offer"],
+            sentiment: { label: "neutral", confidence: 0 },
+          }),
           heuristicLabels: vi.fn(),
           normaliseLabels: deps.normaliseLabels,
           ensureDefaultLabelCoverage: deps.ensureDefaultLabelCoverage,
@@ -592,6 +665,7 @@ describe("classifyEmail", () => {
       expect(result.usedCachedLabels).toBe(false);
       expect(result.usedAi).toBe(true);
       expect(result.usedHeuristics).toBe(false);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0 });
     });
 
     it("sets correct tracking flags for AI + heuristic path", async () => {
@@ -603,7 +677,11 @@ describe("classifyEmail", () => {
           fromEmail: "sender@example.com",
         },
         {
-          analyzeEmail: vi.fn().mockResolvedValue({ summary: "AI summary", labels: [] }),
+          analyzeEmail: vi.fn().mockResolvedValue({
+            summary: "AI summary",
+            labels: [],
+            sentiment: { label: "neutral", confidence: 0.1 },
+          }),
           heuristicLabels: vi.fn().mockReturnValue(["MISC/Uncategorized"]),
           normaliseLabels: deps.normaliseLabels,
           ensureDefaultLabelCoverage: deps.ensureDefaultLabelCoverage,
@@ -613,6 +691,7 @@ describe("classifyEmail", () => {
 
       expect(result.usedAi).toBe(true);
       expect(result.usedHeuristics).toBe(true);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.1 });
     });
 
     it("sets correct tracking flags for error + heuristic path", async () => {
@@ -635,6 +714,7 @@ describe("classifyEmail", () => {
 
       expect(result.usedAi).toBe(false); // AI call failed before setting flag
       expect(result.usedHeuristics).toBe(true);
+      expect(result.sentiment).toEqual(DEFAULT_EMAIL_SENTIMENT);
     });
   });
 
@@ -650,6 +730,7 @@ describe("classifyEmail", () => {
           "territory/GB",
           "date/2026-05-10",
         ],
+        sentiment: { label: "positive", confidence: 0.95 },
       });
 
       const result = await classifyEmail(
@@ -674,6 +755,7 @@ describe("classifyEmail", () => {
       expect(result.labels).toContain("venue/Fabric");
       expect(result.category).toBe("BOOKING/Offer");
       expect(result.usedAi).toBe(true);
+      expect(result.sentiment).toEqual({ label: "positive", confidence: 0.95 });
     });
 
     it("handles legal contract email with cached data", async () => {
@@ -685,6 +767,7 @@ describe("classifyEmail", () => {
           fromEmail: "legal@venue.com",
           cachedSummary: "Executed contract for Fabric London show on 2026-05-10",
           cachedLabels: ["LEGAL/Contract_Executed", "venue/Fabric", "date/2026-05-10"],
+          cachedSentiment: { label: "neutral", confidence: 0.4 },
         },
         {
           analyzeEmail: vi.fn(),
@@ -698,6 +781,7 @@ describe("classifyEmail", () => {
       expect(result.category).toBe("LEGAL/Contract_Executed");
       expect(result.usedCachedSummary).toBe(true);
       expect(result.usedCachedLabels).toBe(true);
+      expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.4 });
     });
   });
 });

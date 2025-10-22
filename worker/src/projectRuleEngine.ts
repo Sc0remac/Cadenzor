@@ -4,6 +4,7 @@ import {
   confidenceLevelToScore,
   evaluateProjectAssignmentRule,
   normalizeProjectAssignmentRuleInput,
+  type EmailSentiment,
   type ProjectAssignmentRule,
   type ProjectAssignmentRuleInput,
 } from "@kazador/shared";
@@ -131,6 +132,7 @@ interface ProjectRuleEmailContext {
   triageState: string | null;
   receivedAt: string;
   hasAttachments: boolean;
+  sentiment: EmailSentiment;
 }
 
 export async function applyProjectAssignmentRules(
@@ -191,6 +193,7 @@ export async function applyProjectAssignmentRules(
         attachments: email.hasAttachments ? [{ id: "placeholder", emailId: email.id, filename: "", mimeType: null, size: null, storageBucket: null, storagePath: null, sha256: null, metadata: {}, createdAt: nowIso }] : [],
         summary: email.summary,
         body: email.body,
+        sentiment: email.sentiment,
       },
     });
 

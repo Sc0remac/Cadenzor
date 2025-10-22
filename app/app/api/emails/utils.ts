@@ -4,13 +4,14 @@ import {
   ensureDefaultLabelCoverage,
   normaliseLabel,
   normaliseLabels,
+  normaliseEmailSentiment,
   type EmailAttachmentRecord,
   type EmailProjectContext,
   type EmailRecord,
 } from "@kazador/shared";
 
 export const EMAIL_SELECT_COLUMNS =
-  "id, user_id, from_name, from_email, subject, received_at, category, is_read, summary, labels, source, triage_state, triaged_at, snoozed_until, priority_score";
+  "id, user_id, from_name, from_email, subject, received_at, category, is_read, summary, labels, sentiment, source, triage_state, triaged_at, snoozed_until, priority_score";
 
 export function mapEmailRow(row: any): EmailRecord {
   const labels = ensureDefaultLabelCoverage(normaliseLabels(row.labels));
@@ -28,6 +29,7 @@ export function mapEmailRow(row: any): EmailRecord {
     isRead: Boolean(row.is_read),
     summary: row.summary ?? null,
     labels,
+    sentiment: normaliseEmailSentiment(row.sentiment ?? null),
     priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
     triageState: (row.triage_state as EmailRecord["triageState"]) ?? "unassigned",
     triagedAt: row.triaged_at ? String(row.triaged_at) : null,

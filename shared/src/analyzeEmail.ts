@@ -1,9 +1,10 @@
 import {
   CROSS_LABEL_DEFINITIONS,
   EMAIL_FALLBACK_LABEL,
+  EMAIL_SENTIMENT_LABELS,
   PRIMARY_LABEL_DEFINITIONS,
 } from "./types";
-import type { EmailLabel } from "./types";
+import type { EmailLabel, EmailSentiment, EmailSentimentLabel } from "./types";
 import { normaliseLabels } from "./labelUtils";
 
 export interface EmailAnalysisInput {
@@ -16,6 +17,89 @@ export interface EmailAnalysisInput {
 export interface EmailAnalysisResult {
   summary: string;
   labels: EmailLabel[];
+  sentiment: EmailSentiment;
+}
+
+export const DEFAULT_EMAIL_SENTIMENT: EmailSentiment = { label: "neutral", confidence: 0 };
+
+function parseSentimentConfidence(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function coerceSentimentLabel(value: unknown): EmailSentimentLabel {
+  if (typeof value !== "string") {
+    return "neutral";
+  }
+
+  const normalised = value.trim().toLowerCase();
+  for (const candidate of EMAIL_SENTIMENT_LABELS) {
+    if (normalised === candidate) {
+      return candidate;
+    }
+  }
+
+  if (normalised.includes("pos")) {
+    return "positive";
+  }
+
+  if (normalised.includes("neg")) {
+    return "negative";
+  }
+
+  return "neutral";
+}
+
+export function normaliseEmailSentiment(value: unknown): EmailSentiment {
+  if (Array.isArray(value) && value.length > 0) {
+    return normaliseEmailSentiment(value[0]);
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const rawLabel =
+      record.label ?? record.sentiment ?? record.value ?? record.tone ?? record.tag ?? record.type;
+    const rawConfidence = record.confidence ?? record.score ?? record.probability ?? record.strength;
+
+    const label = coerceSentimentLabel(rawLabel);
+    const parsedConfidence = parseSentimentConfidence(rawConfidence);
+
+    if (parsedConfidence == null) {
+      return { ...DEFAULT_EMAIL_SENTIMENT, label } satisfies EmailSentiment;
+    }
+
+    let confidence = parsedConfidence;
+    if (confidence > 1) {
+      confidence = confidence <= 100 ? confidence / 100 : 1;
+    }
+    if (confidence < 0) {
+      confidence = 0;
+    }
+
+    return { label, confidence: Math.min(1, confidence) } satisfies EmailSentiment;
+  }
+
+  if (typeof value === "string") {
+    const label = coerceSentimentLabel(value);
+    return { ...DEFAULT_EMAIL_SENTIMENT, label } satisfies EmailSentiment;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const confidence = value > 1 ? (value <= 100 ? value / 100 : 1) : Math.max(0, value);
+    return { label: "neutral", confidence } satisfies EmailSentiment;
+  }
+
+  return { ...DEFAULT_EMAIL_SENTIMENT };
 }
 
 const MAX_LABELS = 3;
@@ -182,6 +266,7 @@ export async function analyzeEmail(
     `- Never invent new primary labels; use ${EMAIL_FALLBACK_LABEL} alone when nothing fits.`,
     "- Optional cross-tags must follow the format prefix/value using the supported prefixes.",
     "- Prioritise concise, factual summaries supporting the chosen labels.",
+    "- Include a sentiment assessment with label positive/neutral/negative and confidence between 0 and 1 (use 0 when unsure).",
   ].join("\n");
 
   const sanitizedSubject = normaliseSubject(input.subject);
@@ -205,7 +290,7 @@ export async function analyzeEmail(
         content: [
           {
             type: "text",
-            text: `Summarise the email in no more than 120 words and return JSON with keys "summary" (string) and "labels" (array of up to ${MAX_LABELS} strings). Labelling rules: (1) include at least one primary label and put it first, (2) append any supported cross-tags after the primary label when the content provides that metadata, (3) use the exact casing provided in the taxonomy, (4) if no primary label fits, use only ${EMAIL_FALLBACK_LABEL}. Email data: ${JSON.stringify(
+            text: `Summarise the email in no more than 120 words and return JSON with keys "summary" (string), "labels" (array of up to ${MAX_LABELS} strings), and "sentiment" (object with keys "label" (one of "positive", "neutral", "negative") and "confidence" (number 0-1; use 0 when unsure)). Labelling rules: (1) include at least one primary label and put it first, (2) append any supported cross-tags after the primary label when the content provides that metadata, (3) use the exact casing provided in the taxonomy, (4) if no primary label fits, use only ${EMAIL_FALLBACK_LABEL}. Email data: ${JSON.stringify(
               userPayload
             )}`,
           },
@@ -249,8 +334,9 @@ export async function analyzeEmail(
 
         const summary = parseSummary((parsed as Record<string, unknown>)?.summary);
         const labels = parseLabels((parsed as Record<string, unknown>)?.labels);
+        const sentiment = normaliseEmailSentiment((parsed as Record<string, unknown>)?.sentiment);
 
-        return { summary, labels };
+        return { summary, labels, sentiment };
       }
 
       const errorText = await response.text();

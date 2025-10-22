@@ -1,8 +1,11 @@
 import {
+  DEFAULT_EMAIL_SENTIMENT,
   EMAIL_FALLBACK_LABEL,
+  normaliseEmailSentiment,
   type EmailAnalysisInput,
   type EmailAnalysisResult,
   type EmailLabel,
+  type EmailSentiment,
 } from "@kazador/shared";
 
 export interface ClassificationInput {
@@ -12,6 +15,7 @@ export interface ClassificationInput {
   fromEmail: string;
   cachedSummary?: string | null;
   cachedLabels?: unknown;
+  cachedSentiment?: unknown;
 }
 
 export interface ClassificationDependencies {
@@ -27,6 +31,7 @@ export interface ClassificationResult {
   summary: string;
   labels: EmailLabel[];
   category: EmailLabel;
+  sentiment: EmailSentiment;
   usedCachedSummary: boolean;
   usedCachedLabels: boolean;
   usedAi: boolean;
@@ -42,6 +47,9 @@ export async function classifyEmail(
 
   let summary = cachedSummary;
   let labels = [...cachedLabels];
+  let sentiment = input.cachedSentiment
+    ? normaliseEmailSentiment(input.cachedSentiment)
+    : { ...DEFAULT_EMAIL_SENTIMENT };
   let usedCachedSummary = summary.length > 0;
   let usedCachedLabels = labels.length > 0;
   let usedAi = false;
@@ -60,6 +68,7 @@ export async function classifyEmail(
         summary = aiResult.summary.trim();
       }
       labels = deps.normaliseLabels(aiResult.labels);
+      sentiment = normaliseEmailSentiment(aiResult.sentiment);
       usedCachedSummary = false;
       usedCachedLabels = false;
     } catch (error) {
@@ -83,6 +92,7 @@ export async function classifyEmail(
     summary: summary.trim(),
     labels,
     category,
+    sentiment,
     usedCachedSummary,
     usedCachedLabels,
     usedAi,

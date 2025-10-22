@@ -111,6 +111,7 @@ export interface ProjectRuleEmailContext {
     | "receivedAt"
     | "attachments"
     | "summary"
+    | "sentiment"
   > & {
     body?: string | null;
   };

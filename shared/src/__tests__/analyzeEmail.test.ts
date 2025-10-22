@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { analyzeEmail } from "../analyzeEmail";
+import { DEFAULT_EMAIL_SENTIMENT, analyzeEmail } from "../analyzeEmail";
 import { EMAIL_FALLBACK_LABEL } from "../types";
 
 declare const global: typeof globalThis;
@@ -39,6 +39,7 @@ describe("analyzeEmail", () => {
                 content: JSON.stringify({
                   summary: "A concise summary",
                   labels: ["FINANCE/Invoice", "promo/pitch"],
+                  sentiment: { label: "positive", confidence: 0.91 },
                 }),
               },
             },
@@ -59,6 +60,7 @@ describe("analyzeEmail", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.summary).toBe("A concise summary");
     expect(result.labels).toEqual(["FINANCE/Invoice"]);
+    expect(result.sentiment).toEqual({ label: "positive", confidence: 0.91 });
   });
 
   it("retries on rate limits before succeeding", async () => {
@@ -79,6 +81,7 @@ describe("analyzeEmail", () => {
                 content: JSON.stringify({
                   summary: "Retried summary",
                   labels: ["LOGISTICS/Travel"],
+                  sentiment: { label: "neutral", confidence: 0.4 },
                 }),
               },
             },
@@ -97,6 +100,7 @@ describe("analyzeEmail", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.labels).toEqual(["LOGISTICS/Travel"]);
+    expect(result.sentiment).toEqual({ label: "neutral", confidence: 0.4 });
   });
 
   it("falls back to default label when OpenAI returns no labels", async () => {
@@ -123,5 +127,6 @@ describe("analyzeEmail", () => {
     });
 
     expect(result.labels).toEqual([EMAIL_FALLBACK_LABEL]);
+    expect(result.sentiment).toEqual(DEFAULT_EMAIL_SENTIMENT);
   });
 });
