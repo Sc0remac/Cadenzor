@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict T4Mj2zZmlyYa9uh6prPh37SbCVvXzfcbKY0pXJC7MdpIM8lEZCSASeRb4WuX5iB
+\restrict Cn5GplMN8TRWIDhTaGRFKKIdSJyYfKH6bguiTa1dIeBEWKeF4KQa8SbRh3HsvxA
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -3189,13 +3189,13 @@ CREATE TABLE public.emails (
     is_read boolean DEFAULT false,
     summary text,
     labels jsonb,
-    sentiment jsonb,
     triage_state text DEFAULT 'unassigned'::text NOT NULL,
     triaged_at timestamp with time zone,
     priority_score integer DEFAULT 0 NOT NULL,
     source text DEFAULT 'gmail'::text NOT NULL,
     user_id uuid,
     snoozed_until timestamp with time zone,
+    sentiment jsonb,
     CONSTRAINT emails_triage_state_check CHECK ((triage_state = ANY (ARRAY['unassigned'::text, 'acknowledged'::text, 'snoozed'::text, 'resolved'::text])))
 );
 
@@ -3284,21 +3284,6 @@ COMMENT ON TABLE public.profiles IS 'Stores additional profile information for C
 
 
 --
--- Name: project_email_links; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.project_email_links (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    project_id uuid NOT NULL,
-    email_id text NOT NULL,
-    confidence numeric(4,3),
-    source public.project_link_source DEFAULT 'manual'::public.project_link_source NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    CONSTRAINT project_email_links_confidence_check CHECK (((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))
-);
-
---
 -- Name: project_assignment_rules; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3313,9 +3298,10 @@ CREATE TABLE public.project_assignment_rules (
     conditions jsonb DEFAULT '[]'::jsonb NOT NULL,
     actions jsonb DEFAULT '{}'::jsonb NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
 
 --
 -- Name: project_email_link_overrides; Type: TABLE; Schema: public; Owner: -
@@ -3329,7 +3315,23 @@ CREATE TABLE public.project_email_link_overrides (
     rule_id uuid,
     reason text,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: project_email_links; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.project_email_links (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    project_id uuid NOT NULL,
+    email_id text NOT NULL,
+    confidence numeric(4,3),
+    source public.project_link_source DEFAULT 'manual'::public.project_link_source NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT project_email_links_confidence_check CHECK (((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))
 );
 
 
@@ -4292,18 +4294,12 @@ ALTER TABLE ONLY public.profiles
 
 
 --
--- Name: project_email_links project_email_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.project_email_links
-    ADD CONSTRAINT project_email_links_pkey PRIMARY KEY (id);
-
---
 -- Name: project_assignment_rules project_assignment_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.project_assignment_rules
     ADD CONSTRAINT project_assignment_rules_pkey PRIMARY KEY (id);
+
 
 --
 -- Name: project_email_link_overrides project_email_link_overrides_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -4311,6 +4307,14 @@ ALTER TABLE ONLY public.project_assignment_rules
 
 ALTER TABLE ONLY public.project_email_link_overrides
     ADD CONSTRAINT project_email_link_overrides_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: project_email_links project_email_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.project_email_links
+    ADD CONSTRAINT project_email_links_pkey PRIMARY KEY (id);
 
 
 --
@@ -5171,10 +5175,11 @@ CREATE INDEX oauth_sessions_expires_at_idx ON public.oauth_sessions USING btree 
 
 
 --
--- Name: project_email_links_unique; Type: INDEX; Schema: public; Owner: -
+-- Name: project_assignment_rules_project_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX project_email_links_unique ON public.project_email_links USING btree (project_id, email_id);
+CREATE INDEX project_assignment_rules_project_idx ON public.project_assignment_rules USING btree (project_id);
+
 
 --
 -- Name: project_assignment_rules_user_sort_idx; Type: INDEX; Schema: public; Owner: -
@@ -5182,17 +5187,19 @@ CREATE UNIQUE INDEX project_email_links_unique ON public.project_email_links USI
 
 CREATE INDEX project_assignment_rules_user_sort_idx ON public.project_assignment_rules USING btree (user_id, sort_order);
 
---
--- Name: project_assignment_rules_project_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX project_assignment_rules_project_idx ON public.project_assignment_rules USING btree (project_id);
 
 --
 -- Name: project_email_link_overrides_unique; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX project_email_link_overrides_unique ON public.project_email_link_overrides USING btree (user_id, project_id, email_id);
+
+
+--
+-- Name: project_email_links_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX project_email_links_unique ON public.project_email_links USING btree (project_id, email_id);
 
 
 --
@@ -5481,12 +5488,6 @@ CREATE TRIGGER assets_set_updated_at BEFORE UPDATE ON public.assets FOR EACH ROW
 
 CREATE TRIGGER automation_rules_set_updated_at BEFORE UPDATE ON public.automation_rules FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
---
--- Name: project_assignment_rules project_assignment_rules_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER project_assignment_rules_set_updated_at BEFORE UPDATE ON public.project_assignment_rules FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
 
 --
 -- Name: calendar_events calendar_events_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
@@ -5521,6 +5522,13 @@ CREATE TRIGGER oauth_accounts_set_updated_at BEFORE UPDATE ON public.oauth_accou
 --
 
 CREATE TRIGGER profiles_set_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.set_profiles_updated_at();
+
+
+--
+-- Name: project_assignment_rules project_assignment_rules_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER project_assignment_rules_set_updated_at BEFORE UPDATE ON public.project_assignment_rules FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -6024,46 +6032,43 @@ ALTER TABLE ONLY public.profiles
 
 
 --
--- Name: project_email_links project_email_links_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.project_email_links
-    ADD CONSTRAINT project_email_links_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
-
---
--- Name: project_assignment_rules_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: project_assignment_rules project_assignment_rules_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.project_assignment_rules
     ADD CONSTRAINT project_assignment_rules_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
 
+
 --
--- Name: project_assignment_rules_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: project_assignment_rules project_assignment_rules_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.project_assignment_rules
     ADD CONSTRAINT project_assignment_rules_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
+
 --
--- Name: project_email_link_overrides_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: project_email_link_overrides project_email_link_overrides_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.project_email_link_overrides
     ADD CONSTRAINT project_email_link_overrides_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
 
---
--- Name: project_email_link_overrides_rule_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.project_email_link_overrides
-    ADD CONSTRAINT project_email_link_overrides_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES public.project_assignment_rules(id) ON DELETE SET NULL;
 
 --
--- Name: project_email_link_overrides_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: project_email_link_overrides project_email_link_overrides_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.project_email_link_overrides
     ADD CONSTRAINT project_email_link_overrides_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: project_email_links project_email_links_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.project_email_links
+    ADD CONSTRAINT project_email_links_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
 
 
 --
@@ -6810,22 +6815,64 @@ CREATE POLICY oauth_sessions_user_insert ON public.oauth_sessions FOR INSERT TO 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: project_email_links; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.project_email_links ENABLE ROW LEVEL SECURITY;
-
---
 -- Name: project_assignment_rules; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
 ALTER TABLE public.project_assignment_rules ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: project_assignment_rules project_assignment_rules_service_role_all; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY project_assignment_rules_service_role_all ON public.project_assignment_rules USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: project_assignment_rules project_assignment_rules_user_modify; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY project_assignment_rules_user_modify ON public.project_assignment_rules USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
+-- Name: project_assignment_rules project_assignment_rules_user_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY project_assignment_rules_user_select ON public.project_assignment_rules FOR SELECT USING ((auth.uid() = user_id));
+
+
+--
 -- Name: project_email_link_overrides; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
 ALTER TABLE public.project_email_link_overrides ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: project_email_link_overrides project_email_link_overrides_service_role_all; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY project_email_link_overrides_service_role_all ON public.project_email_link_overrides USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: project_email_link_overrides project_email_link_overrides_user_modify; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY project_email_link_overrides_user_modify ON public.project_email_link_overrides USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
+-- Name: project_email_link_overrides project_email_link_overrides_user_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY project_email_link_overrides_user_select ON public.project_email_link_overrides FOR SELECT USING ((auth.uid() = user_id));
+
+
+--
+-- Name: project_email_links; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.project_email_links ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: project_email_links project_email_links_editor_delete; Type: POLICY; Schema: public; Owner: -
@@ -6860,42 +6907,6 @@ CREATE POLICY project_email_links_member_select ON public.project_email_links FO
 --
 
 CREATE POLICY project_email_links_service_role_all ON public.project_email_links USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
-
---
--- Name: project_assignment_rules project_assignment_rules_user_select; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY project_assignment_rules_user_select ON public.project_assignment_rules FOR SELECT USING ((auth.uid() = user_id));
-
---
--- Name: project_assignment_rules project_assignment_rules_user_modify; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY project_assignment_rules_user_modify ON public.project_assignment_rules FOR ALL USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
-
---
--- Name: project_assignment_rules project_assignment_rules_service_role_all; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY project_assignment_rules_service_role_all ON public.project_assignment_rules USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
-
---
--- Name: project_email_link_overrides project_email_link_overrides_user_select; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY project_email_link_overrides_user_select ON public.project_email_link_overrides FOR SELECT USING ((auth.uid() = user_id));
-
---
--- Name: project_email_link_overrides project_email_link_overrides_user_modify; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY project_email_link_overrides_user_modify ON public.project_email_link_overrides FOR ALL USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
-
---
--- Name: project_email_link_overrides project_email_link_overrides_service_role_all; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY project_email_link_overrides_service_role_all ON public.project_email_link_overrides USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
 
 
 --
@@ -7426,4 +7437,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict T4Mj2zZmlyYa9uh6prPh37SbCVvXzfcbKY0pXJC7MdpIM8lEZCSASeRb4WuX5iB
+\unrestrict Cn5GplMN8TRWIDhTaGRFKKIdSJyYfKH6bguiTa1dIeBEWKeF4KQa8SbRh3HsvxA
+
