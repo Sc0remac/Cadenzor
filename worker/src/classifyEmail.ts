@@ -47,15 +47,16 @@ export async function classifyEmail(
 
   let summary = cachedSummary;
   let labels = [...cachedLabels];
-  let sentiment = input.cachedSentiment
-    ? normaliseEmailSentiment(input.cachedSentiment)
-    : { ...DEFAULT_EMAIL_SENTIMENT };
+  let sentiment =
+    input.cachedSentiment != null ? normaliseEmailSentiment(input.cachedSentiment) : null;
   let usedCachedSummary = summary.length > 0;
   let usedCachedLabels = labels.length > 0;
   let usedAi = false;
   let usedHeuristics = false;
 
-  if (!summary || labels.length === 0) {
+  const shouldCallAi = !summary || labels.length === 0 || sentiment == null;
+
+  if (shouldCallAi) {
     try {
       const aiResult = await deps.analyzeEmail({
         subject: input.subject,
@@ -74,6 +75,10 @@ export async function classifyEmail(
     } catch (error) {
       deps.onError?.(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+
+  if (sentiment == null) {
+    sentiment = { ...DEFAULT_EMAIL_SENTIMENT };
   }
 
   if (labels.length === 0) {
