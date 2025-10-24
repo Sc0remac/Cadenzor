@@ -153,6 +153,71 @@ function transformTaskToTimelineItem(task: ProjectTaskRecord): TimelineItemRecor
   } satisfies TimelineItemRecord;
 }
 
+export async function POST(request: Request) {
+  const authResult = await requireAuthenticatedUser(request);
+  if (!authResult.ok) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+  }
+
+  const { supabase, user } = authResult;
+
+  try {
+    const body = await request.json();
+    const { projectId, type, title, description, startsAt, endsAt, dueAt, timezone, status, priorityScore, labels, kind } = body;
+
+    if (!projectId || !type || !title) {
+      return NextResponse.json({ error: "projectId, type, and title are required" }, { status: 400 });
+    }
+
+    // Check project access
+    const { data: membershipRow, error: membershipError } = await supabase
+      .from("project_members")
+      .select("project_id")
+      .eq("user_id", user.id)
+      .eq("project_id", projectId)
+      .maybeSingle();
+
+    if (membershipError) {
+      return NextResponse.json({ error: membershipError.message }, { status: 500 });
+    }
+
+    if (!membershipRow) {
+      return NextResponse.json({ error: "You do not have access to this project" }, { status: 403 });
+    }
+
+    // Insert into project_items table
+    const { data: insertedItem, error: insertError } = await supabase
+      .from("project_items")
+      .insert({
+        project_id: projectId,
+        type,
+        kind: kind || null,
+        title,
+        description: description || null,
+        start_at: startsAt || null,
+        end_at: endsAt || null,
+        due_at: dueAt || null,
+        tz: timezone || 'UTC',
+        status: status || 'planned',
+        priority_score: priorityScore || 50,
+        priority_components: {},
+        labels: labels || {},
+        links: {},
+        created_by: user.id,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ item: insertedItem }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+}
+
 export async function GET(request: Request) {
   const authResult = await requireAuthenticatedUser(request);
   if (!authResult.ok) {

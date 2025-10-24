@@ -559,7 +559,7 @@ export default function TimelinePage() {
     setSelectedItem((prev) => (prev ? { ...prev, status: "done" } : prev));
   };
 
-  const handleDraftSubmit = () => {
+  const handleDraftSubmit = async () => {
     if (!selectedProjectId) {
       setCreateError("Select a project before adding an item.");
       return;
@@ -578,42 +578,69 @@ export default function TimelinePage() {
       setCreateError("End must be after start.");
       return;
     }
-    const nowIso = new Date().toISOString();
+
+    if (!accessToken) {
+      setCreateError("Authentication required.");
+      return;
+    }
+
     const priorityScore =
       draftPriority === "HIGH"
         ? 90
         : draftPriority === "MEDIUM"
         ? 60
         : 25;
-    const newItem: TimelineItemRecord = {
-      id: `draft-${Date.now()}`,
-      projectId: selectedProjectId,
-      type: draftType,
-      lane: draftLane,
-      kind: null,
-      title: draftTitle.trim(),
-      description: null,
-      startsAt: start.toISOString(),
-      endsAt: end.toISOString(),
-      dueAt: end.toISOString(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
-      status: "tentative",
-      priorityScore,
-      priorityComponents: null,
-      labels: {
-        city: draftCity.trim() || null,
-      },
-      links: {},
-      createdBy: session?.user?.id ?? null,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      conflictFlags: null,
-      layoutRow: null,
-      territory: null,
-    };
-    setTimelineItems((previous) => [...previous, newItem]);
-    setDrawerMode("view");
-    setSelectedItem(newItem);
+
+    try {
+      // Persist to database via API
+      const response = await fetch("/api/timeline", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          type: draftType,
+          title: draftTitle.trim(),
+          description: null,
+          startsAt: start.toISOString(),
+          endsAt: end.toISOString(),
+          dueAt: end.toISOString(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+          status: "tentative",
+          priorityScore,
+          labels: {
+            city: draftCity.trim() || null,
+          },
+          kind: null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setCreateError(errorData.error || "Failed to create item");
+        return;
+      }
+
+      const { item } = await response.json();
+
+      // Refresh the timeline data to show the new item
+      if (accessToken && selectedProjectId) {
+        const updatedData = await fetchTimelineExplorer({
+          accessToken,
+          projectId: selectedProjectId,
+          rangeStart: startDate.toISOString(),
+          rangeEnd: endDate.toISOString(),
+        });
+        updateTimelineState(updatedData);
+      }
+
+      setDrawerMode(null);
+      setCreateError(null);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "Failed to create item");
+    }
   };
   const projectOptions = useMemo(() => {
     return projects.map((entry) => ({

@@ -5,6 +5,7 @@ import { useAuth } from "../AuthProvider";
 import AdminUsersPanel from "./AdminUsersPanel";
 import AdminProjectsPanel from "./AdminProjectsPanel";
 import AdminDataPanel from "./AdminDataPanel";
+import AdminEmailSettingsPanel from "./AdminEmailSettingsPanel";
 
 interface OverviewStats {
   totalUsers: number;
@@ -37,6 +38,7 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "users", label: "Users" },
   { id: "projects", label: "Projects" },
+  { id: "email-settings", label: "Email Settings" },
   { id: "data", label: "Data ops" },
 ] as const;
 
@@ -241,6 +243,10 @@ export default function AdminDashboard() {
 
       {activeTab === "projects" ? (
         <AdminProjectsPanel accessToken={accessToken} onChange={handleChildChange} />
+      ) : null}
+
+      {activeTab === "email-settings" ? (
+        <AdminEmailSettingsPanel accessToken={accessToken} />
       ) : null}
 
       {activeTab === "data" ? (
