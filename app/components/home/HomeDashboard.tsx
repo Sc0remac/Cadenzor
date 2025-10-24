@@ -817,7 +817,7 @@ export default function HomeDashboard() {
   }, [emailsState.items, emailWindow, selectedLabel]);
 
   return (
-    <section className="space-y-8">
+    <div className="space-y-8">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-semibold text-gray-900">Home</h1>
@@ -847,78 +847,86 @@ export default function HomeDashboard() {
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{digestError}</div>
       ) : null}
 
-      <DigestSummary state={digestState} loading={digestLoading} />
+      <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-3">
+          <DigestSummary state={digestState} loading={digestLoading} />
+        </div>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <div className="xl:col-span-2 space-y-6">
+        <div className="lg:col-span-3">
+          <EmailWidget
+            emails={filteredEmails}
+            windowValue={emailWindow}
+            onWindowChange={setEmailWindow}
+            labelOptions={labelOptions}
+            selectedLabel={selectedLabel}
+            onLabelChange={setSelectedLabel}
+            loading={emailsState.loading}
+            error={emailsState.error}
+          />
+        </div>
+
+        <div className="lg:col-span-2 grid gap-8">
           <TopPriorityGrid actions={topActions} />
           <UpcomingDeadlines actions={timelineActions} />
         </div>
-        <TodayEventsWidget
-          events={todayEventsState.items}
-          loading={todayEventsState.loading}
-          error={todayEventsState.error}
-        />
-      </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900">Project focus</h3>
-          <p className="mt-1 text-sm text-gray-600">
-            Digest snapshots surface trending health and approvals per project. Deeper drilldowns live inside each hub.
-          </p>
-          <div className="mt-4 grid gap-4">
-            {(digestState.digest?.projects ?? []).slice(0, 3).map((snapshot: DigestProjectSnapshot) => (
-              <div key={snapshot.project.id} className="rounded border border-gray-100 bg-gray-50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{snapshot.project.name}</p>
-                    <p className="text-xs text-gray-500">
-                      Health {snapshot.metrics.healthScore} • Trend {formatTrend(snapshot.metrics.trend)}
-                    </p>
+        <div className="lg:col-span-1">
+          <TodayEventsWidget
+            events={todayEventsState.items}
+            loading={todayEventsState.loading}
+            error={todayEventsState.error}
+          />
+        </div>
+
+        <div className="lg:col-span-3">
+          <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-900">Project focus</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Digest snapshots surface trending health and approvals per project. Deeper drilldowns live inside each hub.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {(digestState.digest?.projects ?? []).slice(0, 3).map((snapshot: DigestProjectSnapshot) => (
+                <div key={snapshot.project.id} className="rounded border border-gray-100 bg-gray-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{snapshot.project.name}</p>
+                      <p className="text-xs text-gray-500">
+                        Health {snapshot.metrics.healthScore} • Trend {formatTrend(snapshot.metrics.trend)}
+                      </p>
+                    </div>
+                    <span className="rounded bg-gray-900 px-2 py-1 text-xs font-semibold text-white">
+                      {snapshot.topActions.length} top items
+                    </span>
                   </div>
-                  <span className="rounded bg-gray-900 px-2 py-1 text-xs font-semibold text-white">
-                    {snapshot.topActions.length} top items
-                  </span>
+                  <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                    <div>
+                      <dt className="uppercase tracking-wide text-gray-500">Open tasks</dt>
+                      <dd className="text-sm font-semibold text-gray-900">{snapshot.metrics.openTasks}</dd>
+                    </div>
+                    <div>
+                      <dt className="uppercase tracking-wide text-gray-500">Upcoming</dt>
+                      <dd className="text-sm font-semibold text-gray-900">{snapshot.metrics.upcomingTimeline}</dd>
+                    </div>
+                    <div>
+                      <dt className="uppercase tracking-wide text-gray-500">Linked emails</dt>
+                      <dd className="text-sm font-semibold text-gray-900">{snapshot.metrics.linkedEmails}</dd>
+                    </div>
+                    <div>
+                      <dt className="uppercase tracking-wide text-gray-500">Approvals</dt>
+                      <dd className="text-sm font-semibold text-gray-900">{snapshot.approvals.length}</dd>
+                    </div>
+                  </dl>
                 </div>
-                <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
-                  <div>
-                    <dt className="uppercase tracking-wide text-gray-500">Open tasks</dt>
-                    <dd className="text-sm font-semibold text-gray-900">{snapshot.metrics.openTasks}</dd>
-                  </div>
-                  <div>
-                    <dt className="uppercase tracking-wide text-gray-500">Upcoming</dt>
-                    <dd className="text-sm font-semibold text-gray-900">{snapshot.metrics.upcomingTimeline}</dd>
-                  </div>
-                  <div>
-                    <dt className="uppercase tracking-wide text-gray-500">Linked emails</dt>
-                    <dd className="text-sm font-semibold text-gray-900">{snapshot.metrics.linkedEmails}</dd>
-                  </div>
-                  <div>
-                    <dt className="uppercase tracking-wide text-gray-500">Approvals</dt>
-                    <dd className="text-sm font-semibold text-gray-900">{snapshot.approvals.length}</dd>
-                  </div>
-                </dl>
-              </div>
-            ))}
-            {(digestState.digest?.projects?.length ?? 0) === 0 ? (
-              <div className="rounded border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-500">
-                Attach projects to see health summaries and top actions aggregate here.
-              </div>
-            ) : null}
+              ))}
+              {(digestState.digest?.projects?.length ?? 0) === 0 ? (
+                <div className="rounded border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-500">
+                  Attach projects to see health summaries and top actions aggregate here.
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
-        <EmailWidget
-          emails={filteredEmails}
-          windowValue={emailWindow}
-          onWindowChange={setEmailWindow}
-          labelOptions={labelOptions}
-          selectedLabel={selectedLabel}
-          onLabelChange={setSelectedLabel}
-          loading={emailsState.loading}
-          error={emailsState.error}
-        />
-      </div>
-    </section>
+      </main>
+    </div>
   );
 }
