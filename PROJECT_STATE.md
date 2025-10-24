@@ -1,11 +1,3 @@
-# Kazador Delivery Status – December 2025
-
-## Verified Implementation Snapshot
-- **Priority configuration is live** – `/settings/priorities` UI, API (`app/app/api/priority-config/**/*`), shared normalisers, and worker ingestion all read/write `user_preferences.priority_config` so user-tuned weights now drive scoring (`worker/src/digestJob.ts`, `shared/src/projectPriority.ts`).
-- **Automation rules are stored, not executed** – `/settings/automations` edits rules and persists them to `automation_rules`, but no worker evaluates triggers or writes to `automation_rule_executions`; workflows remain manual.
-- **Configurable timeline lanes ship end to end** – lane CRUD, auto-assignment builder, `/api/timeline-lanes/*`, and task creation auto-route items via `resolveAutoAssignedLane`; reapply endpoint updates existing tasks.
-- **Drive integration surfaces in UI/API** – OAuth, folder connect/reindex, asset linking, and filing hooks exist (`app/lib/driveIndexer.ts`, `/api/projects/[projectId]/drive/*`), but the Gmail worker still stores attachments only in Supabase and never calls the Drive routines.
-- **Digest generation runs nightly** – worker builds payloads using personalised priority config and logs to `digests`, yet outbound delivery (email/Slack) and digest approvals remain unimplemented.
 
 ## Top Engineering Focus – Automation Rule Execution
 Deliver the missing execution engine so stored rules actually drive work:

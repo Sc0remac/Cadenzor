@@ -79,14 +79,20 @@ export async function POST(request: Request) {
   const serviceSupabase = serviceClientResult.supabase;
 
   if (!targetUserId && targetEmail) {
-    const { data, error } = await serviceSupabase.auth.admin.getUserByEmail(targetEmail);
+    const {
+      data: { users },
+      error,
+    } = await serviceSupabase.auth.admin.listUsers();
 
     if (error) {
       console.error("Failed to lookup auth user", error);
     }
 
-    if (data?.user?.id) {
-      targetUserId = data.user.id;
+    if (users && users.length > 0) {
+      const targetUser = users.find((user) => user.email === targetEmail);
+      if (targetUser) {
+        targetUserId = targetUser.id;
+      }
     }
   }
 

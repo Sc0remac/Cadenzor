@@ -58,15 +58,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status });
   }
 
-  const { data: existingUserData, error: lookupError } =
-    await supabase.auth.admin.getUserByEmail(email);
+  const { data: { users: existingUsers }, error: lookupError } = await supabase.auth.admin.listUsers();
 
-  if (lookupError || !existingUserData?.user?.id) {
+  const existingUser = existingUsers.find(user => user.email === email);
+
+  if (lookupError || !existingUser) {
     const status = typeof error?.status === "number" ? error.status : 400;
     return NextResponse.json({ error: message }, { status });
   }
 
-  const existingUserId = existingUserData.user.id;
+  const existingUserId = existingUser.id;
 
   const { error: updateError } = await supabase.auth.admin.updateUserById(
     existingUserId,
