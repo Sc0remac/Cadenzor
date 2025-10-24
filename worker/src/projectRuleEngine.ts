@@ -218,10 +218,6 @@ export async function applyProjectAssignmentRules(
       source: "rule",
     };
 
-    if (rule.actions.assignToLaneId) {
-      metadata.lane_id = rule.actions.assignToLaneId;
-    }
-
     try {
       await supabase.from("project_email_links").insert({
         id: randomUUID(),

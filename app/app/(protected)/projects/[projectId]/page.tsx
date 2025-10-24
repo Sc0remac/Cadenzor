@@ -47,6 +47,7 @@ import { createLaneDefinition } from "../../../../lib/laneDefinitionsClient";
 import { useAuth } from "../../../../components/AuthProvider";
 import { TimelineStudio } from "../../../../components/projects/TimelineStudio";
 import ProjectFilesTab from "../../../../components/projects/FilesTab";
+import EnhancedInboxTab from "../../../../components/projects/EnhancedInboxTab";
 
 const TABS = [
   { value: "overview", label: "Overview" },
@@ -1387,25 +1388,13 @@ export default function ProjectHubPage() {
         </div>
       </form>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-        <h3 className="text-lg font-semibold text-gray-900">Linked emails</h3>
-        {hub.emailLinks.length === 0 ? (
-          <p className="mt-2 text-sm text-gray-500">No emails linked yet.</p>
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {hub.emailLinks.map(({ link, email }) => (
-              <EmailRow
-                key={link.id}
-                linkId={link.id}
-                email={email}
-                onUnlink={() => void removeEmailLink(link.id)}
-                onFileAttachments={() => startFilingAttachments(email)}
-                canFileAttachments={driveSources.length > 0}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
+      <EnhancedInboxTab
+        emailLinks={hub.emailLinks}
+        onUnlink={(linkId) => void removeEmailLink(linkId)}
+        onFileAttachments={(email) => startFilingAttachments(email)}
+        canFileAttachments={driveSources.length > 0}
+        projectId={project.id}
+      />
     </div>
   );
 

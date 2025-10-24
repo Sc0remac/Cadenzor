@@ -97,8 +97,8 @@ export default function EmailDashboardV2() {
     hasMore: false
   });
 
-  // Keyboard navigation
-  const [currentIndex, setCurrentIndex] = useState(0);
+  // Classify emails
+  const [classifying, setClassifying] = useState(false);
 
   // ========== Derived State ==========
 
@@ -300,12 +300,8 @@ export default function EmailDashboardV2() {
     (email: EmailRecord) => {
       setSelectedEmailId(email.id);
       setHighlightedEmailId(email.id);
-      const index = filteredEmails.findIndex((e) => e.id === email.id);
-      if (index >= 0) {
-        setCurrentIndex(index);
-      }
     },
-    [filteredEmails]
+    []
   );
 
   const handleToggleSelect = useCallback((email: EmailRecord) => {
@@ -329,67 +325,6 @@ export default function EmailDashboardV2() {
       project: "all"
     });
   }, []);
-
-  // ========== Keyboard Shortcuts ==========
-
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      switch (e.key) {
-        case "j": // Next email
-          e.preventDefault();
-          if (currentIndex < filteredEmails.length - 1) {
-            const nextIndex = currentIndex + 1;
-            setCurrentIndex(nextIndex);
-            handleSelectEmail(filteredEmails[nextIndex]);
-          }
-          break;
-
-        case "k": // Previous email
-          e.preventDefault();
-          if (currentIndex > 0) {
-            const prevIndex = currentIndex - 1;
-            setCurrentIndex(prevIndex);
-            handleSelectEmail(filteredEmails[prevIndex]);
-          }
-          break;
-
-        case "e": // Acknowledge
-          e.preventDefault();
-          if (selectedEmail) {
-            handleAcknowledge(selectedEmail);
-          }
-          break;
-
-        case "x": // Toggle select
-          e.preventDefault();
-          if (selectedEmail) {
-            handleToggleSelect(selectedEmail);
-          }
-          break;
-
-        case "r": // Resolve
-          e.preventDefault();
-          if (selectedEmail) {
-            handleResolve(selectedEmail);
-          }
-          break;
-
-        case "Escape": // Deselect
-          e.preventDefault();
-          setSelectedEmailId(null);
-          setHighlightedEmailId(null);
-          break;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [currentIndex, filteredEmails, selectedEmail, handleSelectEmail, handleToggleSelect, handleAcknowledge, handleResolve]);
 
   // ========== Data Fetching ==========
 
@@ -447,6 +382,48 @@ export default function EmailDashboardV2() {
       setPriorityConfigLoading(false);
     }
   }, [accessToken]);
+
+  const handleClassifyEmails = useCallback(async () => {
+    if (!accessToken || classifying) return;
+
+    setClassifying(true);
+    setStatusMessage(null);
+
+    try {
+      const response = await fetch("/api/classify-emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errorData.error || "Failed to classify emails");
+      }
+
+      const result = await response.json();
+
+      setStatusMessage({
+        type: "success",
+        message: `Classified ${result.processed} email${result.processed !== 1 ? "s" : ""}${
+          result.failures?.length > 0 ? ` (${result.failures.length} failed)` : ""
+        }`
+      });
+
+      // Reload emails to show newly classified ones
+      await loadEmails();
+
+      setTimeout(() => setStatusMessage(null), 5000);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to classify emails";
+      setStatusMessage({ type: "error", message: errorMessage });
+      setTimeout(() => setStatusMessage(null), 5000);
+    } finally {
+      setClassifying(false);
+    }
+  }, [accessToken, classifying, loadEmails]);
 
   // Initial load
   useEffect(() => {
@@ -517,20 +494,39 @@ export default function EmailDashboardV2() {
       />
 
       {/* Stats Bar */}
-      <div className="flex items-center gap-6 border-b border-gray-200 bg-white px-6 py-2 text-sm text-gray-600">
-        <span>
-          <span className="font-semibold text-gray-900">{filteredEmails.length}</span> emails
-        </span>
-        <span className="text-gray-400">|</span>
-        <span>
-          <span className="font-semibold text-red-700">{emailsByZone.critical.length}</span> critical
-        </span>
-        <span>
-          <span className="font-semibold text-orange-700">{emailsByZone.high.length}</span> high
-        </span>
-        <span>
-          <span className="font-semibold text-yellow-700">{emailsByZone.medium.length}</span> medium
-        </span>
+      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-2">
+        <div className="flex items-center gap-6 text-sm text-gray-600">
+          <span>
+            <span className="font-semibold text-gray-900">{filteredEmails.length}</span> emails
+          </span>
+          <span className="text-gray-400">|</span>
+          <span>
+            <span className="font-semibold text-red-700">{emailsByZone.critical.length}</span> critical
+          </span>
+          <span>
+            <span className="font-semibold text-orange-700">{emailsByZone.high.length}</span> high
+          </span>
+          <span>
+            <span className="font-semibold text-yellow-700">{emailsByZone.medium.length}</span> medium
+          </span>
+        </div>
+        <button
+          onClick={handleClassifyEmails}
+          disabled={classifying}
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {classifying ? (
+            <span className="flex items-center gap-2">
+              <svg className="h-4 w-4 animate-spin text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Classifying...
+            </span>
+          ) : (
+            "Classify Emails"
+          )}
+        </button>
       </div>
 
       {/* Main Content: Split Panel Layout */}
@@ -624,18 +620,6 @@ export default function EmailDashboardV2() {
           showBreakdown={showBreakdown}
           onToggleBreakdown={() => setShowBreakdown(!showBreakdown)}
         />
-      </div>
-
-      {/* Keyboard Shortcuts Help (Bottom Right) */}
-      <div className="fixed bottom-4 right-[500px] rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg">
-        <h4 className="mb-2 font-semibold text-gray-900">Keyboard Shortcuts</h4>
-        <div className="space-y-1 text-gray-600">
-          <div><kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">j</kbd> / <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">k</kbd> Navigate</div>
-          <div><kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">e</kbd> Acknowledge</div>
-          <div><kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">r</kbd> Resolve</div>
-          <div><kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">x</kbd> Select</div>
-          <div><kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono">Esc</kbd> Deselect</div>
-        </div>
       </div>
     </div>
   );

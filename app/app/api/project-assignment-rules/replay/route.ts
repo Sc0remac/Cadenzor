@@ -5,8 +5,8 @@ import {
   confidenceLevelToScore,
   type ProjectAssignmentRule,
 } from "@kazador/shared";
-import type { RuleRow } from "../route";
-import { mapRow, formatError } from "../route";
+import type { RuleRow } from "../helpers";
+import { mapRow, formatError } from "../helpers";
 
 function sanitizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
   const entries = Object.entries(metadata).filter(([, value]) => value != null);

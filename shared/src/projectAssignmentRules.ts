@@ -1,5 +1,5 @@
 import { normaliseLabel } from "./labelUtils";
-import type { EmailLabel, EmailRecord, ProjectLinkSource, TimelineItemType } from "./types";
+import type { EmailLabel, EmailRecord, ProjectLinkSource } from "./types";
 
 export type ProjectAssignmentRuleConditionField =
   | "subject"
@@ -62,10 +62,8 @@ export interface ProjectAssignmentRuleConditionGroup {
 
 export interface ProjectAssignmentRuleAction {
   projectId: string;
-  assignToLaneId?: string | null;
   confidence?: ProjectAssignmentRuleConfidence | null;
   note?: string | null;
-  createTimelineItem?: boolean;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -137,10 +135,8 @@ const DEFAULT_CONDITION_GROUP: ProjectAssignmentRuleConditionGroup = {
 
 const DEFAULT_ACTION: ProjectAssignmentRuleAction = {
   projectId: "",
-  assignToLaneId: null,
   confidence: "high",
   note: null,
-  createTimelineItem: false,
   metadata: {},
 };
 
@@ -302,10 +298,8 @@ function ensureActions(rawActions: unknown, fallbackProjectId: string): ProjectA
   const projectId = ensureString(params.projectId, fallbackProjectId);
   return {
     projectId,
-    assignToLaneId: ensureString(params.assignToLaneId ?? params.laneId ?? params.assignToLane, "") || null,
     confidence: ensureConfidence(params.confidence),
     note: ensureString(params.note ?? "", "") || null,
-    createTimelineItem: ensureBoolean(params.createTimelineItem, false),
     metadata:
       params.metadata && typeof params.metadata === "object"
         ? (params.metadata as Record<string, unknown>)
@@ -630,27 +624,6 @@ export function scoreToConfidenceLevel(score: number | null | undefined): Projec
   if (score >= 0.85) return "high";
   if (score >= 0.6) return "medium";
   return "low";
-}
-
-const CATEGORY_TYPE_MAP: Array<{ prefix: string; type: TimelineItemType }> = [
-  { prefix: "BOOKING", type: "LIVE_HOLD" },
-  { prefix: "LEGAL", type: "LEGAL_ACTION" },
-  { prefix: "FINANCE", type: "FINANCE_ACTION" },
-  { prefix: "PROMO", type: "PROMO_SLOT" },
-  { prefix: "LOGISTICS", type: "TRAVEL_SEGMENT" },
-];
-
-export function getTimelineTypeForEmailCategory(category: EmailLabel | string | null | undefined): TimelineItemType {
-  if (!category) {
-    return "TASK";
-  }
-  const upper = category.toUpperCase();
-  for (const mapping of CATEGORY_TYPE_MAP) {
-    if (upper.startsWith(mapping.prefix)) {
-      return mapping.type;
-    }
-  }
-  return "TASK";
 }
 
 export interface ProjectEmailLinkMetadata {

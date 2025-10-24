@@ -4,7 +4,6 @@ import {
   confidenceLevelToScore,
   createEmptyProjectAssignmentRule,
   evaluateProjectAssignmentRule,
-  getTimelineTypeForEmailCategory,
   normalizeProjectAssignmentRuleInput,
   ProjectAssignmentRuleCondition,
   ProjectAssignmentRuleConditionGroup,
@@ -149,15 +148,5 @@ describe("confidence helpers", () => {
     expect(confidenceLevelToScore("medium")).toBeCloseTo(0.7);
     expect(confidenceLevelToScore("low")).toBeCloseTo(0.4);
     expect(confidenceLevelToScore(undefined)).toBeNull();
-  });
-});
-
-describe("getTimelineTypeForEmailCategory", () => {
-  it("returns matching type for booking emails", () => {
-    expect(getTimelineTypeForEmailCategory("BOOKING/Offer")).toBe("LIVE_HOLD");
-  });
-
-  it("defaults to TASK when no mapping matches", () => {
-    expect(getTimelineTypeForEmailCategory("MISC")).toBe("TASK");
   });
 });

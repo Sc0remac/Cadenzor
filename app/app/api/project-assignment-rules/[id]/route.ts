@@ -6,8 +6,8 @@ import {
   type ProjectAssignmentRule,
   type ProjectAssignmentRuleInput,
 } from "@kazador/shared";
-import type { RuleRow } from "../route";
-import { mapRow, buildStorePayload, formatError } from "../route";
+import type { RuleRow } from "../helpers";
+import { mapRow, buildStorePayload, formatError } from "../helpers";
 
 interface Params {
   params: {

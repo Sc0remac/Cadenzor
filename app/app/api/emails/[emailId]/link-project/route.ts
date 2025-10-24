@@ -3,12 +3,10 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "../../../../../lib/serverAuth";
 import { assertProjectRole } from "../../../../../lib/projectAccess";
-import { mapProjectEmailLinkRow, mapTimelineItemRow } from "../../../../../lib/projectMappers";
+import { mapProjectEmailLinkRow } from "../../../../../lib/projectMappers";
 import {
   confidenceLevelToScore,
-  getTimelineTypeForEmailCategory,
   type ProjectAssignmentRuleConfidence,
-  type TimelineItemRecord,
 } from "@kazador/shared";
 import type { ProjectEmailLinkRecord } from "@kazador/shared";
 
@@ -20,11 +18,9 @@ interface Params {
 
 interface LinkProjectPayload {
   projectId: string;
-  laneId?: string | null;
   confidenceLevel?: ProjectAssignmentRuleConfidence | null;
   confidenceScore?: number | null;
   note?: string | null;
-  createTimelineItem?: boolean;
 }
 
 function sanitizeMetadata(metadata: Record<string, unknown>) {
@@ -98,29 +94,6 @@ export async function POST(request: Request, { params }: Params) {
     });
   }
 
-  let laneSlug: string | null = null;
-  let laneName: string | null = null;
-
-  if (payload.laneId) {
-    const { data: laneRow, error: laneError } = await supabase
-      .from("lane_definitions")
-      .select("id, slug, name")
-      .eq("id", payload.laneId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (laneError) {
-      return formatError(laneError.message, 500);
-    }
-
-    if (!laneRow) {
-      return formatError("Lane not found or not accessible", 404);
-    }
-
-    laneSlug = (laneRow.slug as string) ?? laneRow.id;
-    laneName = laneRow.name as string;
-  }
-
   const nowIso = new Date().toISOString();
   const confidenceScore =
     payload.confidenceScore ??
@@ -131,9 +104,6 @@ export async function POST(request: Request, { params }: Params) {
     linked_by: user.id,
     linked_at: nowIso,
     note: payload.note,
-    lane_id: payload.laneId ?? null,
-    lane_slug: laneSlug,
-    lane_name: laneName,
     confidence_level: payload.confidenceLevel ?? null,
     source: "manual",
   });
@@ -165,61 +135,9 @@ export async function POST(request: Request, { params }: Params) {
     .eq("project_id", payload.projectId)
     .eq("email_id", emailId);
 
-  let timelineItem: TimelineItemRecord | null = null;
-
-  if (payload.createTimelineItem) {
-    const labels: Record<string, unknown> = { lane: laneSlug };
-    const links: Record<string, unknown> = { emailId };
-    const timelineType = getTimelineTypeForEmailCategory(emailRow.category);
-
-    const { data: insertedItem, error: timelineError } = await supabase
-      .from("project_items")
-      .insert({
-        project_id: payload.projectId,
-        type: timelineType,
-        title: (emailRow.subject as string) ?? "Email link",
-        description: (emailRow.summary as string) ?? null,
-        labels,
-        links,
-        created_by: user.id,
-      })
-      .select("id")
-      .maybeSingle();
-
-    if (timelineError) {
-      console.error("Failed to create timeline item for linked email", timelineError);
-    } else if (insertedItem?.id) {
-      const { data: entryRow, error: entryError } = await supabase
-        .from("timeline_entries")
-        .select("*")
-        .eq("id", insertedItem.id as string)
-        .maybeSingle();
-
-      if (entryError) {
-        console.error("Failed to load timeline entry after insert", entryError);
-      } else if (entryRow) {
-        timelineItem = mapTimelineItemRow(entryRow);
-        const updatedMetadata = sanitizeMetadata({
-          ...metadata,
-          timeline_item_id: timelineItem.id,
-          timeline_item_type: timelineItem.type,
-        });
-
-        await supabase
-          .from("project_email_links")
-          .update({ metadata: updatedMetadata })
-          .eq("id", linkRow.id)
-          .eq("project_id", payload.projectId);
-
-        linkRow.metadata = updatedMetadata;
-      }
-    }
-  }
-
   const link: ProjectEmailLinkRecord = mapProjectEmailLinkRow(linkRow);
 
   return NextResponse.json({
     link,
-    timelineItem,
   });
 }

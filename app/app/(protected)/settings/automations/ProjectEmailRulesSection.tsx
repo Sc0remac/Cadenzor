@@ -21,8 +21,6 @@ import {
   replayProjectAssignmentRules,
 } from "@/lib/projectAssignmentRulesClient";
 import { fetchProjects, type ProjectListItem } from "@/lib/supabaseClient";
-import { fetchLaneDefinitions } from "@/lib/laneDefinitionsClient";
-import type { TimelineLaneDefinition } from "@kazador/shared";
 
 const TRIAGE_OPTIONS = [
   { value: "unassigned", label: "Unassigned" },
@@ -234,7 +232,6 @@ export function ProjectEmailRulesSection({ accessToken }: { accessToken?: string
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ProjectAssignmentRule | null>(null);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
-  const [lanes, setLanes] = useState<TimelineLaneDefinition[]>([]);
   const [projectFilter, setProjectFilter] = useState("");
   const [testSummary, setTestSummary] = useState<string | null>(null);
 
@@ -244,15 +241,13 @@ export function ProjectEmailRulesSection({ accessToken }: { accessToken?: string
       setLoading(true);
       setError(null);
       try {
-        const [ruleList, projectList, laneList] = await Promise.all([
+        const [ruleList, projectList] = await Promise.all([
           fetchProjectAssignmentRules(accessToken),
           fetchProjects({ accessToken }),
-          fetchLaneDefinitions(accessToken),
         ]);
         if (!cancelled) {
           setRules(ruleList);
           setProjects(projectList);
-          setLanes(laneList);
         }
       } catch (err) {
         if (!cancelled) {
@@ -837,26 +832,11 @@ export function ProjectEmailRulesSection({ accessToken }: { accessToken?: string
 
           <div className="mt-6 grid gap-6 md:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm">
-              <span className="font-medium text-gray-700">Assign to lane (optional)</span>
-              <select
-                value={draft.actions.assignToLaneId ?? ""}
-                onChange={(event) => handleActionChange((action) => ({ ...action, assignToLaneId: event.target.value || null }))}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-              >
-                <option value="">Keep lane logic</option>
-                {lanes.map((lane) => (
-                  <option key={lane.id} value={lane.id}>
-                    {lane.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
               <span className="font-medium text-gray-700">Confidence</span>
               <select
                 value={draft.actions.confidence ?? "high"}
                 onChange={(event) => handleActionChange((action) => ({ ...action, confidence: event.target.value as ProjectAssignmentRuleConfidence }))}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900.shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
               >
                 {CONFIDENCE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -865,9 +845,6 @@ export function ProjectEmailRulesSection({ accessToken }: { accessToken?: string
                 ))}
               </select>
             </label>
-          </div>
-
-          <div className="mt-6 grid gap-6 md:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm">
               <span className="font-medium text-gray-700">Note (optional)</span>
               <textarea
@@ -876,15 +853,6 @@ export function ProjectEmailRulesSection({ accessToken }: { accessToken?: string
                 rows={3}
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
               />
-            </label>
-            <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-              <input
-                type="checkbox"
-                checked={Boolean(draft.actions.createTimelineItem)}
-                onChange={(event) => handleActionChange((action) => ({ ...action, createTimelineItem: event.target.checked }))}
-                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-              />
-              Also create timeline item
             </label>
           </div>
 
