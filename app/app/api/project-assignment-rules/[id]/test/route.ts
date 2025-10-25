@@ -3,6 +3,7 @@ import { requireAuthenticatedUser } from "@/lib/serverAuth";
 import {
   evaluateProjectAssignmentRule,
   type ProjectAssignmentRuleEvaluationResult,
+  type EmailTriageState,
 } from "@kazador/shared";
 import type { RuleRow } from "../../helpers";
 import { mapRow, formatError } from "../../helpers";
@@ -59,7 +60,7 @@ export async function POST(request: Request, { params }: Params) {
         category: (row.category as string) ?? "",
         labels: Array.isArray(row.labels) ? (row.labels as string[]) : [],
         priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
-        triageState: (row.triage_state as string) ?? null,
+        triageState: (row.triage_state as EmailTriageState | null | undefined) ?? undefined,
         receivedAt: String(row.received_at),
         attachments: [],
         summary: (row.summary as string) ?? null,

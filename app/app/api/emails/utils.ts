@@ -119,7 +119,7 @@ export async function enrichEmailRecords(
         } else {
           for (const row of linkRows ?? []) {
             const emailId = row.email_id as string | undefined;
-            const project = (row.projects ?? row.project) as
+            const project = (Array.isArray(row.projects) && row.projects.length > 0 ? row.projects[0] : null) as
               | { id?: string; name?: string; color?: string | null; status?: string }
               | undefined;
 

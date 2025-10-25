@@ -564,7 +564,7 @@ export async function POST(request: Request) {
         }
 
         const category = selectPrimaryCategory(labels) ?? EMAIL_FALLBACK_LABEL;
-        const triageState = (existingEmail?.triage_state as string | null) ?? (isRead ? "acknowledged" : "unassigned");
+        const triageState: EmailTriageState = ((existingEmail?.triage_state as EmailTriageState | null) ?? (isRead ? "acknowledged" : "unassigned")) as EmailTriageState;
         const snoozedUntil = (existingEmail?.snoozed_until as string | null) ?? null;
         const hasAttachments = Array.isArray(payload?.parts)
           ? payload.parts.some((part) => Boolean(part?.filename))

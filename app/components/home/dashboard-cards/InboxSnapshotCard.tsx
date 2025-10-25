@@ -22,6 +22,22 @@ function formatReceivedAt(isoDate: string) {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+function getPriorityInfo(score: number | null | undefined) {
+  if (score === null || score === undefined) {
+    return { level: "", color: "" };
+  }
+  if (score >= 90) {
+    return { level: "Urgent", color: "bg-red-100 text-red-800" };
+  }
+  if (score >= 70) {
+    return { level: "High", color: "bg-orange-100 text-orange-800" };
+  }
+  if (score >= 50) {
+    return { level: "Medium", color: "bg-yellow-100 text-yellow-800" };
+  }
+  return { level: "Low", color: "bg-gray-100 text-gray-800" };
+}
+
 export function InboxSnapshotCard({ emails, loading, error }: InboxSnapshotCardProps) {
   return (
     <div className="rounded-xl border border-gray-200/80 bg-white p-6 shadow-sm">
@@ -60,22 +76,31 @@ export function InboxSnapshotCard({ emails, loading, error }: InboxSnapshotCardP
           </div>
         ) : (
           <ul className="-my-3 divide-y divide-gray-200/70">
-            {emails.map((email) => (
-              <li key={email.id} className="flex items-center gap-4 py-3">
-                <div className="flex-shrink-0">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-sm font-semibold text-gray-600">
-                    {email.fromName?.charAt(0) || email.fromEmail.charAt(0)}
-                  </span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-gray-800">{email.fromName || email.fromEmail}</p>
-                  <p className="truncate text-sm text-gray-500">{email.subject}</p>
-                </div>
-                <div className="flex-shrink-0 text-right">
-                  <span className="text-xs text-gray-500">{formatReceivedAt(email.receivedAt)}</span>
-                </div>
-              </li>
-            ))}
+            {emails.map((email) => {
+              const priority = getPriorityInfo(email.priorityScore);
+              return (
+                <li key={email.id} className="flex items-center gap-4 py-3">
+                  <div className="flex-shrink-0">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-sm font-semibold text-gray-600">
+                      {email.fromName?.charAt(0) || email.fromEmail.charAt(0)}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-800">{email.fromName || email.fromEmail}</p>
+                    <p className="truncate text-sm text-gray-500">{email.subject}</p>
+                  </div>
+                  <div className="flex-shrink-0 text-right flex items-center gap-x-2">
+                    {priority.level && (
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${priority.color}`}>
+                        {priority.level}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-500">{formatReceivedAt(email.receivedAt)}</span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

@@ -425,7 +425,7 @@ export async function POST(request: Request) {
     return formatError("Google Calendar did not return a created event id", 502);
   }
 
-  let timelineItem: TimelineItemRecord | null = null;
+  let timelineItem: ReturnType<typeof mapGoogleEventToTimelineItem> = null;
   let assignedTimelineItemId: string | null = null;
 
   const timelineCalendarSourceId = resolvedProjectSourceId ?? userCalendarSourceId;
@@ -439,7 +439,7 @@ export async function POST(request: Request) {
     });
 
     if (mapping) {
-      timelineItem = mapping as TimelineItemRecord;
+      timelineItem = mapping;
       try {
         assignedTimelineItemId = await ensureProjectTimelineItem(
           supabase,

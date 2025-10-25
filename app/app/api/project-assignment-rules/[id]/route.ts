@@ -56,7 +56,7 @@ export async function PUT(request: Request, { params }: Params) {
   }
 
   const payload = (body?.rule ?? body ?? {}) as ProjectAssignmentRuleInput;
-  const projectId = payload.projectId ?? payload.actions?.projectId ?? null;
+  const projectId = payload.projectId ?? (payload.actions as any)?.projectId ?? null;
 
   if (!projectId) {
     return formatError("projectId is required to update a rule", 400);

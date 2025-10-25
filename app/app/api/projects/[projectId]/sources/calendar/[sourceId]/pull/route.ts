@@ -120,7 +120,7 @@ export async function POST(
     events = await listCalendarEvents(calendar, calendarId, {
       timeMin: rangeStartIso,
       timeMax: rangeEndIso,
-      maxResults,
+      maxResults: maxEvents,
       singleEvents: true,
     });
   } catch (err: any) {

@@ -4,6 +4,7 @@ import {
   evaluateProjectAssignmentRule,
   confidenceLevelToScore,
   type ProjectAssignmentRule,
+  type EmailTriageState,
 } from "@kazador/shared";
 import type { RuleRow } from "../helpers";
 import { mapRow, formatError } from "../helpers";
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
         category: (row.category as string) ?? "",
         labels: Array.isArray(row.labels) ? (row.labels as string[]) : [],
         priorityScore: row.priority_score != null ? Number(row.priority_score) : null,
-        triageState: (row.triage_state as string) ?? null,
+        triageState: (row.triage_state as EmailTriageState | null | undefined) ?? undefined,
         receivedAt: String(row.received_at),
         attachments: [],
         summary: (row.summary as string) ?? null,
@@ -140,7 +141,7 @@ export async function POST(request: Request) {
           linked_at: nowIso,
           source: "rule",
           matches: evaluation.matches,
-          lane_id: rule.actions.assignToLaneId ?? null,
+          lane_id: (rule.actions as any).assignToLaneId ?? null,
         });
 
         insertPayloads.push({

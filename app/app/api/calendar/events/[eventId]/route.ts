@@ -105,7 +105,7 @@ export async function PATCH(
   let accountId: string | undefined;
   let calendarId: string | undefined;
   let calendarSummary: string;
-  let calendarTimezone: string | null = null;
+  let calendarTimezone: string | null;
 
   if (source) {
     const metadata = (source.metadata as Record<string, unknown> | null) ?? {};
@@ -118,6 +118,10 @@ export async function PATCH(
     calendarId = userSource.calendarId ?? undefined;
     calendarSummary = userSource.summary ?? userSource.calendarId ?? "Calendar";
     calendarTimezone = userSource.timezone ?? null;
+  } else {
+    // This should never happen due to the check at line 101-103, but TypeScript needs it
+    calendarSummary = "Calendar";
+    calendarTimezone = null;
   }
 
   if (!accountId || !calendarId) {
@@ -222,7 +226,7 @@ export async function PATCH(
     return formatError(err?.message || "Failed to update Google Calendar event", 502);
   }
 
-  let timelineItem: TimelineItemRecord | null = null;
+  let timelineItem: ReturnType<typeof mapGoogleEventToTimelineItem> = null;
   if (targetProjectId) {
     const mapping = mapGoogleEventToTimelineItem(patchedEvent, {
       projectId: targetProjectId,

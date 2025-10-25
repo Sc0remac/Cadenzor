@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   }
 
   const payload = (body?.rule ?? body ?? {}) as ProjectAssignmentRuleInput;
-  const projectId = payload.projectId ?? payload.actions?.projectId ?? null;
+  const projectId = payload.projectId ?? (payload.actions as any)?.projectId ?? null;
   if (!projectId) {
     return formatError("projectId is required to create a rule", 400);
   }

@@ -10,6 +10,7 @@ import type {
   ProjectEmailLinkRecord,
   ProjectAssignmentRuleConfidence,
   TimelineLaneDefinition,
+  TimelineItemRecord,
 } from "@kazador/shared";
 import { useAuth } from "./AuthProvider";
 import {
@@ -1314,7 +1315,8 @@ function getActionRulesForEmail(
       }
     }
     if (rule.triageStates && rule.triageStates.length > 0) {
-      if (!rule.triageStates.includes((email.triageState ?? "unassigned") as EmailRecord["triageState"])) {
+      const triageState = (email.triageState ?? "unassigned") as NonNullable<EmailRecord["triageState"]>;
+      if (!rule.triageStates.includes(triageState)) {
         return false;
       }
     }
