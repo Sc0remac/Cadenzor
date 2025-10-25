@@ -22,11 +22,11 @@ import { buildConflictIndex, detectTimelineConflicts } from "@kazador/shared";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
-const ITEM_HEIGHT = 80;
+const ITEM_HEIGHT = 110;
 const PIN_SIZE = 24;
-const LANE_HEADER_HEIGHT = 48;
-const LANE_PADDING_Y = 18;
-const ROW_GAP = 12;
+const LANE_HEADER_HEIGHT = 52;
+const LANE_PADDING_Y = 28;
+const ROW_GAP = 20;
 const VIRTUALIZATION_BUFFER = 640;
 const MIN_BAR_WIDTH = 36;
 const MIN_PIN_WIDTH = 12;
@@ -147,13 +147,13 @@ interface QuickActionButtonProps {
 }
 
 function QuickActionButton({ label, tone, onClick, disabled }: QuickActionButtonProps) {
-  let toneClass = "bg-slate-700/80 hover:bg-slate-600";
+  let toneClass = "border-slate-600 bg-slate-700/40 text-slate-300 hover:border-slate-500 hover:bg-slate-600/60 hover:text-slate-200";
   if (tone === "positive") {
-    toneClass = "bg-emerald-500/80 hover:bg-emerald-500";
+    toneClass = "border-emerald-600/60 bg-emerald-500/15 text-emerald-300 hover:border-emerald-500 hover:bg-emerald-500/30 hover:text-emerald-200";
   } else if (tone === "negative") {
-    toneClass = "bg-rose-600/80 hover:bg-rose-600";
+    toneClass = "border-rose-600/60 bg-rose-500/15 text-rose-300 hover:border-rose-500 hover:bg-rose-500/30 hover:text-rose-200";
   } else if (tone === "calendar") {
-    toneClass = "bg-sky-500/80 hover:bg-sky-500";
+    toneClass = "border-sky-600/60 bg-sky-500/15 text-sky-300 hover:border-sky-500 hover:bg-sky-500/30 hover:text-sky-200";
   }
   return (
     <button
@@ -164,7 +164,7 @@ function QuickActionButton({ label, tone, onClick, disabled }: QuickActionButton
         if (disabled) return;
         onClick?.(event);
       }}
-      className={`rounded-lg px-3 py-1 text-[0.65rem] font-semibold text-white shadow-sm transition ${toneClass} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+      className={`rounded-md border px-2.5 py-1 text-[0.65rem] font-medium uppercase tracking-wide shadow-sm transition-all ${toneClass} ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       {label}
     </button>
@@ -244,7 +244,7 @@ const PRIORITY_LEVELS = [
 
 type TimelineViewMode = "day" | "week" | "month" | "quarter";
 
-type ContextAction = "edit" | "attach" | "convert";
+type ContextAction = "edit_details" | "change_status" | "add_note" | "delete";
 
 export interface LaneState {
   id: TimelineLane;
@@ -263,6 +263,7 @@ interface AxisTick {
 }
 
 interface TimelineStudioProps {
+  projectId: string;
   items: TimelineItemRecord[];
   dependencies?: TimelineDependencyRecord[];
   lanes?: LaneState[];
@@ -276,6 +277,8 @@ interface TimelineStudioProps {
   onToggleLaneCollapse?: (lane: TimelineLane) => void;
   onContextAction?: (action: ContextAction, item: TimelineItemRecord) => void;
   onAddItem?: () => void;
+  onItemUpdate?: (itemId: string, updates: Partial<TimelineItemRecord>) => Promise<void>;
+  onItemDelete?: (itemId: string) => Promise<void>;
   realtimeLabel?: string;
   onCalendarUpdate?: (item: TimelineItemRecord) => void;
   calendarUpdatingId?: string | null;
@@ -489,6 +492,7 @@ function formatTimeRange(item: TimelineItemRecord): string {
   return "No schedule";
 }
 export function TimelineStudio({
+  projectId,
   items,
   dependencies = [],
   lanes,
@@ -502,6 +506,8 @@ export function TimelineStudio({
   onToggleLaneCollapse,
   onContextAction,
   onAddItem,
+  onItemUpdate,
+  onItemDelete,
   realtimeLabel,
   onCalendarUpdate,
   calendarUpdatingId,
@@ -523,6 +529,47 @@ export function TimelineStudio({
       }
     | null
   >(null);
+
+  const { startMs, endMs } = useMemo(() => describeRange(viewMode, startDate, endDate), [
+    viewMode,
+    startDate,
+    endDate,
+  ]);
+
+  const handleZoom = useCallback(
+    (delta: number, cursorX?: number) => {
+      if (!onZoomChange || !scrollRef.current) return;
+      const container = scrollRef.current;
+      const previousPxPerMs = getPxPerMs(viewMode, zoom);
+      const nextZoom = clampZoom(zoom + delta);
+      if (nextZoom === zoom) return;
+
+      // If cursorX is provided, zoom centered on cursor; otherwise use viewport center
+      const focusX = cursorX !== undefined ? cursorX - container.getBoundingClientRect().left : container.clientWidth / 2;
+      const centerMs = startMs + (container.scrollLeft + focusX) / previousPxPerMs;
+
+      onZoomChange(nextZoom);
+
+      requestAnimationFrame(() => {
+        const node = scrollRef.current;
+        if (!node) return;
+        const nextPxPerMs = getPxPerMs(viewMode, nextZoom);
+        const nextScrollLeft = (centerMs - startMs) * nextPxPerMs - focusX;
+        node.scrollLeft = Math.max(0, nextScrollLeft);
+      });
+    },
+    [onZoomChange, startMs, viewMode, zoom]
+  );
+
+  const handleWheel = useCallback(
+    (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const delta = event.deltaY > 0 ? -0.15 : 0.15;
+      handleZoom(delta, event.clientX);
+    },
+    [handleZoom]
+  );
 
   useEffect(() => {
     setLocalItems(items);
@@ -547,13 +594,15 @@ export function TimelineStudio({
     handleScroll();
     setViewportWidth(node.clientWidth);
     node.addEventListener("scroll", handleScroll, { passive: true });
+    node.addEventListener("wheel", handleWheel as any, { passive: false });
     resizeObserver.observe(node);
 
     return () => {
       node.removeEventListener("scroll", handleScroll);
+      node.removeEventListener("wheel", handleWheel as any);
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [handleWheel]);
 
   useEffect(() => {
     const closeContextMenu = () => setContextMenu(null);
@@ -595,10 +644,27 @@ export function TimelineStudio({
       });
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = async () => {
       if (!dragRef.current) return;
+      const dragData = dragRef.current;
       dragRef.current = null;
       setDragMessage(null);
+
+      // Find the updated item and persist to API
+      const updatedItem = localItems.find((item) => item.id === dragData.id);
+      if (updatedItem && onItemUpdate) {
+        try {
+          await onItemUpdate(updatedItem.id, {
+            startsAt: updatedItem.startsAt,
+            endsAt: updatedItem.endsAt,
+          });
+        } catch (error) {
+          console.error("Failed to persist timeline item update:", error);
+          setDragMessage("⚠ Failed to save changes");
+          // Revert to original items on error
+          setLocalItems(items);
+        }
+      }
     };
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -607,13 +673,8 @@ export function TimelineStudio({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [viewMode, zoom]);
+  }, [viewMode, zoom, localItems, items, onItemUpdate]);
 
-  const { startMs, endMs } = useMemo(() => describeRange(viewMode, startDate, endDate), [
-    viewMode,
-    startDate,
-    endDate,
-  ]);
   const pxPerMs = useMemo(() => getPxPerMs(viewMode, zoom), [viewMode, zoom]);
   const timelineWidth = Math.max((endMs - startMs) * pxPerMs, viewportWidth);
   const axisTicks = useMemo(() => getAxisTicks(viewMode, startMs, endMs), [viewMode, startMs, endMs]);
@@ -716,7 +777,17 @@ export function TimelineStudio({
 
       const rowEndTimes: number[] = [];
       const positioned: PositionedItem[] = sorted.map((entry) => {
-        let rowIndex = rowEndTimes.findIndex((endTime) => endTime <= entry.startMs - MINUTE_MS * 15);
+        // Calculate zoom-aware minimum gap to prevent visual overlap
+        // At month view, we need MORE separation; at day view, we need LESS
+        // minVisualGapPx accounts for: card shadow + padding + comfortable visual gap
+        const minVisualGapPx = 80; // Increased to prevent overlap at all zoom levels
+        const minTimeGapMs = minVisualGapPx / pxPerMs;
+
+        // Use whichever is LARGER: the pixel-based gap or a baseline time gap
+        // This ensures proper spacing at both zoomed-in and zoomed-out views
+        const effectiveGapMs = Math.max(HOUR_MS * 0.5, minTimeGapMs);
+
+        let rowIndex = rowEndTimes.findIndex((endTime) => endTime <= entry.startMs - effectiveGapMs);
         if (rowIndex === -1) {
           rowIndex = rowEndTimes.length;
           rowEndTimes.push(entry.endMs);
@@ -768,16 +839,20 @@ export function TimelineStudio({
   }, [positionedLayouts, laneCount]);
 
   const conflictIndex = useMemo(() => {
-    const conflicts = detectTimelineConflicts(localItems, { bufferHours: 4 });
+    const conflicts = detectTimelineConflicts(localItems, {
+      bufferHours: 4,
+      enableTravelTimeDetection: true,
+      enableTimezoneWarnings: true,
+    });
     return buildConflictIndex(conflicts);
   }, [localItems]);
 
   useEffect(() => {
     const inConflict = Array.from(conflictIndex.keys());
     if (inConflict.length > 0) {
-      setDragMessage("⚠ Conflicts detected. Check red outlined bars.");
+      setDragMessage(`⚠ ${inConflict.length} conflict${inConflict.length > 1 ? 's' : ''} detected. Hover over items for details.`);
     } else {
-      setDragMessage((prev) => (prev?.includes("Conflicts") ? null : prev));
+      setDragMessage((prev) => (prev?.includes("conflict") ? null : prev));
     }
   }, [conflictIndex]);
 
@@ -812,7 +887,6 @@ export function TimelineStudio({
   const handleDragStart = useCallback(
     (event: React.PointerEvent<HTMLDivElement>, mode: "move" | "resize-start" | "resize-end", positioned: PositionedItem) => {
       event.stopPropagation();
-      const rect = (event.target as HTMLElement).getBoundingClientRect();
       dragRef.current = {
         id: positioned.item.id,
         mode,
@@ -824,28 +898,6 @@ export function TimelineStudio({
       setDragMessage(mode === "move" ? "Drag to reschedule" : "Drag to resize");
     },
     []
-  );
-
-  const handleZoom = useCallback(
-    (delta: number) => {
-      if (!onZoomChange || !scrollRef.current) return;
-      const container = scrollRef.current;
-      const previousPxPerMs = getPxPerMs(viewMode, zoom);
-      const nextZoom = clampZoom(zoom + delta);
-      if (nextZoom === zoom) return;
-      const centerMs = startMs + (container.scrollLeft + container.clientWidth / 2) / previousPxPerMs;
-
-      onZoomChange(nextZoom);
-
-      requestAnimationFrame(() => {
-        const node = scrollRef.current;
-        if (!node) return;
-        const nextPxPerMs = getPxPerMs(viewMode, nextZoom);
-        const nextScrollLeft = (centerMs - startMs) * nextPxPerMs - node.clientWidth / 2;
-        node.scrollLeft = Math.max(0, nextScrollLeft);
-      });
-    },
-    [onZoomChange, scrollRef, startMs, viewMode, zoom]
   );
   const positionLookup = useMemo(() => {
     const map = new Map<string, { x: number; y: number; width: number; height: number }>();
@@ -904,17 +956,22 @@ export function TimelineStudio({
           ? new Date(calendarSyncedAtRaw).toLocaleString()
           : null;
 
+      // Compact padding for month/quarter view, full padding for day/week
+      const isCompactView = viewMode === "month" || viewMode === "quarter";
+      const paddingClass = isCompactView ? "px-2.5 py-2" : "px-3.5 pb-6 pt-3.5";
+
       const classes = [
-        "group absolute rounded-2xl border-2 px-4 pb-8 pt-4 text-sm shadow transition-all duration-200 backdrop-blur-sm",
+        "group absolute rounded-xl border text-sm shadow-lg transition-all duration-200 backdrop-blur-sm hover:shadow-xl",
+        paddingClass,
         typeStyle.base,
         typeStyle.text,
         typeStyle.border,
         statusDecoration ?? "",
-        conflicted ? "ring-2 ring-offset-2 ring-offset-slate-950 ring-rose-400/80" : "",
+        conflicted ? "ring-1 ring-rose-500/60 border-rose-500/40" : "",
         overdue ? "shadow-[0_0_18px_rgba(248,113,113,0.45)]" : "",
         positioned.isPin ? "flex items-center gap-3" : "flex flex-col",
         laneActive ? "" : "opacity-55",
-        isCalendarEvent ? "ring-1 ring-sky-500/50" : "",
+        isCalendarEvent ? "ring-1 ring-sky-500/40" : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -961,23 +1018,44 @@ export function TimelineStudio({
                 {timeSummary ? <span className="text-[0.65rem] text-slate-300">{timeSummary}</span> : null}
               </div>
             </div>
+          ) : viewMode === "month" || viewMode === "quarter" ? (
+            // COMPACT VIEW for month/quarter: minimal info for quick scanning
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-1 items-center gap-2">
+                  <span className="text-base">{statusMeta.icon}</span>
+                  <h4 className="truncate text-[0.9rem] font-bold text-white">{item.title}</h4>
+                </div>
+                {conflicted && conflictDetails && conflictDetails.length > 0 ? (
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-500/25 text-[0.65rem] font-bold text-rose-300 ring-1 ring-rose-500/50">
+                    {conflictDetails.length}
+                  </span>
+                ) : null}
+              </div>
+              {locationSummary ? (
+                <p className="mt-1.5 truncate text-[0.7rem] text-slate-400">
+                  📍 {locationSummary}
+                </p>
+              ) : null}
+            </>
           ) : (
             <>
               <div className="flex items-start justify-between gap-3">
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-200">
-                    <span className="text-base">{statusMeta.icon}</span>
-                    <span>{statusMeta.label}</span>
-                    <span className="text-[0.65rem] text-slate-400">{item.type.replace(/_/g, " ")}</span>
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <div className="flex items-center gap-2.5 text-[0.7rem] uppercase tracking-wider text-slate-400">
+                    <span className="text-lg">{statusMeta.icon}</span>
+                    <span className="font-medium">{statusMeta.label}</span>
+                    <span className="text-[0.6rem] text-slate-500">·</span>
+                    <span className="text-[0.6rem] text-slate-500">{item.type.replace(/_/g, " ")}</span>
                     {isCalendarEvent ? (
                       <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[0.6rem] font-semibold text-sky-100">
                         Calendar
                       </span>
                     ) : null}
                   </div>
-                  <p className="text-sm font-semibold text-white">{item.title}</p>
+                  <h4 className="text-[0.95rem] font-bold leading-snug text-white">{item.title}</h4>
                 </div>
-                <span className={`rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold ${priorityBadgeClass}`}>
+                <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wide ${priorityBadgeClass}`}>
                   {priorityMeta.label}
                 </span>
               </div>
@@ -996,56 +1074,103 @@ export function TimelineStudio({
                 </div>
               ) : null}
               {isCalendarEvent ? (
-                <p className="mt-1 text-[0.65rem] text-slate-400">
+                <p className="mt-2 text-[0.65rem] text-slate-500">
                   {calendarSyncedLabel ? `Synced ${calendarSyncedLabel}` : "Not synced yet"}
                 </p>
               ) : null}
               {locationSummary ? (
-                <p className="mt-2 text-xs text-slate-300">📍 {locationSummary}</p>
+                <p className="mt-2.5 flex items-center gap-1.5 text-[0.75rem] font-medium text-slate-300">
+                  <span className="text-slate-500">📍</span>
+                  <span>{locationSummary}</span>
+                </p>
               ) : null}
-              {timeSummary ? <p className="mt-1 text-xs text-slate-400">{timeSummary}</p> : null}
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-[0.7rem] text-slate-300">
-                {attachments ? <span className="flex items-center gap-1">📎<span>Files</span></span> : null}
-                {item.labels?.artist ? <span>🎤 {item.labels.artist}</span> : null}
-                {item.labels?.venue ? <span>{item.labels.venue}</span> : null}
+              {timeSummary ? <p className="mt-1 text-[0.7rem] text-slate-500">{timeSummary}</p> : null}
+              <div className="mt-2.5 flex flex-wrap items-center gap-3 text-[0.7rem] text-slate-400">
+                {attachments ? <span className="flex items-center gap-1.5"><span className="text-slate-500">📎</span><span>Files</span></span> : null}
+                {item.labels?.artist ? <span className="flex items-center gap-1.5"><span className="text-slate-500">🎤</span><span>{item.labels.artist}</span></span> : null}
+                {item.labels?.venue ? <span className="font-medium text-slate-300">{item.labels.venue}</span> : null}
               </div>
-              {conflicted ? (
-                <div className="mt-2 rounded-md border border-rose-400/60 bg-rose-500/10 px-2 py-1 text-[0.7rem] text-rose-200">
-                  ⚠ {conflictMessage ?? "Timeline conflict detected"}
+              {conflicted && conflictDetails && conflictDetails.length > 0 ? (
+                <div className="group/conflict relative mt-2">
+                  <div className="flex items-center gap-1.5 text-[0.7rem]">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/40">
+                      ⚠
+                    </span>
+                    <span className="font-medium text-rose-300">
+                      {conflictDetails.length} conflict{conflictDetails.length > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="invisible absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-slate-700 bg-slate-900/95 p-3 shadow-2xl backdrop-blur-sm group-hover/conflict:visible">
+                    <div className="space-y-2">
+                      {conflictDetails.map((conflict, idx) => {
+                        const iconColor = conflict.severity === "error" ? "text-rose-400" : "text-amber-400";
+                        return (
+                          <div key={idx} className="border-b border-slate-700/50 pb-2 last:border-0 last:pb-0">
+                            <div className={`mb-1 flex items-start gap-2 text-[0.7rem] font-semibold ${iconColor}`}>
+                              <span className="mt-0.5">⚠</span>
+                              <span className="flex-1">{conflict.type?.replace(/_/g, " ").toUpperCase() || "CONFLICT"}</span>
+                            </div>
+                            <p className="text-[0.65rem] leading-relaxed text-slate-300">
+                              {conflict.message}
+                            </p>
+                            {conflict.metadata && (
+                              <div className="mt-1.5 space-y-0.5 text-[0.6rem] text-slate-400">
+                                {conflict.metadata.fromCity && conflict.metadata.toCity && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-slate-500">→</span>
+                                    <span>{conflict.metadata.fromCity} → {conflict.metadata.toCity}</span>
+                                  </div>
+                                )}
+                                {conflict.metadata.requiredBufferHours != null && conflict.metadata.availableBufferHours != null && (
+                                  <div className="flex gap-3">
+                                    <span>Required: <strong className="text-rose-400">{conflict.metadata.requiredBufferHours}h</strong></span>
+                                    <span>Available: <strong className="text-amber-400">{conflict.metadata.availableBufferHours.toFixed(1)}h</strong></span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               ) : null}
-              <div className="mt-3 flex flex-wrap gap-2 text-[0.7rem]">
-                <QuickActionButton label="Accept" tone="positive" onClick={handleQuickAction} />
-                <QuickActionButton label="Info" tone="neutral" onClick={handleQuickAction} />
-                <QuickActionButton label="Decline" tone="negative" onClick={handleQuickAction} />
-                {isCalendarEvent && onCalendarUpdate ? (
-                  <QuickActionButton
-                    label={calendarUpdatingId === item.id ? "Updating…" : "Update calendar"}
-                    tone="calendar"
-                    onClick={() => onCalendarUpdate(item)}
-                    disabled={calendarUpdatingId === item.id}
-                  />
-                ) : null}
-              </div>
+              {/* Only show action buttons in day/week view */}
+              {viewMode !== "month" && viewMode !== "quarter" ? (
+                <div className="mt-3 flex flex-wrap gap-2 text-[0.7rem] opacity-0 transition-opacity group-hover:opacity-100">
+                  <QuickActionButton label="Accept" tone="positive" onClick={handleQuickAction} />
+                  <QuickActionButton label="Info" tone="neutral" onClick={handleQuickAction} />
+                  <QuickActionButton label="Decline" tone="negative" onClick={handleQuickAction} />
+                  {isCalendarEvent && onCalendarUpdate ? (
+                    <QuickActionButton
+                      label={calendarUpdatingId === item.id ? "Updating…" : "Update calendar"}
+                      tone="calendar"
+                      onClick={() => onCalendarUpdate(item)}
+                      disabled={calendarUpdatingId === item.id}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
             </>
           )}
 
           {!positioned.isPin ? (
-            <div className="absolute inset-x-0 bottom-0 flex justify-between px-1 pb-1 text-[0.65rem]">
+            <div className="absolute inset-x-0 bottom-0 flex justify-between px-2 pb-1.5 text-[0.7rem] opacity-0 transition-opacity group-hover:opacity-100">
               <div
-                className="cursor-ew-resize rounded px-1 py-0.5 text-slate-100/80"
+                className="cursor-ew-resize rounded-md bg-slate-800/60 px-2 py-0.5 text-slate-400 backdrop-blur-sm transition-colors hover:bg-slate-700 hover:text-slate-200"
                 onPointerDown={(event) => handleDragStart(event, "resize-start", positioned)}
               >
                 ⇠
               </div>
               <div
-                className="cursor-grab rounded px-1 py-0.5 text-slate-100/80"
+                className="cursor-grab rounded-md bg-slate-800/60 px-2 py-0.5 text-slate-400 backdrop-blur-sm transition-colors hover:bg-slate-700 hover:text-slate-200 active:cursor-grabbing"
                 onPointerDown={(event) => handleDragStart(event, "move", positioned)}
               >
                 ↔
               </div>
               <div
-                className="cursor-ew-resize rounded px-1 py-0.5 text-slate-100/80"
+                className="cursor-ew-resize rounded-md bg-slate-800/60 px-2 py-0.5 text-slate-400 backdrop-blur-sm transition-colors hover:bg-slate-700 hover:text-slate-200"
                 onPointerDown={(event) => handleDragStart(event, "resize-end", positioned)}
               >
                 ⇢
@@ -1055,7 +1180,7 @@ export function TimelineStudio({
         </div>
       );
     },
-    [conflictIndex, handleContextMenu, handleDragStart, onSelectItem]
+    [conflictIndex, handleContextMenu, handleDragStart, onSelectItem, viewMode]
   );
   return (
     <div className="relative flex h-full min-h-[28rem] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/80 text-slate-100 shadow-2xl">
@@ -1320,20 +1445,64 @@ export function TimelineStudio({
 
       {contextMenu ? (
         <div
-          className="fixed z-50 w-48 rounded-lg border border-slate-700 bg-slate-900/95 py-2 text-sm text-slate-100 shadow-2xl"
+          className="fixed z-50 w-56 rounded-lg border border-slate-700 bg-slate-900/95 py-2 text-sm text-slate-100 shadow-2xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
         >
-          {["edit", "attach", "convert"].map((action) => (
-            <button
-              key={action}
-              type="button"
-              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-slate-800"
-              onClick={() => onContextAction?.(action as ContextAction, contextMenu.item)}
-            >
-              {action === "edit" ? "✏️" : action === "attach" ? "📎" : "🔁"}
-              <span className="capitalize">{action}</span>
-            </button>
-          ))}
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-slate-800"
+            onClick={() => {
+              onContextAction?.("edit_details", contextMenu.item);
+              setContextMenu(null);
+            }}
+          >
+            <span className="text-base">✏️</span>
+            <span>Edit Details</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-slate-800"
+            onClick={() => {
+              onContextAction?.("change_status", contextMenu.item);
+              setContextMenu(null);
+            }}
+          >
+            <span className="text-base">🔄</span>
+            <span>Change Status</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-slate-800"
+            onClick={() => {
+              onContextAction?.("add_note", contextMenu.item);
+              setContextMenu(null);
+            }}
+          >
+            <span className="text-base">📝</span>
+            <span>Add Note</span>
+          </button>
+          <div className="my-1 h-px bg-slate-700" />
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-4 py-2 text-left text-rose-400 hover:bg-slate-800"
+            onClick={async () => {
+              if (confirm(`Delete "${contextMenu.item.title}"?`)) {
+                setContextMenu(null);
+                if (onItemDelete) {
+                  try {
+                    await onItemDelete(contextMenu.item.id);
+                  } catch (error) {
+                    console.error("Failed to delete item:", error);
+                    setDragMessage("⚠ Failed to delete item");
+                  }
+                }
+              }
+            }}
+          >
+            <span className="text-base">🗑️</span>
+            <span>Delete</span>
+          </button>
         </div>
       ) : null}
     </div>

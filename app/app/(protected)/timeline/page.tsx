@@ -191,7 +191,11 @@ function summarizeTimeline(items: TimelineItemRecord[]) {
     if (item.status === "tentative") tentative += 1;
     if (isOverdue(item)) overdue += 1;
   }
-  const conflicts = detectTimelineConflicts(items, { bufferHours: 4 });
+  const conflicts = detectTimelineConflicts(items, {
+    bufferHours: 4,
+    enableTravelTimeDetection: true,
+    enableTimezoneWarnings: true,
+  });
   return {
     total,
     completed,
@@ -531,20 +535,64 @@ export default function TimelinePage() {
     setDrawerMode("view");
   };
 
-  const handleContextAction = (action: "edit" | "attach" | "convert", item: TimelineItemRecord) => {
+  const handleContextAction = (action: "edit_details" | "change_status" | "add_note" | "delete", item: TimelineItemRecord) => {
+    if (action === "delete") {
+      // Delete action is handled directly in the context menu
+      return;
+    }
     setSelectedItem(item);
     setDrawerMode("view");
-    if (action === "convert" && laneDefinitions.length > 0) {
-      const currentIndex = laneDefinitions.findIndex((lane) => resolveLaneSlug(lane) === item.lane);
-      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % laneDefinitions.length : 0;
-      const nextLaneSlug = resolveLaneSlug(laneDefinitions[nextIndex]);
-      if (nextLaneSlug !== item.lane) {
-        setTimelineItems((previous) =>
-          previous.map((entry) => (entry.id === item.id ? { ...entry, lane: nextLaneSlug } : entry))
-        );
-      }
-    }
   };
+
+  const handleItemUpdate = useCallback(async (itemId: string, updates: Partial<TimelineItemRecord>) => {
+    if (!accessToken || !selectedProjectId) {
+      throw new Error("Authentication required");
+    }
+
+    const response = await fetch(`/api/projects/${selectedProjectId}/timeline/${itemId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "Failed to update item");
+    }
+
+    const { item } = await response.json();
+
+    // Update local state optimistically
+    setTimelineItems((previous) =>
+      previous.map((existingItem) => (existingItem.id === itemId ? item : existingItem))
+    );
+
+    return item;
+  }, [accessToken, selectedProjectId]);
+
+  const handleItemDelete = useCallback(async (itemId: string) => {
+    if (!accessToken || !selectedProjectId) {
+      throw new Error("Authentication required");
+    }
+
+    const response = await fetch(`/api/projects/${selectedProjectId}/timeline/${itemId}`, {
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "Failed to delete item");
+    }
+
+    // Remove from local state
+    setTimelineItems((previous) => previous.filter((item) => item.id !== itemId));
+  }, [accessToken, selectedProjectId]);
 
   const handleDrawerClose = () => {
     setDrawerMode(null);
@@ -1014,6 +1062,7 @@ export default function TimelinePage() {
               />
             ) : (
               <TimelineStudio
+                projectId={selectedProjectId ?? ""}
                 items={filteredItems}
                 dependencies={filteredDependencies}
                 lanes={laneState}
@@ -1030,6 +1079,8 @@ export default function TimelinePage() {
                   setDrawerMode("create");
                   setSelectedItem(null);
                 }}
+                onItemUpdate={handleItemUpdate}
+                onItemDelete={handleItemDelete}
                 realtimeLabel={realtimeLabel}
               />
             )}

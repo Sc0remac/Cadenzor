@@ -544,6 +544,91 @@ async function main() {
         nights: '14 room-nights',
       },
     },
+
+    // EUROPEAN LEG - Demonstrating travel conflict detection
+    {
+      type: 'LIVE_HOLD',
+      title: 'Berlin - Berghain / Panorama Bar',
+      description: 'Special show in Berlin',
+      start_at: new Date('2025-11-25T22:00:00Z').toISOString(),
+      end_at: new Date('2025-11-26T03:00:00Z').toISOString(),
+      status: 'confirmed',
+      priority_score: 95,
+      labels: {
+        city: 'Berlin',
+        venue: 'Berghain',
+        territory: 'DE',
+        timezone: 'Europe/Berlin',
+        capacity: 800,
+        fee: '€8,000',
+      },
+    },
+    {
+      type: 'LIVE_HOLD',
+      title: 'Amsterdam - Paradiso',
+      description: 'Amsterdam show - TRAVEL CONFLICT: only 2hr gap from Berlin (4hr required)',
+      start_at: new Date('2025-11-26T05:00:00Z').toISOString(),
+      end_at: new Date('2025-11-26T07:30:00Z').toISOString(),
+      status: 'tentative',
+      priority_score: 90,
+      labels: {
+        city: 'Amsterdam',
+        venue: 'Paradiso',
+        territory: 'NL',
+        timezone: 'Europe/Amsterdam',
+        capacity: 700,
+        fee: '€7,000',
+      },
+    },
+    {
+      type: 'PROMO_SLOT',
+      title: 'BBC Radio 1 - Essential Mix Recording',
+      description: 'Record Essential Mix in London - TRAVEL CONFLICT: only 1.5hr gap from Amsterdam (4hr required)',
+      start_at: new Date('2025-11-26T09:00:00Z').toISOString(),
+      end_at: new Date('2025-11-26T13:00:00Z').toISOString(),
+      status: 'confirmed',
+      priority_score: 98,
+      labels: {
+        city: 'London',
+        territory: 'GB',
+        timezone: 'Europe/London',
+        type: 'Radio Recording',
+        station: 'BBC Radio 1',
+      },
+    },
+    {
+      type: 'PROMO_SLOT',
+      title: 'Paris - Boiler Room Set',
+      description: 'Boiler Room performance - TRAVEL CONFLICT: only 2hr gap from London (4hr required)',
+      start_at: new Date('2025-11-26T15:00:00Z').toISOString(),
+      end_at: new Date('2025-11-26T17:00:00Z').toISOString(),
+      status: 'confirmed',
+      priority_score: 95,
+      labels: {
+        city: 'Paris',
+        territory: 'FR',
+        timezone: 'Europe/Paris',
+        type: 'Live Stream',
+        platform: 'Boiler Room',
+      },
+    },
+    {
+      type: 'LIVE_HOLD',
+      title: 'Tokyo - Womb',
+      description: 'Japan tour kickoff - MAJOR TRAVEL CONFLICT: only 12hr gap from Paris (16hr required)',
+      start_at: new Date('2025-11-27T05:00:00Z').toISOString(),
+      end_at: new Date('2025-11-27T09:00:00Z').toISOString(),
+      status: 'tentative',
+      priority_score: 92,
+      labels: {
+        city: 'Tokyo',
+        venue: 'Womb',
+        territory: 'JP',
+        timezone: 'Asia/Tokyo',
+        capacity: 1000,
+        fee: '¥1,200,000',
+      },
+    },
   ];
 
   console.log(`\n📝 Inserting ${timelineItems.length} timeline items...`);
@@ -577,13 +662,18 @@ async function main() {
   console.log(`\n📊 Summary:`);
   console.log(`   Project ID: ${projectId}`);
   console.log(`   Total Items: ${timelineItems.length}`);
-  console.log(`   - 🎸 Live Shows: 5`);
+  console.log(`   - 🎸 Live Shows: 8`);
   console.log(`   - 🚗 Travel: 4`);
-  console.log(`   - 📻 Promo: 5`);
+  console.log(`   - 📻 Promo: 7`);
   console.log(`   - 💿 Release Milestones: 4`);
   console.log(`   - 📄 Legal: 4`);
   console.log(`   - 💰 Finance: 5`);
-  console.log(`\n🎉 Open the timeline page to view the tour schedule!\n`);
+  console.log(`\n⚠️  Travel Conflicts Seeded (Nov 25-27):`);
+  console.log(`   - Berlin → Amsterdam (2hr gap, 4hr required) ⚠️ CONFLICT`);
+  console.log(`   - Amsterdam → London (1.5hr gap, 4hr required) ⚠️ CONFLICT`);
+  console.log(`   - London → Paris (2hr gap, 4hr required) ⚠️ CONFLICT`);
+  console.log(`   - Paris → Tokyo (12hr gap, 16hr required) ⚠️ MAJOR CONFLICT`);
+  console.log(`\n🎉 Open the timeline page (Nov 25-27) to view the conflicts!\n`);
 }
 
 main()
