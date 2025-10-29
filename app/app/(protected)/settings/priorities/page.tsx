@@ -149,8 +149,9 @@ function buildCategoryGroups(
 }
 
 export default function PrioritySettingsPage() {
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const accessToken = session?.access_token ?? null;
+  const isAdmin = profile?.isAdmin ?? false;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -315,7 +316,16 @@ export default function PrioritySettingsPage() {
         return prev;
       }
       const next = clonePriorityConfig(prev);
-      const clamped = Math.max(0, Math.min(100, Math.round(weight)));
+      let clamped = Math.max(0, Math.min(100, Math.round(weight)));
+
+      // Non-admin users can only adjust ±10 from default
+      if (!isAdmin) {
+        const defaultWeight = DEFAULT_PRIORITY_CONFIG.email.categoryWeights[name] ?? DEFAULT_PRIORITY_CONFIG.email.defaultCategoryWeight;
+        const minAllowed = Math.max(0, defaultWeight - 10);
+        const maxAllowed = Math.min(100, defaultWeight + 10);
+        clamped = Math.max(minAllowed, Math.min(maxAllowed, clamped));
+      }
+
       next.email.categoryWeights[name] = clamped;
       return next;
     });
@@ -832,9 +842,17 @@ export default function PrioritySettingsPage() {
       <section className="space-y-4">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Category weights</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-semibold text-gray-900">Category weights</h2>
+              {!isAdmin && (
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                  User settings (±10 from defaults)
+                </span>
+              )}
+            </div>
             <p className="text-sm text-gray-600">
               Adjust urgency for each primary label. Higher values surface sooner in inbox and digest views.
+              {!isAdmin && " You can adjust each category by ±10 from the default value."}
             </p>
           </div>
           <input
@@ -873,8 +891,24 @@ export default function PrioritySettingsPage() {
                         </div>
                         <input
                           type="range"
-                          min={0}
-                          max={100}
+                          min={
+                            isAdmin
+                              ? 0
+                              : Math.max(
+                                  0,
+                                  (DEFAULT_PRIORITY_CONFIG.email.categoryWeights[category.name] ??
+                                    DEFAULT_PRIORITY_CONFIG.email.defaultCategoryWeight) - 10
+                                )
+                          }
+                          max={
+                            isAdmin
+                              ? 100
+                              : Math.min(
+                                  100,
+                                  (DEFAULT_PRIORITY_CONFIG.email.categoryWeights[category.name] ??
+                                    DEFAULT_PRIORITY_CONFIG.email.defaultCategoryWeight) + 10
+                                )
+                          }
                           value={category.weight}
                           onChange={(event) => updateCategoryWeight(category.name, Number(event.target.value))}
                           className="h-2 w-48 cursor-pointer rounded-lg bg-gray-200"
@@ -882,8 +916,24 @@ export default function PrioritySettingsPage() {
                         <div className="flex items-center gap-2">
                           <input
                             type="number"
-                            min={0}
-                            max={100}
+                            min={
+                              isAdmin
+                                ? 0
+                                : Math.max(
+                                    0,
+                                    (DEFAULT_PRIORITY_CONFIG.email.categoryWeights[category.name] ??
+                                      DEFAULT_PRIORITY_CONFIG.email.defaultCategoryWeight) - 10
+                                  )
+                            }
+                            max={
+                              isAdmin
+                                ? 100
+                                : Math.min(
+                                    100,
+                                    (DEFAULT_PRIORITY_CONFIG.email.categoryWeights[category.name] ??
+                                      DEFAULT_PRIORITY_CONFIG.email.defaultCategoryWeight) + 10
+                                  )
+                            }
                             value={category.weight}
                             onChange={(event) => updateCategoryWeight(category.name, Number(event.target.value))}
                             className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
@@ -975,13 +1025,19 @@ export default function PrioritySettingsPage() {
         )}
       </section>
 
-      <section className="space-y-4">
-        <header>
-          <h2 className="text-xl font-semibold text-gray-900">Age &amp; time factors</h2>
-          <p className="text-sm text-gray-600">
-            Control how urgency increases as deadlines approach or emails go stale.
-          </p>
-        </header>
+      {isAdmin && (
+        <section className="space-y-4">
+          <header>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-semibold text-gray-900">Age &amp; time factors</h2>
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                Admin only
+              </span>
+            </div>
+            <p className="text-sm text-gray-600">
+              Control how urgency increases as deadlines approach or emails go stale.
+            </p>
+          </header>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-gray-900">Upcoming decay per day</h3>
@@ -1043,11 +1099,17 @@ export default function PrioritySettingsPage() {
             />
           </div>
         </div>
-      </section>
+        </section>
+      )}
 
       <section className="space-y-4">
         <header>
-          <h2 className="text-xl font-semibold text-gray-900">Manual weighting</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-gray-900">Manual weighting</h2>
+            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+              User settings
+            </span>
+          </div>
           <p className="text-sm text-gray-600">Balance human-set priorities with automated scoring.</p>
         </header>
         <div className="grid gap-4 md:grid-cols-2">
@@ -1106,11 +1168,17 @@ export default function PrioritySettingsPage() {
         </div>
       </section>
 
-      <section className="space-y-4">
-        <header>
-          <h2 className="text-xl font-semibold text-gray-900">Conflict &amp; dependency penalties</h2>
-          <p className="text-sm text-gray-600">Adjust how the timeline penalises conflicts and blocking items.</p>
-        </header>
+      {isAdmin && (
+        <section className="space-y-4">
+          <header>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-semibold text-gray-900">Conflict &amp; dependency penalties</h2>
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                Admin only
+              </span>
+            </div>
+            <p className="text-sm text-gray-600">Adjust how the timeline penalises conflicts and blocking items.</p>
+          </header>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-gray-900">Default conflict penalty</h3>
@@ -1157,16 +1225,23 @@ export default function PrioritySettingsPage() {
             />
           </div>
         </div>
-      </section>
+        </section>
+      )}
 
-      <section className="space-y-4">
-        <header className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Cross-label boosts</h2>
-            <p className="text-sm text-gray-600">
-              Configure additional boosts when secondary labels like approvals or risk flags are present.
-            </p>
-          </div>
+      {isAdmin && (
+        <section className="space-y-4">
+          <header className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900">Cross-label boosts</h2>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                  Admin only
+                </span>
+              </div>
+              <p className="text-sm text-gray-600">
+                Configure additional boosts when secondary labels like approvals or risk flags are present.
+              </p>
+            </div>
           <button
             type="button"
             onClick={addCrossLabelRule}
@@ -1258,13 +1333,19 @@ export default function PrioritySettingsPage() {
             ))
           )}
         </div>
-      </section>
+        </section>
+      )}
 
-      {featureFlags.priorityV3 && (
+      {featureFlags.priorityV3 && isAdmin && (
         <section className="space-y-4">
           <header className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Advanced boosts</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900">Advanced boosts</h2>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                  Admin only
+                </span>
+              </div>
               <p className="text-sm text-gray-600">
                 Add criteria-based boosts for VIP senders, attachments, keywords, or categories.
               </p>
@@ -1513,11 +1594,16 @@ export default function PrioritySettingsPage() {
         </section>
       )}
 
-      {featureFlags.priorityV3 && (
+      {featureFlags.priorityV3 && isAdmin && (
         <section className="space-y-4">
           <header className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Inbox action buttons</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900">Inbox action buttons</h2>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                  Admin only
+                </span>
+              </div>
               <p className="text-sm text-gray-600">Define context-aware actions that appear on high-priority emails.</p>
             </div>
             <button
@@ -1720,11 +1806,16 @@ export default function PrioritySettingsPage() {
         </section>
       )}
 
-      {featureFlags.priorityV3 && (
+      {featureFlags.priorityV3 && isAdmin && (
         <section className="space-y-4">
           <header className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Preset scheduling</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900">Preset scheduling</h2>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                  Admin only
+                </span>
+              </div>
               <p className="text-sm text-gray-600">
                 Automatically switch presets during the week. Scheduled presets are evaluated client-side today and future automation workers will honour them.
               </p>

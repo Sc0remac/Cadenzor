@@ -263,7 +263,7 @@ export function calculateEmailInboxPriority(
 ): number {
   const components = calculateEmailPriorityComponents(input, options);
   const total = Math.round(sumEmailPriorityComponents(components));
-  return Math.max(0, total);
+  return Math.max(0, Math.min(100, total));
 }
 
 export function buildEmailPriorityBreakdown(
@@ -271,6 +271,6 @@ export function buildEmailPriorityBreakdown(
   options: EmailPriorityOptions = {}
 ): EmailPriorityBreakdown {
   const components = calculateEmailPriorityComponents(input, options);
-  const total = Math.max(0, Math.round(sumEmailPriorityComponents(components)));
+  const total = Math.max(0, Math.min(100, Math.round(sumEmailPriorityComponents(components))));
   return { total, components };
 }
