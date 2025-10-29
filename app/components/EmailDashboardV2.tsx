@@ -60,7 +60,7 @@ export default function EmailDashboardV2() {
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
 
   // Filters
-  const [savedView, setSavedView] = useState<SavedView>("needs-action");
+  const [savedView, setSavedView] = useState<SavedView>("inbox");
   const [filters, setFilters] = useState<FilterState>({
     scope: "all",
     source: "all",

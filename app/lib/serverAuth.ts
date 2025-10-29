@@ -63,6 +63,11 @@ export async function requireAuthenticatedUser(
     error = response.error;
   } catch (err) {
     networkFailure = err instanceof Error ? err : new Error("Auth request failed");
+    console.error("Supabase auth network error:", {
+      message: networkFailure.message,
+      name: networkFailure.name,
+      code: (err as any)?.code,
+    });
   }
 
   if (data?.user) {
@@ -77,8 +82,14 @@ export async function requireAuthenticatedUser(
     };
   }
 
+  // Network failure occurred - use JWT fallback
   const decoded = decodeJwtPayload(token);
   if (!decoded?.sub || typeof decoded.sub !== "string") {
+    console.error("JWT fallback failed - invalid token payload", {
+      hasDecoded: !!decoded,
+      hasSub: !!decoded?.sub,
+      subType: typeof decoded?.sub,
+    });
     return {
       ok: false,
       status: 401,

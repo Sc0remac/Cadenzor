@@ -437,22 +437,35 @@ export async function POST(request: Request) {
       const cached = labelCache.get(name);
       if (cached) return cached;
 
-      const created = await gmail.users.labels.create({
-        userId: "me",
-        requestBody: {
-          name,
-          labelListVisibility: "labelShow",
-          messageListVisibility: "show",
-        },
-      });
+      try {
+        const created = await gmail.users.labels.create({
+          userId: "me",
+          requestBody: {
+            name,
+            labelListVisibility: "labelShow",
+            messageListVisibility: "show",
+          },
+        });
 
-      const id = created.data.id;
-      if (!id) {
-        throw new Error(`Label creation returned no id for ${name}`);
+        const id = created.data.id;
+        if (!id) {
+          throw new Error(`Label creation returned no id for ${name}`);
+        }
+
+        labelCache.set(name, id);
+        return id;
+      } catch (err: any) {
+        // If label already exists (409 conflict), refresh cache and find it
+        if (err?.status === 409 || err?.code === 409) {
+          labelsLoaded = false; // Force reload
+          await loadLabels();
+          const existingId = labelCache.get(name);
+          if (existingId) {
+            return existingId;
+          }
+        }
+        throw err;
       }
-
-      labelCache.set(name, id);
-      return id;
     };
 
     const ensureKazadorLabelIds = async (labels: EmailLabel[]): Promise<string[]> => {

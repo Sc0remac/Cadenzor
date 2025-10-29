@@ -1,5 +1,6 @@
 import type {
   CalendarEventRecord,
+  CalendarSyncStatus,
   ProjectSourceRecord,
   TimelineItemRecord,
   UserCalendarSourceRecord,
@@ -78,7 +79,11 @@ export function mapCalendarEventRow(row: any): CalendarEventRecord {
     assignedAt: row.assigned_at ?? null,
     ignore: Boolean(row.ignore),
     origin: (row.origin as string | undefined) === "kazador" ? "kazador" : "google",
-    syncStatus: (row.sync_status as string | undefined) ?? "pending",
+    syncStatus: (() => {
+      const status = row.sync_status as string | undefined;
+      const validStatuses: CalendarSyncStatus[] = ["pending", "synced", "failed", "deleted", "needs_update", "delete_pending"];
+      return status && validStatuses.includes(status as CalendarSyncStatus) ? (status as CalendarSyncStatus) : "pending";
+    })(),
     syncError: row.sync_error ?? null,
     lastSyncedAt: row.last_synced_at ?? null,
     lastGoogleUpdatedAt: row.last_google_updated_at ?? null,
@@ -103,14 +108,14 @@ export async function ensureProjectTimelineItem(
   if (!mapping) return null;
 
   if (eventRow.assigned_timeline_item_id) {
-    const nextLabels = { ...(mapping.labels ?? {}), lane: mapping.lane };
+    const nextLabels: Record<string, unknown> = { ...(mapping.labels ?? {}), lane: mapping.lane };
     if (sourceId) {
       nextLabels.calendarSourceId = sourceId;
     } else {
       delete nextLabels.calendarSourceId;
     }
 
-    const nextLinks = { ...(mapping.links ?? {}) };
+    const nextLinks: Record<string, unknown> = { ...(mapping.links ?? {}) };
     if (sourceId) {
       nextLinks.calendarSourceId = sourceId;
     } else {

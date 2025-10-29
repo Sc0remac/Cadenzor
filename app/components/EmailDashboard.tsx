@@ -1915,7 +1915,7 @@ export default function EmailDashboard() {
       return;
     }
 
-    const handleEscape = (event: KeyboardEvent) => {
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         handleClosePreview();
       }
@@ -2224,8 +2224,6 @@ export default function EmailDashboard() {
   }, [filteredEmails.length, sourceFilter, totalEmails]);
 
   const hasAnyGroupedEmails = groupedEmails.some((group) => group.emails.length > 0);
-
-  const selectedEmailPriority = selectedEmail ? priorityBadge(selectedEmail.priorityScore) : null;
 
   if (!initialized && loading) {
     return <p>Loading email statistics…</p>;

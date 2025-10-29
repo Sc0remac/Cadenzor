@@ -42,10 +42,33 @@ export function createServerSupabaseClient(accessToken?: string): ClientResult {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        // Increase timeout to 30 seconds for better reliability
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+        try {
+          // If there's already a signal, we need to handle both
+          if (init?.signal) {
+            const existingSignal = init.signal;
+            existingSignal.addEventListener("abort", () => controller.abort());
+          }
+
+          return await fetch(input, {
+            ...init,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      },
+    },
   };
 
   if (accessToken) {
     options.global = {
+      ...options.global,
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },

@@ -1136,22 +1136,20 @@ export function TimelineStudio({
                   </div>
                 </div>
               ) : null}
-              {/* Only show action buttons in day/week view */}
-              {viewMode !== "month" && viewMode !== "quarter" ? (
-                <div className="mt-3 flex flex-wrap gap-2 text-[0.7rem] opacity-0 transition-opacity group-hover:opacity-100">
-                  <QuickActionButton label="Accept" tone="positive" onClick={handleQuickAction} />
-                  <QuickActionButton label="Info" tone="neutral" onClick={handleQuickAction} />
-                  <QuickActionButton label="Decline" tone="negative" onClick={handleQuickAction} />
-                  {isCalendarEvent && onCalendarUpdate ? (
-                    <QuickActionButton
-                      label={calendarUpdatingId === item.id ? "Updating…" : "Update calendar"}
-                      tone="calendar"
-                      onClick={() => onCalendarUpdate(item)}
-                      disabled={calendarUpdatingId === item.id}
-                    />
-                  ) : null}
-                </div>
-              ) : null}
+              {/* Action buttons (only shown in day/week view - we're already in the non-compact block) */}
+              <div className="mt-3 flex flex-wrap gap-2 text-[0.7rem] opacity-0 transition-opacity group-hover:opacity-100">
+                <QuickActionButton label="Accept" tone="positive" onClick={handleQuickAction} />
+                <QuickActionButton label="Info" tone="neutral" onClick={handleQuickAction} />
+                <QuickActionButton label="Decline" tone="negative" onClick={handleQuickAction} />
+                {isCalendarEvent && onCalendarUpdate ? (
+                  <QuickActionButton
+                    label={calendarUpdatingId === item.id ? "Updating…" : "Update calendar"}
+                    tone="calendar"
+                    onClick={() => onCalendarUpdate(item)}
+                    disabled={calendarUpdatingId === item.id}
+                  />
+                ) : null}
+              </div>
             </>
           )}
 
