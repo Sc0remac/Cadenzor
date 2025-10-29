@@ -65,11 +65,22 @@ export async function GET(request: Request) {
     query = query.eq("source", sourceFilter);
   }
 
+  console.log(`[EMAILS GET DEBUG] Fetching emails for user ${user.id}`, {
+    userId: user.id,
+    page,
+    perPage,
+    labelFilter,
+    sourceFilter,
+  });
+
   const { data, error, count } = await query.range(from, to);
 
   if (error) {
+    console.error(`[EMAILS GET ERROR] Query failed for user ${user.id}`, error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  console.log(`[EMAILS GET DEBUG] Query returned ${data?.length ?? 0} emails, count: ${count}`);
 
   const baseItems = Array.isArray(data) ? data.map(mapEmailRow) : [];
   const items = await enrichEmailRecords(supabase, user.id, baseItems);
@@ -77,6 +88,8 @@ export async function GET(request: Request) {
   const total = typeof count === "number" ? count : items.length;
   const totalPages = total > 0 ? Math.ceil(total / perPage) : 0;
   const hasMore = total > 0 ? page < totalPages : false;
+
+  console.log(`[EMAILS GET DEBUG] Returning ${items.length} emails to client`);
 
   return NextResponse.json({
     items,

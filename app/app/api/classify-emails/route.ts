@@ -614,31 +614,40 @@ export async function POST(request: Request) {
           throw new Error(`Failed to upsert contact: ${contactError.message}`);
         }
 
+        const emailPayload = {
+          id: msg.id,
+          user_id: requester.id,
+          from_name: fromName,
+          from_email: fromEmail,
+          subject,
+          received_at: receivedAt,
+          category,
+          is_read: isRead,
+          summary,
+          labels,
+          sentiment,
+          source: "gmail",
+          priority_score: priorityScore,
+          triage_state: triageState,
+        };
+
+        console.log(`[UPSERT DEBUG] Upserting email ${msg.id} for user ${requester.id}`, {
+          id: msg.id,
+          user_id: requester.id,
+          category,
+          subject: subject.substring(0, 50),
+        });
+
         const { error: emailError } = await supabase
           .from("emails")
-          .upsert(
-            {
-              id: msg.id,
-              user_id: requester.id,
-              from_name: fromName,
-              from_email: fromEmail,
-              subject,
-              received_at: receivedAt,
-              category,
-              is_read: isRead,
-              summary,
-              labels,
-              sentiment,
-              source: "gmail",
-              priority_score: priorityScore,
-              triage_state: triageState,
-            },
-            { onConflict: "id" }
-          );
+          .upsert(emailPayload, { onConflict: "id" });
 
         if (emailError) {
+          console.error(`[UPSERT ERROR] Failed to upsert email ${msg.id}`, emailError);
           throw new Error(`Failed to upsert email: ${emailError.message}`);
         }
+
+        console.log(`[UPSERT SUCCESS] Successfully upserted email ${msg.id}`);
 
         try {
           const addLabelIds = await ensureKazadorLabelIds(labels);

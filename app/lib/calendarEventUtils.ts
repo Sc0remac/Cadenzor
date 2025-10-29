@@ -155,7 +155,7 @@ export async function ensureProjectTimelineItem(
     delete baseLinks.calendarSourceId;
   }
 
-  const baseLabels = { ...(mapping.labels ?? {}), lane: mapping.lane };
+  const baseLabels: Record<string, unknown> = { ...(mapping.labels ?? {}), lane: mapping.lane };
   if (sourceId) {
     baseLabels.calendarSourceId = sourceId;
   } else {
