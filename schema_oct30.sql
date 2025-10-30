@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict aJUovZNM1mS4dGhNuUnL8AcoPSjNDqsr8bvhUevnbhLFunMHKi7G4iJeFghEyxI
+\restrict QBFfc0hzzfhRAgs8nFUxavja2o01JljFSJoK3IhtpKzGQaofv1hBgGmhSy8v8Ua
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6 (Homebrew)
@@ -3004,6 +3004,24 @@ CREATE TABLE public.assets (
 
 
 --
+-- Name: attachment_routing_rules; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.attachment_routing_rules (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    name text NOT NULL,
+    description text,
+    enabled boolean DEFAULT true,
+    priority integer DEFAULT 0,
+    conditions jsonb DEFAULT '{}'::jsonb NOT NULL,
+    actions jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
 -- Name: audit_logs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3158,6 +3176,23 @@ CREATE TABLE public.digests (
 
 
 --
+-- Name: drive_folder_cache; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.drive_folder_cache (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    path_template text NOT NULL,
+    resolved_path text NOT NULL,
+    folder_id text NOT NULL,
+    project_id uuid,
+    last_verified_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+    "exists" boolean DEFAULT true,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
 -- Name: email_attachments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3171,7 +3206,45 @@ CREATE TABLE public.email_attachments (
     storage_path text,
     sha256 text,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    gmail_part_id text,
+    drive_file_id text,
+    drive_folder_id text,
+    drive_web_view_link text,
+    drive_web_content_link text,
+    path_hint text,
+    processed_at timestamp with time zone,
+    routing_rule_id uuid,
+    error text,
+    md5 text,
+    project_id uuid
+);
+
+
+--
+-- Name: email_threads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.email_threads (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    gmail_thread_id text NOT NULL,
+    subject_canonical text NOT NULL,
+    participants jsonb DEFAULT '[]'::jsonb NOT NULL,
+    message_count integer DEFAULT 1 NOT NULL,
+    first_message_at timestamp with time zone NOT NULL,
+    last_message_at timestamp with time zone NOT NULL,
+    unread_count integer DEFAULT 0 NOT NULL,
+    primary_label text,
+    labels text[] DEFAULT ARRAY[]::text[],
+    rolling_summary jsonb,
+    last_summarized_at timestamp with time zone,
+    priority_score numeric(5,2),
+    priority_components jsonb,
+    primary_project_id uuid,
+    project_ids uuid[] DEFAULT ARRAY[]::uuid[],
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 
@@ -3196,6 +3269,15 @@ CREATE TABLE public.emails (
     user_id uuid,
     snoozed_until timestamp with time zone,
     sentiment jsonb,
+    thread_id uuid,
+    gmail_thread_id text,
+    gmail_message_id text,
+    in_reply_to text,
+    reference_ids text[],
+    message_index integer,
+    is_internal_reply boolean DEFAULT false,
+    has_open_question boolean DEFAULT false,
+    expected_reply_by timestamp with time zone,
     CONSTRAINT emails_triage_state_check CHECK ((triage_state = ANY (ARRAY['unassigned'::text, 'acknowledged'::text, 'snoozed'::text, 'resolved'::text])))
 );
 
@@ -3301,6 +3383,13 @@ CREATE TABLE public.project_assignment_rules (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: COLUMN project_assignment_rules.actions; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.project_assignment_rules.actions IS 'Rule actions (jsonb): { projectId, confidence?, note?, metadata? }. Lane assignment and timeline creation removed in favor of direct email linking only.';
 
 
 --
@@ -3622,8 +3711,16 @@ CREATE TABLE public.user_preferences (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     priority_config jsonb,
     priority_config_updated_at timestamp with time zone,
+    classification_prompt_settings jsonb,
     CONSTRAINT user_preferences_frequency_check CHECK ((digest_frequency = ANY (ARRAY['daily'::text, 'weekly'::text, 'off'::text])))
 );
+
+
+--
+-- Name: COLUMN user_preferences.classification_prompt_settings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_preferences.classification_prompt_settings IS 'Custom OpenAI classification prompt settings (model, temperature, maxLabels, etc.)';
 
 
 --
@@ -4118,6 +4215,14 @@ ALTER TABLE ONLY public.assets
 
 
 --
+-- Name: attachment_routing_rules attachment_routing_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attachment_routing_rules
+    ADD CONSTRAINT attachment_routing_rules_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: audit_logs audit_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4230,11 +4335,43 @@ ALTER TABLE ONLY public.digests
 
 
 --
+-- Name: drive_folder_cache drive_folder_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.drive_folder_cache
+    ADD CONSTRAINT drive_folder_cache_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drive_folder_cache drive_folder_cache_user_id_resolved_path_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.drive_folder_cache
+    ADD CONSTRAINT drive_folder_cache_user_id_resolved_path_key UNIQUE (user_id, resolved_path);
+
+
+--
 -- Name: email_attachments email_attachments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.email_attachments
     ADD CONSTRAINT email_attachments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: email_threads email_threads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.email_threads
+    ADD CONSTRAINT email_threads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: email_threads email_threads_user_id_gmail_thread_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.email_threads
+    ADD CONSTRAINT email_threads_user_id_gmail_thread_id_key UNIQUE (user_id, gmail_thread_id);
 
 
 --
@@ -5140,6 +5277,97 @@ CREATE INDEX emails_user_triage_priority_idx ON public.emails USING btree (user_
 
 
 --
+-- Name: idx_attachment_routing_rules_user_priority; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attachment_routing_rules_user_priority ON public.attachment_routing_rules USING btree (user_id, priority, enabled);
+
+
+--
+-- Name: idx_drive_folder_cache_user_project; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_drive_folder_cache_user_project ON public.drive_folder_cache USING btree (user_id, project_id) WHERE (project_id IS NOT NULL);
+
+
+--
+-- Name: idx_email_attachments_drive_file; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_attachments_drive_file ON public.email_attachments USING btree (drive_file_id) WHERE (drive_file_id IS NOT NULL);
+
+
+--
+-- Name: idx_email_attachments_drive_folder; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_attachments_drive_folder ON public.email_attachments USING btree (drive_folder_id) WHERE (drive_folder_id IS NOT NULL);
+
+
+--
+-- Name: idx_email_attachments_email_part; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_email_attachments_email_part ON public.email_attachments USING btree (email_id, gmail_part_id) WHERE (gmail_part_id IS NOT NULL);
+
+
+--
+-- Name: idx_email_attachments_md5; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_attachments_md5 ON public.email_attachments USING btree (md5) WHERE (md5 IS NOT NULL);
+
+
+--
+-- Name: idx_email_attachments_project; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_attachments_project ON public.email_attachments USING btree (project_id) WHERE (project_id IS NOT NULL);
+
+
+--
+-- Name: idx_email_threads_labels_gin; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_threads_labels_gin ON public.email_threads USING gin (labels);
+
+
+--
+-- Name: idx_email_threads_primary_project; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_threads_primary_project ON public.email_threads USING btree (primary_project_id) WHERE (primary_project_id IS NOT NULL);
+
+
+--
+-- Name: idx_email_threads_priority; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_threads_priority ON public.email_threads USING btree (user_id, priority_score DESC NULLS LAST);
+
+
+--
+-- Name: idx_email_threads_user_last_message; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_email_threads_user_last_message ON public.email_threads USING btree (user_id, last_message_at DESC);
+
+
+--
+-- Name: idx_emails_gmail_thread; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_emails_gmail_thread ON public.emails USING btree (gmail_thread_id);
+
+
+--
+-- Name: idx_emails_thread; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_emails_thread ON public.emails USING btree (thread_id, message_index);
+
+
+--
 -- Name: lane_definitions_global_slug_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5880,6 +6108,14 @@ ALTER TABLE ONLY public.assets
 
 
 --
+-- Name: attachment_routing_rules attachment_routing_rules_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attachment_routing_rules
+    ADD CONSTRAINT attachment_routing_rules_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: audit_logs audit_logs_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5984,11 +6220,67 @@ ALTER TABLE ONLY public.digests
 
 
 --
+-- Name: drive_folder_cache drive_folder_cache_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.drive_folder_cache
+    ADD CONSTRAINT drive_folder_cache_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
+
+
+--
+-- Name: drive_folder_cache drive_folder_cache_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.drive_folder_cache
+    ADD CONSTRAINT drive_folder_cache_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: email_attachments email_attachments_email_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.email_attachments
     ADD CONSTRAINT email_attachments_email_id_fkey FOREIGN KEY (email_id) REFERENCES public.emails(id) ON DELETE CASCADE;
+
+
+--
+-- Name: email_attachments email_attachments_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.email_attachments
+    ADD CONSTRAINT email_attachments_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE SET NULL;
+
+
+--
+-- Name: email_attachments email_attachments_routing_rule_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.email_attachments
+    ADD CONSTRAINT email_attachments_routing_rule_fkey FOREIGN KEY (routing_rule_id) REFERENCES public.attachment_routing_rules(id) ON DELETE SET NULL;
+
+
+--
+-- Name: email_threads email_threads_primary_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.email_threads
+    ADD CONSTRAINT email_threads_primary_project_id_fkey FOREIGN KEY (primary_project_id) REFERENCES public.projects(id) ON DELETE SET NULL;
+
+
+--
+-- Name: email_threads email_threads_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.email_threads
+    ADD CONSTRAINT email_threads_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: emails emails_thread_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.emails
+    ADD CONSTRAINT emails_thread_id_fkey FOREIGN KEY (thread_id) REFERENCES public.email_threads(id) ON DELETE CASCADE;
 
 
 --
@@ -6544,6 +6836,19 @@ CREATE POLICY assets_service_role_update ON public.assets FOR UPDATE USING ((aut
 
 
 --
+-- Name: attachment_routing_rules; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.attachment_routing_rules ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: attachment_routing_rules attachment_routing_rules_owner; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY attachment_routing_rules_owner ON public.attachment_routing_rules USING (((user_id = auth.uid()) OR (auth.role() = 'service_role'::text))) WITH CHECK (((user_id = auth.uid()) OR (auth.role() = 'service_role'::text)));
+
+
+--
 -- Name: audit_logs; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -6702,16 +7007,58 @@ CREATE POLICY contacts_service_role_all ON public.contacts USING ((auth.role() =
 
 
 --
+-- Name: drive_folder_cache; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.drive_folder_cache ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: drive_folder_cache drive_folder_cache_owner; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY drive_folder_cache_owner ON public.drive_folder_cache USING (((user_id = auth.uid()) OR (auth.role() = 'service_role'::text))) WITH CHECK (((user_id = auth.uid()) OR (auth.role() = 'service_role'::text)));
+
+
+--
 -- Name: email_attachments; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
 ALTER TABLE public.email_attachments ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: email_attachments email_attachments_service_role_only; Type: POLICY; Schema: public; Owner: -
+-- Name: email_attachments email_attachments_owner_read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY email_attachments_service_role_only ON public.email_attachments USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+CREATE POLICY email_attachments_owner_read ON public.email_attachments FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM public.emails e
+  WHERE ((e.id = email_attachments.email_id) AND ((e.user_id = auth.uid()) OR (auth.role() = 'service_role'::text))))));
+
+
+--
+-- Name: email_attachments email_attachments_service_write; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY email_attachments_service_write ON public.email_attachments USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
+
+
+--
+-- Name: email_threads; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.email_threads ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: email_threads email_threads_owner_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY email_threads_owner_read ON public.email_threads FOR SELECT USING (((user_id = auth.uid()) OR (auth.role() = 'service_role'::text)));
+
+
+--
+-- Name: email_threads email_threads_service_write; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY email_threads_service_write ON public.email_threads USING ((auth.role() = 'service_role'::text)) WITH CHECK ((auth.role() = 'service_role'::text));
 
 
 --
@@ -7437,5 +7784,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict aJUovZNM1mS4dGhNuUnL8AcoPSjNDqsr8bvhUevnbhLFunMHKi7G4iJeFghEyxI
+\unrestrict QBFfc0hzzfhRAgs8nFUxavja2o01JljFSJoK3IhtpKzGQaofv1hBgGmhSy8v8Ua
 

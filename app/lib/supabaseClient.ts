@@ -23,6 +23,8 @@ import type {
   CalendarEventRecord,
   CalendarSyncStatus,
   ProjectAssignmentRuleConfidence,
+  EmailThreadRecord,
+  ThreadEmailMessage,
 } from "@kazador/shared";
 
 export const DEFAULT_EMAILS_PER_PAGE = 10;
@@ -40,6 +42,18 @@ export interface EmailPagination {
 export interface EmailListResponse {
   items: EmailRecord[];
   pagination: EmailPagination;
+}
+
+export type ThreadRecord = EmailThreadRecord;
+export type ThreadEmail = ThreadEmailMessage;
+
+export interface ThreadListResponse {
+  threads: ThreadRecord[];
+  pagination: EmailPagination;
+}
+
+export interface ThreadDetail extends ThreadRecord {
+  emails: ThreadEmail[];
 }
 
 export interface UpdateEmailTriageOptions {
@@ -61,6 +75,14 @@ type FetchEmailsOptions = {
   accessToken?: string;
   label?: string | null;
   source?: EmailSourceFilter;
+};
+
+type FetchThreadsOptions = {
+  page?: number;
+  perPage?: number;
+  accessToken?: string;
+  label?: string | null;
+  projectId?: string | null;
 };
 
 function buildHeaders(accessToken?: string): HeadersInit {
@@ -184,6 +206,107 @@ export async function fetchRecentEmails(
   }
 
   return { items, pagination };
+}
+
+export async function fetchThreads(
+  options: FetchThreadsOptions = {}
+): Promise<ThreadListResponse> {
+  const { page, perPage, accessToken, label, projectId } = options;
+
+  const query = new URLSearchParams();
+  if (page != null) {
+    query.set("page", String(page));
+  }
+  if (perPage != null) {
+    query.set("perPage", String(perPage));
+  }
+  if (label) {
+    query.set("label", label);
+  }
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
+
+  const endpoint = query.toString() ? `/api/threads?${query.toString()}` : "/api/threads";
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to fetch threads");
+  }
+
+  const threads = Array.isArray(payload?.threads)
+    ? (payload.threads as ThreadRecord[])
+    : [];
+
+  const fallbackPage = page && page > 0 ? page : 1;
+  const fallbackPerPage = perPage && perPage > 0 ? perPage : 20;
+
+  const rawPagination = payload?.pagination;
+  const pagination: EmailPagination = {
+    page:
+      typeof rawPagination?.page === "number" && rawPagination.page > 0
+        ? rawPagination.page
+        : fallbackPage,
+    perPage:
+      typeof rawPagination?.perPage === "number" && rawPagination.perPage > 0
+        ? rawPagination.perPage
+        : fallbackPerPage,
+    total:
+      typeof rawPagination?.total === "number" && rawPagination.total >= 0
+        ? rawPagination.total
+        : threads.length,
+    totalPages:
+      typeof rawPagination?.totalPages === "number" && rawPagination.totalPages >= 0
+        ? rawPagination.totalPages
+        : threads.length > 0
+        ? 1
+        : 0,
+    hasMore: false,
+  };
+
+  if (typeof rawPagination?.hasMore === "boolean") {
+    pagination.hasMore = rawPagination.hasMore;
+  } else if (typeof rawPagination?.total === "number" && rawPagination.total >= 0) {
+    pagination.hasMore = pagination.page * pagination.perPage < rawPagination.total;
+  } else {
+    pagination.hasMore = threads.length === pagination.perPage;
+  }
+
+  return { threads, pagination };
+}
+
+export async function fetchThreadDetail(
+  threadId: string,
+  options: { accessToken?: string } = {}
+): Promise<ThreadDetail> {
+  const { accessToken } = options;
+
+  const response = await fetch(`/api/threads/${threadId}`, {
+    method: "GET",
+    headers: buildHeaders(accessToken),
+    cache: "no-store",
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload?.error || "Failed to fetch thread");
+  }
+
+  if (!payload?.thread) {
+    throw new Error("Thread not found");
+  }
+
+  const thread = payload.thread as ThreadDetail;
+  thread.emails = Array.isArray(thread.emails) ? (thread.emails as ThreadEmail[]) : [];
+  return thread;
 }
 
 export async function updateEmailTriage(

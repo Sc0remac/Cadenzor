@@ -12,13 +12,16 @@ export function createServerSupabaseClient(accessToken?: string): ClientResult {
   const url =
     process.env[URL_ENV_VAR] ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
 
-  // Use SERVICE_ROLE_KEY for server-side operations
-  // RLS policies are designed to work with service role + created_by checks
-  const key =
-    process.env[SERVICE_KEY_ENV_VAR] ??
-    process.env[ANON_KEY_ENV_VAR] ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-    null;
+  // When an accessToken is provided, use ANON_KEY to enforce RLS policies
+  // Service role key bypasses RLS and should only be used for admin operations
+  const key = accessToken
+    ? (process.env[ANON_KEY_ENV_VAR] ??
+       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+       null)
+    : (process.env[SERVICE_KEY_ENV_VAR] ??
+       process.env[ANON_KEY_ENV_VAR] ??
+       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+       null);
 
   if (!url || !key) {
     const missing: string[] = [];

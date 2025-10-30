@@ -10,6 +10,122 @@ export interface EmailSentiment {
   confidence: number;
 }
 
+export interface EmailThreadParticipant {
+  name: string | null;
+  email: string;
+  role?: "from" | "to" | "cc" | "bcc";
+  isUser?: boolean;
+}
+
+export interface EmailThreadDeadline {
+  description: string;
+  dueAt: string;
+  source?:
+    | "message"
+    | "summary"
+    | "project"
+    | "attachment";
+}
+
+export interface EmailThreadRollingSummary {
+  summary: string;
+  keyPoints: string[];
+  outstandingQuestions: string[];
+  deadlines: EmailThreadDeadline[];
+  nextAction: string | null;
+  lastMessageIndex: number;
+  sentiment?: EmailSentiment | null;
+  updatedAt?: string | null;
+  attachmentsOfInterest?: string[];
+}
+
+export interface EmailThreadRecord {
+  id: string;
+  userId: string;
+  gmailThreadId: string;
+  subjectCanonical: string;
+  participants: EmailThreadParticipant[];
+  messageCount: number;
+  firstMessageAt: string;
+  lastMessageAt: string;
+  unreadCount: number;
+  primaryLabel: string | null;
+  labels: string[];
+  rollingSummary?: EmailThreadRollingSummary | null;
+  lastSummarizedAt?: string | null;
+  priorityScore?: number | null;
+  priorityComponents?: Record<string, unknown> | null;
+  primaryProjectId?: string | null;
+  projectIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ThreadAnalysisAttachmentInput {
+  id?: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
+export interface ThreadAnalysisMessageInput {
+  id: string;
+  subject: string | null;
+  from: {
+    name: string | null;
+    email: string;
+  };
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  receivedAt: string;
+  body: string;
+  messageIndex: number;
+  attachments?: ThreadAnalysisAttachmentInput[];
+}
+
+export interface ThreadAnalysisProjectContext {
+  projectId: string;
+  name: string;
+  labels?: Record<string, unknown>;
+  priorityScore?: number | null;
+}
+
+export interface ThreadAnalysisInput {
+  threadId: string;
+  messages: ThreadAnalysisMessageInput[];
+  priorSummary?: EmailThreadRollingSummary | null;
+  projectContext?: ThreadAnalysisProjectContext | null;
+  attachmentContext?: ThreadAnalysisAttachmentInput[] | null;
+}
+
+export interface ThreadAnalysisResult {
+  summary: string;
+  keyPoints: string[];
+  outstandingQuestions: string[];
+  deadlines: EmailThreadDeadline[];
+  sentiment: EmailSentiment;
+  nextAction: string | null;
+  attachmentsOfInterest: string[];
+  /**
+   * Incremental mode support: only populated when the analysis
+   * returns deltas instead of a full rewrite.
+   */
+  newKeyPoints?: string[];
+  resolvedQuestions?: string[];
+  newQuestions?: string[];
+  lastMessageIndex?: number;
+  tokenUsage?: ThreadAnalysisUsage | null;
+}
+
+export interface ThreadAnalysisUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  model?: string | null;
+  costUsd?: number | null;
+}
+
 export interface LabelDefinition {
   name: EmailLabel;
   meaning: string;
@@ -376,6 +492,14 @@ export interface EmailRecord {
   linkedProjects?: EmailProjectContext[] | null;
   hasAttachments?: boolean | null;
   attachmentCount?: number | null;
+}
+
+export interface ThreadEmailMessage extends EmailRecord {
+  messageIndex: number | null;
+  gmailMessageId: string | null;
+  gmailThreadId: string | null;
+  inReplyTo: string | null;
+  references: string[];
 }
 
 export interface EmailProjectContext {

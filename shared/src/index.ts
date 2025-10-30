@@ -10,4 +10,7 @@ export * from "./priorityConfig";
 export * from "./automationRules";
 export * from "./laneAutoAssignment";
 export * from "./projectAssignmentRules";
+export * from "./threadPriority";
+export * from "./analyzeThread";
+export * from "./threadUtils";
 export { DEFAULT_EMAIL_SOURCE } from "./types";

@@ -24,6 +24,13 @@ import {
   loadProjectAssignmentRulesForUser,
   loadProjectRuleOverridesForUser,
 } from "./projectRuleEngine.js";
+import {
+  calculateMessageIndex,
+  parseFromHeader,
+  parseReferencesHeader,
+  upsertEmailThread,
+} from "./emailThreads.js";
+import { summarizeThread } from "./threadSummarizationJob.js";
 
 function decodeBase64Url(data: string): string {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
@@ -82,19 +89,27 @@ function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
   return parts.join("\n\n");
 }
 
-function parseFromHeader(from: string): { name: string | null; email: string } {
-  const emailMatch = from?.match(/<([^>]+)>/);
-  const email = emailMatch ? emailMatch[1] : from;
-  const nameMatch = from?.match(/^\s*"?([^<"]+)"?\s*<[^>]+>/);
-  const name = nameMatch ? nameMatch[1].trim() : null;
-  return { name, email };
-}
-
 const GMAIL_REQUIRED_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.labels",
 ];
+
+const THREAD_METADATA_HEADERS = [
+  "Subject",
+  "From",
+  "To",
+  "Cc",
+  "Bcc",
+  "Date",
+  "In-Reply-To",
+  "References",
+] as const;
+
+const THREAD_SUMMARY_MIN_MESSAGES =
+  Number.parseInt(process.env.THREAD_SUMMARY_MIN_MESSAGES ?? "", 10) || 2;
+const THREAD_SUMMARY_INLINE_LIMIT =
+  Number.parseInt(process.env.THREAD_SUMMARY_INLINE_LIMIT ?? "", 10) || 10;
 
 type SupabaseDb = SupabaseClient<any, any, any>;
 
@@ -352,6 +367,30 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
     return ids;
   };
 
+  const threadCache = new Map<string, gmail_v1.Schema$Thread | null>();
+
+  const fetchThread = async (threadId: string): Promise<gmail_v1.Schema$Thread | null> => {
+    if (threadCache.has(threadId)) {
+      return threadCache.get(threadId) ?? null;
+    }
+
+    try {
+      const threadRes = await gmail.users.threads.get({
+        userId: "me",
+        id: threadId,
+        format: "metadata",
+        metadataHeaders: [...THREAD_METADATA_HEADERS],
+      });
+      const thread = threadRes.data ?? null;
+      threadCache.set(threadId, thread);
+      return thread;
+    } catch (err) {
+      console.error(`Failed to fetch Gmail thread ${threadId}`, err);
+      threadCache.set(threadId, null);
+      return null;
+    }
+  };
+
   for (const msg of messages.slice(0, maxEmails)) {
     if (!msg.id) continue;
 
@@ -374,15 +413,26 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
       ? payload.parts.some((part) => Boolean(part?.filename))
       : false;
 
+    const threadId = msg.threadId ?? msgRes.data.threadId ?? null;
+    const gmailThread = threadId ? await fetchThread(threadId) : null;
+    const messageIndex =
+      threadId && msg.id ? calculateMessageIndex(gmailThread, msg.id) : null;
+
     const { name: fromName, email: fromEmail } = parseFromHeader(fromHeader);
     const receivedAt = new Date(dateHeader || Date.now()).toISOString();
     const labelIds = msgRes.data.labelIds || [];
     const isUnread = labelIds.includes("UNREAD");
     const isRead = !isUnread;
 
+    const inReplyTo = getHeader("In-Reply-To") || null;
+    const referencesHeader = getHeader("References") || "";
+    const references = parseReferencesHeader(referencesHeader);
+
     const { data: existingEmail, error: existingEmailError } = await supabase
       .from("emails")
-      .select("summary, labels, sentiment, triage_state, snoozed_until, is_read")
+      .select(
+        "summary, labels, sentiment, triage_state, snoozed_until, is_read, thread_id, gmail_thread_id, message_index, in_reply_to, references"
+      )
       .eq("id", msg.id)
       .eq("user_id", account.userId)
       .maybeSingle();
@@ -460,6 +510,29 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
       { now: new Date(), config: priorityConfig }
     );
 
+    let threadUpsertResult: Awaited<ReturnType<typeof upsertEmailThread>> | null = null;
+    if (threadId) {
+      try {
+        threadUpsertResult = await upsertEmailThread({
+          supabase,
+          userId: account.userId,
+          gmailThreadId: threadId,
+          gmailThread,
+          accountEmail: account.email,
+          latestMessage: {
+            subject,
+            receivedAt,
+            labels,
+            category,
+            isRead,
+            hasAttachments,
+          },
+        });
+      } catch (err) {
+        console.error(`Failed to upsert thread for message ${msg.id}`, err);
+      }
+    }
+
     const payloadToUpsert: Record<string, any> = {
       id: msg.id,
       user_id: account.userId,
@@ -477,6 +550,26 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
     };
 
     payloadToUpsert.triage_state = triageState;
+    payloadToUpsert.gmail_message_id = msg.id;
+
+    if (threadUpsertResult?.threadId || existingEmail?.thread_id) {
+      payloadToUpsert.thread_id =
+        threadUpsertResult?.threadId ?? (existingEmail?.thread_id as string | null) ?? null;
+    }
+
+    if (threadId || existingEmail?.gmail_thread_id) {
+      payloadToUpsert.gmail_thread_id = threadId ?? (existingEmail?.gmail_thread_id as string | null) ?? null;
+    }
+
+    if (messageIndex !== null) {
+      payloadToUpsert.message_index = messageIndex;
+    } else if (typeof existingEmail?.message_index === "number") {
+      payloadToUpsert.message_index = existingEmail.message_index;
+    }
+
+    payloadToUpsert.in_reply_to = inReplyTo ?? (existingEmail?.in_reply_to as string | null) ?? null;
+    const existingReferences = (existingEmail?.references as string[] | null) ?? null;
+    payloadToUpsert.references = references.length > 0 ? references : existingReferences;
 
     console.log(`[SENTIMENT DEBUG] Upserting payload for ${msg.id}:`, {
       sentiment: payloadToUpsert.sentiment,
@@ -529,6 +622,35 @@ async function processGmailAccount(options: ProcessGmailAccountOptions): Promise
       );
     } catch (err) {
       console.error("Failed to apply project assignment rules", err);
+    }
+
+    if (
+      threadUpsertResult &&
+      threadUpsertResult.messageCount >= THREAD_SUMMARY_MIN_MESSAGES &&
+      threadUpsertResult.messageCount <= THREAD_SUMMARY_INLINE_LIMIT
+    ) {
+      try {
+        const summaryResult = await summarizeThread(
+          supabase,
+          threadUpsertResult.threadId,
+          {
+            openaiApiKey: process.env.OPENAI_API_KEY,
+            minMessageCount: THREAD_SUMMARY_MIN_MESSAGES,
+          }
+        );
+
+        if (summaryResult.status === "summarized") {
+          const usage = summaryResult.tokenUsage;
+          console.log(
+            `[ThreadSummary] Updated summary for thread ${threadUpsertResult.threadId} (tokens=${usage?.totalTokens ?? "n/a"})`
+          );
+        }
+      } catch (err) {
+        console.error(
+          `Failed to summarize thread ${threadUpsertResult.threadId}`,
+          err
+        );
+      }
     }
 
     console.log(

@@ -6,7 +6,10 @@ import {
   fetchTodayDigest,
   fetchRecentEmails,
   fetchCalendarEvents,
+  fetchThreads,
+  type ThreadRecord,
 } from "../../lib/supabaseClient";
+import { featureFlags } from "../../lib/featureFlags";
 import type {
   DigestPayload,
   UserPreferenceRecord,
@@ -27,6 +30,7 @@ interface DashboardState {
   digest: DigestPayload | null;
   preferences: UserPreferenceRecord | null;
   emails: EmailRecord[];
+  threads: ThreadRecord[];
   calendarEvents: CalendarEventRecord[];
   loading: {
     digest: boolean;
@@ -44,6 +48,7 @@ const INITIAL_STATE: DashboardState = {
   digest: null,
   preferences: null,
   emails: [],
+  threads: [],
   calendarEvents: [],
   loading: {
     digest: true,
@@ -61,6 +66,7 @@ export default function HomeDashboard() {
   const { session, user } = useAuth();
   const accessToken = session?.access_token ?? null;
   const [state, setState] = useState<DashboardState>(INITIAL_STATE);
+  const threadedInboxEnabled = featureFlags.threadedInbox;
 
   const loadDashboardData = useCallback(async () => {
     if (!accessToken) {
@@ -85,7 +91,9 @@ export default function HomeDashboard() {
     try {
       const [digestRes, emailsRes, calendarRes] = await Promise.allSettled([
         fetchTodayDigest({ accessToken }),
-        fetchRecentEmails({ accessToken, perPage: 10 }),
+        threadedInboxEnabled
+          ? fetchThreads({ accessToken, perPage: 5 })
+          : fetchRecentEmails({ accessToken, perPage: 10 }),
         fetchCalendarEvents({
           accessToken,
           rangeStart: new Date().toISOString(),
@@ -98,7 +106,16 @@ export default function HomeDashboard() {
         ...prev,
         digest: digestRes.status === "fulfilled" ? digestRes.value.digest : prev.digest,
         preferences: digestRes.status === "fulfilled" ? digestRes.value.preferences : prev.preferences,
-        emails: emailsRes.status === "fulfilled" ? emailsRes.value.items : prev.emails,
+        emails:
+          !threadedInboxEnabled && emailsRes.status === "fulfilled"
+            ? emailsRes.value.items
+            : [],
+        threads:
+          threadedInboxEnabled && emailsRes.status === "fulfilled"
+            ? emailsRes.value.threads.slice(0, 5)
+            : threadedInboxEnabled
+            ? prev.threads
+            : [],
         calendarEvents: calendarRes.status === "fulfilled" ? calendarRes.value.events : prev.calendarEvents,
         loading: { digest: false, emails: false, calendar: false },
         error: {
@@ -119,13 +136,13 @@ export default function HomeDashboard() {
         },
       }));
     }
-  }, [accessToken]);
+  }, [accessToken, threadedInboxEnabled]);
 
   useEffect(() => {
     void loadDashboardData();
   }, [loadDashboardData]);
 
-  const { digest, emails, calendarEvents, loading, error } = state;
+  const { digest, emails, threads, calendarEvents, loading, error } = state;
 
   const timelineActions = useMemo(
     () => (digest?.topActions ?? []).filter((action) => action.entityType === "timeline").slice(0, 5),
@@ -149,8 +166,10 @@ export default function HomeDashboard() {
 
             <InboxSnapshotCard
               emails={emails}
+              threads={threads}
               loading={loading.emails}
               error={error.emails}
+              mode={threadedInboxEnabled ? "threads" : "emails"}
             />
 
             <ProjectsPulseCard
